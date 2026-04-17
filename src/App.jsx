@@ -56,7 +56,7 @@ function generateExplanation(data) {
   const dedRemaining = dedTotal !== null && dedMet !== null ? dedTotal - dedMet : null
 
   if (data.deductibleTotal || data.deductibleMet) {
-    const dedStr = `$${dedMet !== null ? dedMet.toFixed(2) : 'N/A'} met of $${dedTotal !== null ? dedTotal.toFixed(2) : 'N/A'}`
+    const dedStr = `$${dedMet !== null ? dedMet.toFixed(2) : '0.00'} met of $${dedTotal !== null ? dedTotal.toFixed(2) : 'N/A'}`
     const remStr = dedRemaining !== null ? ` ($${dedRemaining.toFixed(2)} remaining)` : ''
     lines.push(`Deductible: ${dedStr}${remStr}`)
     // Rule 13 — deductible remaining drives full-cost-first explanation
@@ -70,7 +70,7 @@ function generateExplanation(data) {
   const oopSatisfied = oopTotal !== null && oopMet !== null && oopMet >= oopTotal
 
   if (data.oopMaxTotal || data.oopMet) {
-    const oopStr = `$${oopMet !== null ? oopMet.toFixed(2) : 'N/A'} met of $${oopTotal !== null ? oopTotal.toFixed(2) : 'N/A'}`
+    const oopStr = `$${oopMet !== null ? oopMet.toFixed(2) : '0.00'} met of $${oopTotal !== null ? oopTotal.toFixed(2) : 'N/A'}`
     const oopRemStr =
       oopTotal !== null && oopMet !== null
         ? ` ($${(oopTotal - oopMet).toFixed(2)} remaining)`
