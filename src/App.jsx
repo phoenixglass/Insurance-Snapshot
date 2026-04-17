@@ -17,6 +17,7 @@ const INITIAL_FORM_STATE = {
   // Section 3
   deductibleApplies: '',
   coinsurancePercent: '',
+  coinsuranceNa: false,
   locRulesConfirmed: false,
 
   // Section 4
@@ -46,82 +47,107 @@ function generateExplanation(data) {
   lines.push('CLIENT INSURANCE SUMMARY')
   lines.push('═'.repeat(50))
 
-  // Network
   if (data.network) {
     lines.push(`Network: ${data.network}`)
   }
 
-  // Deductible
-  const dedTotal = data.deductibleTotal ? `$${data.deductibleTotal}` : 'N/A'
-  const dedMet = data.deductibleMet ? `$${data.deductibleMet}` : 'N/A'
+  const dedTotal = data.deductibleTotal ? parseFloat(data.deductibleTotal) : null
+  const dedMet = data.deductibleMet ? parseFloat(data.deductibleMet) : null
+  const dedRemaining = dedTotal !== null && dedMet !== null ? dedTotal - dedMet : null
+
   if (data.deductibleTotal || data.deductibleMet) {
-    const dedRemaining =
-      data.deductibleTotal && data.deductibleMet
-        ? ` ($${(parseFloat(data.deductibleTotal) - parseFloat(data.deductibleMet)).toFixed(2)} remaining)`
-        : ''
-    lines.push(`Deductible: ${dedMet} met of ${dedTotal}${dedRemaining}`)
+    const dedStr = `$${dedMet !== null ? dedMet.toFixed(2) : 'N/A'} met of $${dedTotal !== null ? dedTotal.toFixed(2) : 'N/A'}`
+    const remStr = dedRemaining !== null ? ` ($${dedRemaining.toFixed(2)} remaining)` : ''
+    lines.push(`Deductible: ${dedStr}${remStr}`)
+    // Rule 13 — deductible remaining drives full-cost-first explanation
+    if (dedRemaining !== null && dedRemaining > 0) {
+      lines.push('  → Full cost responsibility applies until deductible is met.')
+    }
   }
 
-  // OOP Max
-  const oopTotal = data.oopMaxTotal ? `$${data.oopMaxTotal}` : 'N/A'
-  const oopMet = data.oopMet ? `$${data.oopMet}` : 'N/A'
+  const oopTotal = data.oopMaxTotal ? parseFloat(data.oopMaxTotal) : null
+  const oopMet = data.oopMet ? parseFloat(data.oopMet) : null
+  const oopSatisfied = oopTotal !== null && oopMet !== null && oopMet >= oopTotal
+
   if (data.oopMaxTotal || data.oopMet) {
-    const oopRemaining =
-      data.oopMaxTotal && data.oopMet
-        ? ` ($${(parseFloat(data.oopMaxTotal) - parseFloat(data.oopMet)).toFixed(2)} remaining)`
+    const oopStr = `$${oopMet !== null ? oopMet.toFixed(2) : 'N/A'} met of $${oopTotal !== null ? oopTotal.toFixed(2) : 'N/A'}`
+    const oopRemStr =
+      oopTotal !== null && oopMet !== null
+        ? ` ($${(oopTotal - oopMet).toFixed(2)} remaining)`
         : ''
-    lines.push(`Out-of-Pocket Max: ${oopMet} met of ${oopTotal}${oopRemaining}`)
+    lines.push(`Out-of-Pocket Max: ${oopStr}${oopRemStr}`)
+    // Rule 12 — OOP MAX MET flag
+    if (oopSatisfied) {
+      lines.push('  ✓ OOP MAX MET — Coinsurance does not apply.')
+    }
   }
 
   if (data.deductibleOopStructure) {
     lines.push(`Deductible/OOP Structure: ${data.deductibleOopStructure}`)
+    // Rule 14 — structure drives calculation behavior
+    if (data.deductibleOopStructure === 'Combined') {
+      lines.push('  → Deductible payments count toward Out-of-Pocket Maximum.')
+    } else if (data.deductibleOopStructure === 'Separate') {
+      lines.push('  → Deductible and Out-of-Pocket Maximum tracked independently.')
+    }
   }
 
   lines.push('')
 
-  // LOC
   if (data.verifiedLoc) {
     lines.push(`Verified Level of Care: ${data.verifiedLoc}`)
   }
-  if (data.currentLoc && data.currentLoc !== data.verifiedLoc) {
+  if (data.currentLoc && data.currentLoc !== 'None' && data.currentLoc !== data.verifiedLoc) {
     lines.push(`Current Level of Care: ${data.currentLoc}`)
     lines.push('⚠ Rules applied are for Verified LOC only.')
   }
 
   lines.push('')
 
-  // LOC Rules
   if (data.deductibleApplies) {
     lines.push(
       `Deductible Applies for ${data.verifiedLoc || 'Verified LOC'}: ${data.deductibleApplies}`
     )
   }
-  if (data.coinsurancePercent) {
+
+  // Rule 12 — skip coinsurance in explanation when OOP is satisfied
+  if (oopSatisfied) {
+    lines.push('Coinsurance: Not applicable (OOP Max met)')
+  } else if (data.coinsuranceNa) {
+    lines.push('Coinsurance: N/A')
+  } else if (data.coinsurancePercent !== '') {
     lines.push(`Coinsurance Rate: ${data.coinsurancePercent}%`)
   }
 
   lines.push('')
 
-  // Financial State
-  if (data.hasPriorLoc === 'Yes') {
+  // Rule 1 — currentLoc = None means Prior LOC is N/A
+  if (data.currentLoc === 'None') {
+    lines.push('Prior LOC: N/A')
+  } else if (data.hasPriorLoc === 'Yes') {
     lines.push('Prior LOC: Yes')
     if (data.priorFinancialsReviewed) {
       lines.push('  Prior financials have been reviewed.')
     }
+  } else if (data.hasPriorLoc === 'No') {
+    lines.push('Prior LOC: No')
   }
 
   if (data.hasCurrentBalance === 'Yes') {
-    const balAmt = data.balanceAmount ? `$${data.balanceAmount}` : 'amount not specified'
+    const balAmt = data.balanceAmount
+      ? `$${parseFloat(data.balanceAmount).toFixed(2)}`
+      : 'amount not specified'
     const balType = data.balanceType ? ` (${data.balanceType})` : ''
     lines.push(`Current Balance: ${balAmt}${balType}`)
   }
 
   lines.push('')
 
-  // Financial Assistance
   if (data.hasScholarship === 'Yes') {
-    const schAmt = data.scholarshipAmount ? `$${data.scholarshipAmount}` : 'amount not specified'
-    lines.push(`Scholarship/Hardship Assistance: ${schAmt}`)
+    const schAmt = data.scholarshipAmount
+      ? `$${parseFloat(data.scholarshipAmount).toFixed(2)}`
+      : 'amount not specified'
+    lines.push(`Financial Assistance: ${schAmt}`)
     if (data.scholarshipAppliesTo.length > 0) {
       lines.push(`  Applies to: ${data.scholarshipAppliesTo.join(', ')}`)
     }
@@ -182,6 +208,15 @@ export default function App() {
   const set = (field) => (value) => setForm((prev) => ({ ...prev, [field]: value }))
   const setCheck = (field) => (e) => setForm((prev) => ({ ...prev, [field]: e.target.checked }))
 
+  // Rule 1 — "None" cleans the slate: auto-set hasPriorLoc = No
+  const handleCurrentLocChange = (value) => {
+    setForm((prev) => ({
+      ...prev,
+      currentLoc: value,
+      ...(value === 'None' && { hasPriorLoc: 'No', priorFinancialsReviewed: false }),
+    }))
+  }
+
   const toggleAppliesTo = (item) => {
     setForm((prev) => {
       const current = prev.scholarshipAppliesTo
@@ -194,8 +229,99 @@ export default function App() {
     })
   }
 
+  // ── Derived state ──────────────────────────────────────
+  const isCurrentLocNone = form.currentLoc === 'None'
+
+  // Rule 2 — cross-LOC: current ≠ verified, and current is not None
+  const isCrossLoc =
+    !isCurrentLocNone &&
+    Boolean(form.currentLoc) &&
+    Boolean(form.verifiedLoc) &&
+    form.currentLoc !== form.verifiedLoc
+
+  // Rule 12 — OOP satisfied flag
+  const oopTotal = form.oopMaxTotal ? parseFloat(form.oopMaxTotal) : null
+  const oopMet = form.oopMet ? parseFloat(form.oopMet) : null
+  const oopSatisfied = oopTotal !== null && oopMet !== null && oopMet >= oopTotal
+
+  // Rule 4 — 0% coinsurance prompt (warning only, not a blocker)
+  const showZeroCopayWarning =
+    Boolean(form.verifiedLoc) &&
+    !form.coinsuranceNa &&
+    (form.coinsurancePercent === '0' || form.coinsurancePercent === '')
+
+  // Rule 9 — assistance applies to OOP but not confirmed
+  const showOopAssistanceWarning =
+    form.hasScholarship === 'Yes' &&
+    form.scholarshipAppliesTo.includes('OOP') &&
+    !form.countsTowardOopConfirmed
+
+  // ── Submit blockers (Final Check Gate) ────────────────
+  const submitBlockers = []
+
+  // Rule 10 — Network = Unknown
+  if (form.network === 'Unknown') {
+    submitBlockers.push('Network must be verified before creating a financial agreement')
+  }
+
+  // Verified LOC required
+  if (!form.verifiedLoc) {
+    submitBlockers.push('Verified LOC must be selected')
+  }
+
+  // Rule 2 — cross-LOC requires prior financials reviewed
+  if (isCrossLoc && !form.priorFinancialsReviewed) {
+    submitBlockers.push('Cross-LOC scenario: prior financials must be reviewed and checked')
+  }
+
+  // Rule 3 — LOC rule confirmation (when verifiedLoc is selected)
+  if (form.verifiedLoc) {
+    if (!form.deductibleApplies) {
+      submitBlockers.push('Deductible Applies must be selected for Verified LOC')
+    }
+    // Coinsurance required unless deductibleApplies = No (100% plan) or explicitly N/A
+    if (!form.coinsuranceNa && form.coinsurancePercent === '' && form.deductibleApplies !== 'No') {
+      submitBlockers.push('Coinsurance % must be entered or marked N/A')
+    }
+    if (!form.locRulesConfirmed) {
+      submitBlockers.push('LOC rules must be confirmed from insurance')
+    }
+  }
+
+  // Deductible / OOP required
+  if (!form.deductibleTotal) {
+    submitBlockers.push('Deductible Total is required')
+  }
+  if (!form.oopMaxTotal) {
+    submitBlockers.push('OOP Max Total is required')
+  }
+
+  // Rule 6 — balance completeness
+  if (form.hasCurrentBalance === 'Yes') {
+    if (!form.balanceAmount) {
+      submitBlockers.push('Balance Amount is required')
+    }
+    if (!form.balanceType) {
+      submitBlockers.push('Balance Type is required')
+    }
+  }
+
+  // Rules 8 & 9 — assistance completeness
+  if (form.hasScholarship === 'Yes') {
+    if (!form.scholarshipAmount) {
+      submitBlockers.push('Assistance Amount is required')
+    }
+    if (form.scholarshipAppliesTo.length === 0) {
+      submitBlockers.push('Assistance "Applies To" must be selected')
+    }
+    if (!form.countsTowardOopConfirmed) {
+      submitBlockers.push('Counts toward OOP must be confirmed for financial assistance')
+    }
+  }
+
   const handleSubmit = (e) => {
     e.preventDefault()
+    if (submitBlockers.length > 0) return
     const text = generateExplanation(form)
     setExplanation(text)
     setSubmitted(true)
@@ -207,9 +333,6 @@ export default function App() {
     setSubmitted(false)
     setExplanation('')
   }
-
-  const locsDifferent =
-    form.currentLoc && form.verifiedLoc && form.currentLoc !== form.verifiedLoc
 
   return (
     <div className="app">
@@ -227,7 +350,7 @@ export default function App() {
         </div>
       ) : (
         <form className="snapshot-form" onSubmit={handleSubmit}>
-          {/* SECTION 1 */}
+          {/* SECTION 1 — Plan Basics */}
           <section className="form-section">
             <h2 className="section-title">Section 1 — Plan Basics</h2>
 
@@ -239,12 +362,24 @@ export default function App() {
                 value={form.network}
                 onChange={set('network')}
               />
+              {/* Rule 10 — Unknown blocks submit */}
+              {form.network === 'Unknown' && (
+                <div className="alert-banner">
+                  ⚠ Network must be verified before creating a financial agreement
+                </div>
+              )}
+              {/* Rule 11 — Both requires downstream selection */}
+              {form.network === 'Both' && (
+                <div className="info-banner">
+                  ℹ Ensure correct network (INN vs OON) is selected in downstream workflow
+                </div>
+              )}
             </div>
 
             <div className="field-row">
               <div className="field-group">
                 <label className="field-label" htmlFor="deductibleTotal">
-                  Deductible Total
+                  Deductible Total <span className="required-star">*</span>
                 </label>
                 <CurrencyInput
                   id="deductibleTotal"
@@ -267,7 +402,7 @@ export default function App() {
             <div className="field-row">
               <div className="field-group">
                 <label className="field-label" htmlFor="oopMaxTotal">
-                  OOP Max Total
+                  OOP Max Total <span className="required-star">*</span>
                 </label>
                 <CurrencyInput
                   id="oopMaxTotal"
@@ -283,6 +418,13 @@ export default function App() {
               </div>
             </div>
 
+            {/* Rule 12 — OOP MAX MET system flag */}
+            {oopSatisfied && (
+              <div className="success-banner">
+                ✓ OOP MAX MET — Coinsurance will not be applied in the generated explanation
+              </div>
+            )}
+
             <div className="field-group">
               <label className="field-label">Deductible / OOP Structure</label>
               <RadioGroup
@@ -291,10 +433,21 @@ export default function App() {
                 value={form.deductibleOopStructure}
                 onChange={set('deductibleOopStructure')}
               />
+              {/* Rule 14 — Combined vs Separate informs calculation */}
+              {form.deductibleOopStructure === 'Combined' && (
+                <div className="info-banner">
+                  ℹ Combined: deductible payments count toward Out-of-Pocket Maximum
+                </div>
+              )}
+              {form.deductibleOopStructure === 'Separate' && (
+                <div className="info-banner">
+                  ℹ Separate: deductible and OOP Maximum tracked independently
+                </div>
+              )}
             </div>
           </section>
 
-          {/* SECTION 2 */}
+          {/* SECTION 2 — Level of Care */}
           <section className="form-section">
             <h2 className="section-title">Section 2 — Level of Care</h2>
 
@@ -304,8 +457,14 @@ export default function App() {
                 name="currentLoc"
                 options={['None', 'Detox', 'Resi', 'PHP', 'IOP', 'OP']}
                 value={form.currentLoc}
-                onChange={set('currentLoc')}
+                onChange={handleCurrentLocChange}
               />
+              {/* Rule 1 — None clears prior LOC history */}
+              {isCurrentLocNone && (
+                <div className="info-banner">
+                  ℹ No current LOC — Prior LOC automatically set to No
+                </div>
+              )}
             </div>
 
             <div className="field-group">
@@ -318,16 +477,23 @@ export default function App() {
               />
             </div>
 
-            {locsDifferent && (
-              <div className="warning-banner">
-                ⚠ If different, system will apply rules for <strong>VERIFIED LOC</strong> only
+            {/* Rule 2 — Cross-LOC transfer detection */}
+            {isCrossLoc && (
+              <div className="alert-banner">
+                ⚠ Cross-LOC scenario — prior financials must be reviewed before submitting
               </div>
             )}
           </section>
 
-          {/* SECTION 3 */}
+          {/* SECTION 3 — LOC Rules */}
           <section className="form-section">
             <h2 className="section-title">Section 3 — LOC Rule (For Verified LOC)</h2>
+
+            {!form.verifiedLoc && (
+              <div className="info-banner">
+                ℹ Select a Verified LOC in Section 2 to activate these rules
+              </div>
+            )}
 
             <div className="field-group">
               <label className="field-label">Does Deductible Apply?</label>
@@ -343,20 +509,43 @@ export default function App() {
               <label className="field-label" htmlFor="coinsurancePercent">
                 Coinsurance % (for this LOC)
               </label>
-              <div className="percent-input-wrapper">
-                <input
-                  id="coinsurancePercent"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="1"
-                  className="percent-input"
-                  value={form.coinsurancePercent}
-                  onChange={(e) => set('coinsurancePercent')(e.target.value)}
-                  placeholder="0"
-                />
-                <span className="percent-symbol">%</span>
+              <div className="coinsurance-row">
+                <div className="percent-input-wrapper">
+                  <input
+                    id="coinsurancePercent"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    className="percent-input"
+                    value={form.coinsurancePercent}
+                    onChange={(e) => set('coinsurancePercent')(e.target.value)}
+                    placeholder="0"
+                    disabled={form.coinsuranceNa}
+                  />
+                  <span className="percent-symbol">%</span>
+                </div>
+                <label className="checkbox-label na-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={form.coinsuranceNa}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        coinsuranceNa: e.target.checked,
+                        ...(e.target.checked && { coinsurancePercent: '' }),
+                      }))
+                    }
+                  />
+                  N/A
+                </label>
               </div>
+              {/* Rule 4 — 0% or blank coinsurance prompt */}
+              {showZeroCopayWarning && (
+                <div className="confirm-prompt">
+                  ⚠ Confirm patient responsibility is 0% — some plans are 100% covered
+                </div>
+              )}
             </div>
 
             <label className="checkbox-label">
@@ -369,30 +558,48 @@ export default function App() {
             </label>
           </section>
 
-          {/* SECTION 4 */}
+          {/* SECTION 4 — Current Financial State */}
           <section className="form-section">
             <h2 className="section-title">Section 4 — Current Financial State</h2>
 
-            <div className="field-group">
-              <label className="field-label">Has Prior LOC?</label>
-              <RadioGroup
-                name="hasPriorLoc"
-                options={['Yes', 'No']}
-                value={form.hasPriorLoc}
-                onChange={set('hasPriorLoc')}
-              />
-            </div>
-
-            {form.hasPriorLoc === 'Yes' && (
-              <div className="conditional-block">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={form.priorFinancialsReviewed}
-                    onChange={setCheck('priorFinancialsReviewed')}
+            {/* Rule 1 — Hide Prior LOC fields when currentLoc = None */}
+            {!isCurrentLocNone ? (
+              <>
+                <div className="field-group">
+                  <label className="field-label">Has Prior LOC?</label>
+                  <RadioGroup
+                    name="hasPriorLoc"
+                    options={['Yes', 'No']}
+                    value={form.hasPriorLoc}
+                    onChange={set('hasPriorLoc')}
                   />
-                  Prior financials reviewed
-                </label>
+                </div>
+
+                {/* Show prior financials checkbox when hasPriorLoc=Yes OR cross-LOC requires it */}
+                {(form.hasPriorLoc === 'Yes' || isCrossLoc) && (
+                  <div className="conditional-block">
+                    {/* Rule 2 — inline reminder when cross-LOC and hasPriorLoc not yet Yes */}
+                    {isCrossLoc && form.hasPriorLoc !== 'Yes' && (
+                      <div className="alert-banner">
+                        ⚠ Cross-LOC detected — prior financials review is required
+                      </div>
+                    )}
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={form.priorFinancialsReviewed}
+                        onChange={setCheck('priorFinancialsReviewed')}
+                      />
+                      Prior financials reviewed
+                      {isCrossLoc && <span className="required-star"> *</span>}
+                    </label>
+                  </div>
+                )}
+              </>
+            ) : (
+              /* Rule 1 — None: show N/A note in place of Prior LOC fields */
+              <div className="info-banner" style={{ marginBottom: '18px' }}>
+                ℹ Prior LOC: N/A — no current level of care
               </div>
             )}
 
@@ -406,11 +613,12 @@ export default function App() {
               />
             </div>
 
+            {/* Rules 5 & 6 — hide details when No, require when Yes */}
             {form.hasCurrentBalance === 'Yes' && (
               <div className="conditional-block">
                 <div className="field-group">
                   <label className="field-label" htmlFor="balanceAmount">
-                    Balance Amount
+                    Balance Amount <span className="required-star">*</span>
                   </label>
                   <CurrencyInput
                     id="balanceAmount"
@@ -420,7 +628,9 @@ export default function App() {
                 </div>
 
                 <div className="field-group">
-                  <label className="field-label">Balance Type</label>
+                  <label className="field-label">
+                    Balance Type <span className="required-star">*</span>
+                  </label>
                   <RadioGroup
                     name="balanceType"
                     options={['Deductible', 'Coinsurance', 'Copay', 'Prior LOC', 'NSF', 'Other']}
@@ -432,7 +642,7 @@ export default function App() {
             )}
           </section>
 
-          {/* SECTION 5 */}
+          {/* SECTION 5 — Financial Assistance */}
           <section className="form-section">
             <h2 className="section-title">Section 5 — Financial Assistance</h2>
 
@@ -446,11 +656,12 @@ export default function App() {
               />
             </div>
 
+            {/* Rules 7 & 8 — hide when No, require all fields when Yes */}
             {form.hasScholarship === 'Yes' && (
               <div className="conditional-block">
                 <div className="field-group">
                   <label className="field-label" htmlFor="scholarshipAmount">
-                    Amount
+                    Amount <span className="required-star">*</span>
                   </label>
                   <CurrencyInput
                     id="scholarshipAmount"
@@ -460,7 +671,9 @@ export default function App() {
                 </div>
 
                 <div className="field-group">
-                  <label className="field-label">Applies To</label>
+                  <label className="field-label">
+                    Applies To <span className="required-star">*</span>
+                  </label>
                   <div className="checkbox-group">
                     {['Deductible', 'OOP', 'Balance', 'Unsure'].map((item) => (
                       <label key={item} className="checkbox-label">
@@ -475,19 +688,26 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Rule 9 — OOP + unconfirmed is high-risk */}
+                {showOopAssistanceWarning && (
+                  <div className="alert-banner">
+                    ⚠ Financial assistance may affect OOP calculations — confirm before proceeding
+                  </div>
+                )}
+
                 <label className="checkbox-label">
                   <input
                     type="checkbox"
                     checked={form.countsTowardOopConfirmed}
                     onChange={setCheck('countsTowardOopConfirmed')}
                   />
-                  Counts toward OOP confirmed
+                  Counts toward OOP confirmed <span className="required-star">*</span>
                 </label>
               </div>
             )}
           </section>
 
-          {/* SECTION 6 */}
+          {/* SECTION 6 — Final Check */}
           <section className="form-section">
             <h2 className="section-title">Section 6 — Final Check</h2>
 
@@ -513,7 +733,21 @@ export default function App() {
 
           {/* SUBMIT */}
           <div className="submit-row">
-            <button type="submit" className="btn-submit">
+            {submitBlockers.length > 0 && (
+              <div className="submit-blockers">
+                <div className="submit-blockers-title">Cannot submit — resolve the following:</div>
+                <ul>
+                  {submitBlockers.map((msg, i) => (
+                    <li key={i}>{msg}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <button
+              type="submit"
+              className="btn-submit"
+              disabled={submitBlockers.length > 0}
+            >
               SUBMIT → SYSTEM GENERATES CLIENT EXPLANATION
             </button>
           </div>
