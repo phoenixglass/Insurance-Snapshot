@@ -1,0 +1,361 @@
+/* ── Reset & Base ───────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: #f0f2f5;
+  color: #1a202c;
+  line-height: 1.6;
+}
+
+/* ── App Shell ──────────────────────────────────────── */
+.app {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 16px 48px;
+}
+
+.app-header {
+  background: #1a3a5c;
+  color: #fff;
+  text-align: center;
+  padding: 20px 24px;
+  margin-bottom: 28px;
+  border-radius: 0 0 8px 8px;
+  letter-spacing: 0.08em;
+}
+
+.app-header h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+/* ── Form Sections ──────────────────────────────────── */
+.snapshot-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.form-section {
+  background: #ffffff;
+  border: 1px solid #d1d9e0;
+  border-radius: 8px;
+  padding: 24px 24px 20px;
+}
+
+.section-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #1a3a5c;
+  border-bottom: 2px solid #1a3a5c;
+  padding-bottom: 8px;
+  margin-bottom: 20px;
+}
+
+/* ── Field Groups ───────────────────────────────────── */
+.field-group {
+  margin-bottom: 18px;
+}
+
+.field-group:last-child {
+  margin-bottom: 0;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+@media (max-width: 500px) {
+  .field-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.field-label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #4a5568;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ── Radio Groups ───────────────────────────────────── */
+.radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  color: #2d3748;
+}
+
+.radio-label input[type='radio'] {
+  width: 16px;
+  height: 16px;
+  accent-color: #1a3a5c;
+  cursor: pointer;
+}
+
+/* ── Currency Input ─────────────────────────────────── */
+.currency-input-wrapper {
+  display: flex;
+  align-items: center;
+  border: 1px solid #cbd5e0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+  transition: border-color 0.2s;
+}
+
+.currency-input-wrapper:focus-within {
+  border-color: #1a3a5c;
+  box-shadow: 0 0 0 3px rgba(26, 58, 92, 0.12);
+}
+
+.currency-symbol {
+  padding: 0 10px;
+  background: #edf2f7;
+  color: #718096;
+  font-weight: 600;
+  font-size: 0.95rem;
+  border-right: 1px solid #cbd5e0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  line-height: 2.4rem;
+}
+
+.currency-input {
+  border: none;
+  outline: none;
+  padding: 8px 12px;
+  font-size: 0.95rem;
+  width: 100%;
+  color: #1a202c;
+  background: transparent;
+}
+
+.currency-input::-webkit-inner-spin-button,
+.currency-input::-webkit-outer-spin-button {
+  opacity: 0.5;
+}
+
+/* ── Percent Input ──────────────────────────────────── */
+.percent-input-wrapper {
+  display: flex;
+  align-items: center;
+  border: 1px solid #cbd5e0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+  width: 140px;
+  transition: border-color 0.2s;
+}
+
+.percent-input-wrapper:focus-within {
+  border-color: #1a3a5c;
+  box-shadow: 0 0 0 3px rgba(26, 58, 92, 0.12);
+}
+
+.percent-input {
+  border: none;
+  outline: none;
+  padding: 8px 12px;
+  font-size: 0.95rem;
+  width: 100%;
+  color: #1a202c;
+  background: transparent;
+}
+
+.percent-input::-webkit-inner-spin-button,
+.percent-input::-webkit-outer-spin-button {
+  opacity: 0.5;
+}
+
+.percent-symbol {
+  padding: 0 10px;
+  background: #edf2f7;
+  color: #718096;
+  font-weight: 600;
+  font-size: 0.95rem;
+  border-left: 1px solid #cbd5e0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  line-height: 2.4rem;
+}
+
+/* ── Checkbox ───────────────────────────────────────── */
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  color: #2d3748;
+  padding: 2px 0;
+}
+
+.checkbox-label input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: #1a3a5c;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-top: 4px;
+}
+
+/* ── Checklist (Section 6) ──────────────────────────── */
+.checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.checklist-item {
+  padding: 10px 14px;
+  background: #f7fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  transition: background 0.15s;
+}
+
+.checklist-item:has(input:checked) {
+  background: #ebf8f0;
+  border-color: #68d391;
+}
+
+/* ── Conditional Block ──────────────────────────────── */
+.conditional-block {
+  margin-left: 20px;
+  padding: 14px 16px;
+  border-left: 3px solid #4a90d9;
+  background: #f0f7ff;
+  border-radius: 0 6px 6px 0;
+  margin-bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.conditional-block .field-group {
+  margin-bottom: 0;
+}
+
+/* ── Warning Banner ─────────────────────────────────── */
+.warning-banner {
+  background: #fffbeb;
+  border: 1px solid #f6c90e;
+  border-left: 4px solid #d69e2e;
+  color: #744210;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  margin-top: 4px;
+}
+
+/* ── Submit Row ─────────────────────────────────────── */
+.submit-row {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.btn-submit {
+  background: #1a3a5c;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 14px 32px;
+  font-size: 1rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+  width: 100%;
+  max-width: 520px;
+}
+
+.btn-submit:hover {
+  background: #243f62;
+}
+
+.btn-submit:active {
+  transform: scale(0.98);
+}
+
+/* ── Explanation Card ───────────────────────────────── */
+.explanation-card {
+  background: #fff;
+  border: 1px solid #d1d9e0;
+  border-radius: 8px;
+  padding: 32px 28px;
+}
+
+.explanation-card h2 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #1a3a5c;
+  margin-bottom: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.explanation-text {
+  font-family: 'Courier New', monospace;
+  font-size: 0.875rem;
+  background: #f7fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 20px;
+  white-space: pre-wrap;
+  line-height: 1.7;
+  color: #2d3748;
+  margin-bottom: 24px;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: #1a3a5c;
+  border: 2px solid #1a3a5c;
+  border-radius: 6px;
+  padding: 10px 24px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.btn-secondary:hover {
+  background: #1a3a5c;
+  color: #fff;
+}
