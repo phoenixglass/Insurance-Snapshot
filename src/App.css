@@ -282,10 +282,125 @@ body {
   margin-top: 4px;
 }
 
+/* ── Alert Banner (blocking / urgent) ──────────────── */
+.alert-banner {
+  background: #fff5f5;
+  border: 1px solid #fc8181;
+  border-left: 4px solid #e53e3e;
+  color: #742a2a;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  margin-top: 10px;
+}
+
+.conditional-block .alert-banner {
+  margin-top: 0;
+}
+
+/* ── Info Banner ────────────────────────────────────── */
+.info-banner {
+  background: #ebf8ff;
+  border: 1px solid #90cdf4;
+  border-left: 4px solid #3182ce;
+  color: #2c5282;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  margin-top: 10px;
+}
+
+/* ── Success Banner ─────────────────────────────────── */
+.success-banner {
+  background: #f0fff4;
+  border: 1px solid #68d391;
+  border-left: 4px solid #38a169;
+  color: #276749;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  margin-bottom: 18px;
+}
+
+/* ── Confirm Prompt (Rule 4 — 0% coinsurance) ───────── */
+.confirm-prompt {
+  background: #fffbeb;
+  border: 1px solid #f6c90e;
+  border-left: 4px solid #d69e2e;
+  color: #744210;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  margin-top: 8px;
+}
+
+/* ── Required Star ──────────────────────────────────── */
+.required-star {
+  color: #e53e3e;
+  margin-left: 2px;
+}
+
+/* ── Coinsurance Row (input + N/A checkbox) ─────────── */
+.coinsurance-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.na-checkbox {
+  font-weight: 600;
+  color: #4a5568;
+  white-space: nowrap;
+}
+
+/* ── Submit Blockers ────────────────────────────────── */
+.submit-blockers {
+  background: #fff5f5;
+  border: 1px solid #fc8181;
+  border-radius: 8px;
+  padding: 14px 18px;
+  width: 100%;
+  max-width: 520px;
+}
+
+.submit-blockers-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #742a2a;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+
+.submit-blockers ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.submit-blockers li {
+  font-size: 0.85rem;
+  color: #742a2a;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.submit-blockers li::before {
+  content: '✗';
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
 /* ── Submit Row ─────────────────────────────────────── */
 .submit-row {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
   padding: 8px 0;
 }
 
@@ -311,6 +426,16 @@ body {
 
 .btn-submit:active {
   transform: scale(0.98);
+}
+
+.btn-submit:disabled {
+  background: #a0aec0;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-submit:disabled:hover {
+  background: #a0aec0;
 }
 
 /* ── Explanation Card ───────────────────────────────── */
