@@ -18,6 +18,8 @@ const INITIAL_FORM_STATE = {
   deductibleApplies: '',
   coinsurancePercent: '',
   coinsuranceNa: false,
+  copayApplies: '',
+  copayAmount: '',
   locRulesConfirmed: false,
 
   // Section 4
@@ -117,6 +119,14 @@ function generateExplanation(data) {
     lines.push('Coinsurance: N/A')
   } else if (data.coinsurancePercent !== '') {
     lines.push(`Coinsurance Rate: ${data.coinsurancePercent}%`)
+  }
+
+  if (data.network === 'INN' && data.copayApplies === 'Yes' && data.copayAmount) {
+    lines.push(`Copay: $${parseFloat(data.copayAmount).toFixed(2)}`)
+  } else if (data.network === 'INN' && data.copayApplies === 'Yes') {
+    lines.push('Copay: Yes (amount not specified)')
+  } else if (data.network === 'INN' && data.copayApplies === 'No') {
+    lines.push('Copay: No')
   }
 
   lines.push('')
@@ -259,11 +269,6 @@ export default function App() {
   // ── Submit blockers (Final Check Gate) ────────────────
   const submitBlockers = []
 
-  // Rule 10 — Network = Unknown
-  if (form.network === 'Unknown') {
-    submitBlockers.push('Network must be verified before creating a financial agreement')
-  }
-
   // Verified LOC required
   if (!form.verifiedLoc) {
     submitBlockers.push('Verified LOC must be selected')
@@ -358,22 +363,10 @@ export default function App() {
               <label className="field-label">Network</label>
               <RadioGroup
                 name="network"
-                options={['INN', 'OON', 'Both', 'Unknown']}
+                options={['INN', 'OON']}
                 value={form.network}
                 onChange={set('network')}
               />
-              {/* Rule 10 — Unknown blocks submit */}
-              {form.network === 'Unknown' && (
-                <div className="alert-banner">
-                  ⚠ Network must be verified before creating a financial agreement
-                </div>
-              )}
-              {/* Rule 11 — Both requires downstream selection */}
-              {form.network === 'Both' && (
-                <div className="info-banner">
-                  ℹ Ensure correct network (INN vs OON) is selected in downstream workflow
-                </div>
-              )}
             </div>
 
             <div className="field-row">
@@ -547,6 +540,30 @@ export default function App() {
                 </div>
               )}
             </div>
+
+            {form.network === 'INN' && (
+              <div className="field-group">
+                <label className="field-label">Copay Applies?</label>
+                <RadioGroup
+                  name="copayApplies"
+                  options={['Yes', 'No']}
+                  value={form.copayApplies}
+                  onChange={set('copayApplies')}
+                />
+                {form.copayApplies === 'Yes' && (
+                  <div className="conditional-block">
+                    <label className="field-label" htmlFor="copayAmount">
+                      Copay Amount
+                    </label>
+                    <CurrencyInput
+                      id="copayAmount"
+                      value={form.copayAmount}
+                      onChange={set('copayAmount')}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
 
             <label className="checkbox-label">
               <input
