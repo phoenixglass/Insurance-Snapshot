@@ -468,6 +468,12 @@ body {
   margin-bottom: 24px;
 }
 
+.explanation-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .btn-secondary {
   background: transparent;
   color: #1a3a5c;
