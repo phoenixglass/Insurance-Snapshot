@@ -110,6 +110,9 @@ function generateExplanation(data) {
     lines.push(
       `Deductible Applies for ${data.verifiedLoc || 'Verified LOC'}: ${data.deductibleApplies}`
     )
+    if (data.deductibleApplies === 'Yes' && data.network === 'INN' && data.copayApplies === 'Yes') {
+      lines.push('  → After the deductible is met, a copay applies (not coinsurance).')
+    }
   }
 
   // Rule 12 — skip coinsurance in explanation when OOP is satisfied
@@ -560,6 +563,11 @@ export default function App() {
                       value={form.copayAmount}
                       onChange={set('copayAmount')}
                     />
+                  </div>
+                )}
+                {form.copayApplies === 'Yes' && form.deductibleApplies === 'Yes' && (
+                  <div className="info-banner">
+                    ℹ Deductible applies first — once met, a copay applies instead of coinsurance.
                   </div>
                 )}
               </div>
