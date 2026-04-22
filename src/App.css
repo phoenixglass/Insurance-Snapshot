@@ -161,6 +161,24 @@ body {
   opacity: 0.5;
 }
 
+/* ── Date Input ─────────────────────────────────────── */
+.date-input {
+  border: 1px solid #cbd5e0;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.95rem;
+  color: #1a202c;
+  background: #fff;
+  transition: border-color 0.2s;
+  width: 200px;
+}
+
+.date-input:focus {
+  outline: none;
+  border-color: #1a3a5c;
+  box-shadow: 0 0 0 3px rgba(26, 58, 92, 0.12);
+}
+
 /* ── Percent Input ──────────────────────────────────── */
 .percent-input-wrapper {
   display: flex;

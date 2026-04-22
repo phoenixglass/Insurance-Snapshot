@@ -24,6 +24,7 @@ const INITIAL_FORM_STATE = {
 
   // Section 4
   hasPriorLoc: '',
+  insuranceDate: '',
   priorFinancialsReviewed: false,
   hasCurrentBalance: '',
   balanceAmount: '',
@@ -153,9 +154,17 @@ function generateExplanation(data) {
     if (data.priorFinancialsReviewed) lines.push('  Prior financials have been reviewed.')
   } else if (data.hasPriorLoc === 'New Insurance') {
     lines.push('Active Client — New Insurance')
+    if (data.insuranceDate) {
+      const formatted = new Date(data.insuranceDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      lines.push(`  Effective Date: ${formatted}`)
+    }
     if (data.priorFinancialsReviewed) lines.push('  Prior financials have been reviewed.')
   } else if (data.hasPriorLoc === 'Insurance Renewed') {
     lines.push('Active Client — Insurance Renewed')
+    if (data.insuranceDate) {
+      const formatted = new Date(data.insuranceDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      lines.push(`  Renewal Date: ${formatted}`)
+    }
     if (data.priorFinancialsReviewed) lines.push('  Prior financials have been reviewed.')
   }
 
@@ -622,6 +631,24 @@ export default function App() {
                     onChange={set('hasPriorLoc')}
                   />
                 </div>
+
+                {/* Date picker for new or renewed insurance */}
+                {['New Insurance', 'Insurance Renewed'].includes(form.hasPriorLoc) && (
+                  <div className="conditional-block">
+                    <div className="field-group">
+                      <label className="field-label" htmlFor="insuranceDate">
+                        Effective Date <span className="required-star">*</span>
+                      </label>
+                      <input
+                        id="insuranceDate"
+                        type="date"
+                        className="date-input"
+                        value={form.insuranceDate}
+                        onChange={(e) => set('insuranceDate')(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                )}
 
                 {/* Show prior financials checkbox when hasPriorLoc=Yes/recheck reason OR cross-LOC requires it */}
                 {(['Yes', 'VOB Recheck', 'New Insurance', 'Insurance Renewed'].includes(form.hasPriorLoc) || isCrossLoc) && (
