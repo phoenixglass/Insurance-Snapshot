@@ -43,6 +43,10 @@ const INITIAL_FORM_STATE = {
   balanceReviewed: false,
 }
 
+function formatCurrency(value) {
+  return parseFloat(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 function generateExplanation(data) {
   const lines = []
 
@@ -58,8 +62,8 @@ function generateExplanation(data) {
   const dedRemaining = dedTotal !== null && dedMet !== null ? dedTotal - dedMet : null
 
   if (data.deductibleTotal || data.deductibleMet) {
-    const dedStr = `$${dedMet !== null ? dedMet.toFixed(2) : '0.00'} met of $${dedTotal !== null ? dedTotal.toFixed(2) : 'N/A'}`
-    const remStr = dedRemaining !== null ? ` ($${dedRemaining.toFixed(2)} remaining)` : ''
+    const dedStr = `$${dedMet !== null ? formatCurrency(dedMet) : '0.00'} met of $${dedTotal !== null ? formatCurrency(dedTotal) : 'N/A'}`
+    const remStr = dedRemaining !== null ? ` ($${formatCurrency(dedRemaining)} remaining)` : ''
     lines.push(`Deductible: ${dedStr}${remStr}`)
     // Rule 13 — deductible remaining drives full-cost-first explanation
     if (dedRemaining !== null && dedRemaining > 0) {
@@ -72,10 +76,10 @@ function generateExplanation(data) {
   const oopSatisfied = oopTotal !== null && oopMet !== null && oopMet >= oopTotal
 
   if (data.oopMaxTotal || data.oopMet) {
-    const oopStr = `$${oopMet !== null ? oopMet.toFixed(2) : '0.00'} met of $${oopTotal !== null ? oopTotal.toFixed(2) : 'N/A'}`
+    const oopStr = `$${oopMet !== null ? formatCurrency(oopMet) : '0.00'} met of $${oopTotal !== null ? formatCurrency(oopTotal) : 'N/A'}`
     const oopRemStr =
       oopTotal !== null && oopMet !== null
-        ? ` ($${(oopTotal - oopMet).toFixed(2)} remaining)`
+        ? ` ($${formatCurrency(oopTotal - oopMet)} remaining)`
         : ''
     lines.push(`Out-of-Pocket Max: ${oopStr}${oopRemStr}`)
     // Rule 12 — OOP MAX MET flag
@@ -125,7 +129,7 @@ function generateExplanation(data) {
   }
 
   if (data.network === 'INN' && data.copayApplies === 'Yes' && data.copayAmount) {
-    lines.push(`Copay: $${parseFloat(data.copayAmount).toFixed(2)}`)
+    lines.push(`Copay: $${formatCurrency(data.copayAmount)}`)
   } else if (data.network === 'INN' && data.copayApplies === 'Yes') {
     lines.push('Copay: Yes (amount not specified)')
   } else if (data.network === 'INN' && data.copayApplies === 'No') {
@@ -148,7 +152,7 @@ function generateExplanation(data) {
 
   if (data.hasCurrentBalance === 'Yes') {
     const balAmt = data.balanceAmount
-      ? `$${parseFloat(data.balanceAmount).toFixed(2)}`
+      ? `$${formatCurrency(data.balanceAmount)}`
       : 'amount not specified'
     const balType = data.balanceType ? ` (${data.balanceType})` : ''
     lines.push(`Current Balance: ${balAmt}${balType}`)
@@ -158,7 +162,7 @@ function generateExplanation(data) {
 
   if (data.hasScholarship === 'Yes') {
     const schAmt = data.scholarshipAmount
-      ? `$${parseFloat(data.scholarshipAmount).toFixed(2)}`
+      ? `$${formatCurrency(data.scholarshipAmount)}`
       : 'amount not specified'
     lines.push(`Financial Assistance: ${schAmt}`)
     if (data.scholarshipAppliesTo.length > 0) {
@@ -342,6 +346,11 @@ export default function App() {
     setExplanation('')
   }
 
+  const handleEdit = () => {
+    setSubmitted(false)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   return (
     <div className="app">
       <header className="app-header">
@@ -352,9 +361,14 @@ export default function App() {
         <div className="explanation-card">
           <h2>Client Explanation</h2>
           <pre className="explanation-text">{explanation}</pre>
-          <button className="btn-secondary" onClick={handleReset}>
-            ← Start New Snapshot
-          </button>
+          <div className="explanation-actions">
+            <button className="btn-secondary" onClick={handleEdit}>
+              ← Edit
+            </button>
+            <button className="btn-secondary" onClick={handleReset}>
+              ↺ Start New Snapshot
+            </button>
+          </div>
         </div>
       ) : (
         <form className="snapshot-form" onSubmit={handleSubmit}>
