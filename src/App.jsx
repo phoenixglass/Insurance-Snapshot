@@ -148,6 +148,15 @@ function generateExplanation(data) {
     }
   } else if (data.hasPriorLoc === 'No') {
     lines.push('Prior LOC: No')
+  } else if (data.hasPriorLoc === 'VOB Recheck') {
+    lines.push('Active Client — VOB Recheck')
+    if (data.priorFinancialsReviewed) lines.push('  Prior financials have been reviewed.')
+  } else if (data.hasPriorLoc === 'New Insurance') {
+    lines.push('Active Client — New Insurance')
+    if (data.priorFinancialsReviewed) lines.push('  Prior financials have been reviewed.')
+  } else if (data.hasPriorLoc === 'Insurance Renewed') {
+    lines.push('Active Client — Insurance Renewed')
+    if (data.priorFinancialsReviewed) lines.push('  Prior financials have been reviewed.')
   }
 
   if (data.hasCurrentBalance === 'Yes') {
@@ -608,14 +617,14 @@ export default function App() {
                   <label className="field-label">Has Prior LOC?</label>
                   <RadioGroup
                     name="hasPriorLoc"
-                    options={['Yes', 'No']}
+                    options={['Yes', 'No', 'VOB Recheck', 'New Insurance', 'Insurance Renewed']}
                     value={form.hasPriorLoc}
                     onChange={set('hasPriorLoc')}
                   />
                 </div>
 
-                {/* Show prior financials checkbox when hasPriorLoc=Yes OR cross-LOC requires it */}
-                {(form.hasPriorLoc === 'Yes' || isCrossLoc) && (
+                {/* Show prior financials checkbox when hasPriorLoc=Yes/recheck reason OR cross-LOC requires it */}
+                {(['Yes', 'VOB Recheck', 'New Insurance', 'Insurance Renewed'].includes(form.hasPriorLoc) || isCrossLoc) && (
                   <div className="conditional-block">
                     {/* Rule 2 — inline reminder when cross-LOC and hasPriorLoc not yet Yes */}
                     {isCrossLoc && form.hasPriorLoc !== 'Yes' && (
