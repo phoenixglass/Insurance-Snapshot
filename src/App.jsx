@@ -104,135 +104,160 @@ function generateExplanation(data) {
   } = calc
 
   const lines = []
+  const blank = () => lines.push('')
+
   lines.push('CLIENT INSURANCE SUMMARY')
   lines.push('═'.repeat(50))
+  blank()
 
-  if (data.network) lines.push(`Network: ${data.network}`)
+  // Network
+  lines.push(`Network: ${data.network || 'Not specified'}`)
+  blank()
 
-  const dedTotal = data.deductibleTotal ? parseFloat(data.deductibleTotal) : null
-  const dedMet = data.deductibleMet ? parseFloat(data.deductibleMet) : null
-  if (data.deductibleTotal || data.deductibleMet) {
-    const dedStr = `$${dedMet !== null ? formatCurrency(dedMet) : '0.00'} met of $${dedTotal !== null ? formatCurrency(dedTotal) : 'N/A'}`
-    const remStr = deductibleRemaining !== null ? ` ($${formatCurrency(deductibleRemaining)} remaining)` : ''
-    lines.push(`Deductible: ${dedStr}${remStr}`)
-    if (deductibleRemaining !== null && deductibleRemaining > 0) {
-      lines.push('  → Full cost responsibility applies until deductible is met.')
-    }
-  }
-
-  const oopTotal = data.oopMaxTotal ? parseFloat(data.oopMaxTotal) : null
-  const oopMetVal = data.oopMet ? parseFloat(data.oopMet) : null
-  if (data.oopMaxTotal || data.oopMet) {
-    const oopStr = `$${oopMetVal !== null ? formatCurrency(oopMetVal) : '0.00'} met of $${oopTotal !== null ? formatCurrency(oopTotal) : 'N/A'}`
-    lines.push(`Out-of-Pocket Max: ${oopStr}`)
-    if (oopSatisfied) {
-      lines.push('  ✓ OOP MAX MET — Coinsurance does not apply.')
-    }
-  }
-
-  if (data.financialActivities.length > 0) {
-    lines.push('')
-    lines.push('Episode Financial Activity:')
-    lines.push(`  Total Client Payments Applied to OOP: $${formatCurrency(totalClientPaymentsToOop)}`)
-    lines.push(`  Total Assistance Applied to OOP: $${formatCurrency(totalAssistanceToOop)}`)
-    lines.push(`  Total Episode Activity Applied to OOP: $${formatCurrency(totalEpisodeActivityToOop)}`)
-    if (calculatedOopRemaining !== null) {
-      lines.push(`  Calculated OOP Remaining: $${formatCurrency(calculatedOopRemaining)}`)
-    }
-  }
-
+  // Deductible/OOP Structure
   if (data.deductibleOopStructure) {
     lines.push(`Deductible/OOP Structure: ${data.deductibleOopStructure}`)
     if (data.deductibleOopStructure === 'Combined') {
-      lines.push('  → Deductible payments count toward Out-of-Pocket Maximum.')
+      lines.push('  → Deductible and Out-of-Pocket Maximum accumulate together.')
     } else if (data.deductibleOopStructure === 'Separate') {
-      lines.push('  → Deductible and Out-of-Pocket Maximum tracked independently.')
+      lines.push('  → Deductible and Out-of-Pocket Maximum are tracked independently.')
     }
+    blank()
   }
 
-  lines.push('')
-
-  if (data.currentStatus) lines.push(`Current Status: ${data.currentStatus}`)
-  if (data.currentLoc && data.currentLoc !== 'None') {
-    lines.push(`Current / Most Recent LOC: ${data.currentLoc}`)
+  // Deductible
+  const dedMet = data.deductibleMet ? parseFloat(data.deductibleMet) : 0
+  const dedTotal = data.deductibleTotal ? parseFloat(data.deductibleTotal) : null
+  lines.push('Deductible:')
+  lines.push(`  $${formatCurrency(dedMet)} met of $${dedTotal !== null ? formatCurrency(dedTotal) : 'N/A'}`)
+  if (deductibleRemaining !== null) {
+    lines.push(`  $${formatCurrency(deductibleRemaining)} remaining`)
   }
-  if (data.verifiedLoc) lines.push(`Verified Level of Care: ${data.verifiedLoc}`)
+  blank()
 
+  // Out-of-Pocket Max
+  const oopTotal = data.oopMaxTotal ? parseFloat(data.oopMaxTotal) : null
+  const oopMetVal = data.oopMet ? parseFloat(data.oopMet) : 0
+  const effectiveOopMet = oopTotal !== null
+    ? oopTotal - (calculatedOopRemaining ?? 0)
+    : Math.max(oopMetVal, totalEpisodeActivityToOop)
+  lines.push('Out-of-Pocket Max:')
+  lines.push(`  $${formatCurrency(effectiveOopMet)} met of $${oopTotal !== null ? formatCurrency(oopTotal) : 'N/A'}`)
+  if (calculatedOopRemaining !== null) {
+    lines.push(`  $${formatCurrency(calculatedOopRemaining)} remaining`)
+  }
+  if (oopSatisfied) {
+    lines.push('  ✓ OOP MAX MET — Coinsurance does not apply.')
+  }
+  blank()
+
+  // Current Status
+  if (data.currentStatus) {
+    lines.push('Current Status:')
+    lines.push(`  ${data.currentStatus}`)
+    blank()
+  }
+
+  // Current / Most Recent LOC
+  lines.push('Current / Most Recent LOC:')
+  lines.push(`  ${data.currentLoc || 'None'}`)
+  blank()
+
+  // Verified Level of Care
+  if (data.verifiedLoc) {
+    lines.push('Verified Level of Care:')
+    lines.push(`  ${data.verifiedLoc}`)
+    blank()
+  }
+
+  // Cross-LOC warning
   const isCrossLoc =
     (data.currentStatus === 'Currently in treatment' || data.currentStatus === 'Discharged') &&
     data.currentLoc && data.currentLoc !== 'None' &&
     data.verifiedLoc && data.currentLoc !== data.verifiedLoc
   if (isCrossLoc) {
-    lines.push('⚠ Cross-LOC scenario — rules applied are for Verified LOC only.')
+    lines.push(`⚠ ${data.verifiedLoc} rules are being used for this agreement, while prior episode financial activity has been carried forward.`)
+    blank()
   }
 
-  lines.push('')
-
-  if (data.deductibleApplies) {
-    lines.push(`Deductible Applies for ${data.verifiedLoc || 'Verified LOC'}: ${data.deductibleApplies}`)
-    if (data.deductibleApplies === 'Yes' && data.network === 'INN' && data.copayApplies === 'Yes') {
-      lines.push('  → After the deductible is met, a copay applies (not coinsurance).')
-    }
-  }
-
-  // Rules 7 & 8 — coinsurance output
-  if (oopSatisfied) {
-    const coinsurancePct = parseFloat(data.coinsurancePercent) || 0
-    if (coinsurancePct > 0) {
-      lines.push('Coinsurance: Not applicable because OOP Max is met.')
+  // LOC Rules
+  if (data.verifiedLoc) {
+    lines.push(`${data.verifiedLoc} Rules:`)
+    lines.push(`  Deductible Applies: ${data.deductibleApplies || 'Not specified'}`)
+    let coinsuranceText
+    if (oopSatisfied) {
+      coinsuranceText = 'Not applicable because OOP Max is met'
+    } else if (data.coinsuranceNa) {
+      coinsuranceText = 'N/A'
+    } else if (data.coinsurancePercent !== '') {
+      coinsuranceText = `${data.coinsurancePercent}% patient responsibility`
     } else {
-      lines.push('Coinsurance: Not applicable (OOP Max met)')
+      coinsuranceText = 'Not specified'
     }
-  } else if (data.coinsuranceNa) {
-    lines.push('Coinsurance: N/A')
-  } else if (data.coinsurancePercent !== '') {
-    lines.push(`Coinsurance Rate: ${data.coinsurancePercent}%`)
+    lines.push(`  Coinsurance: ${coinsuranceText}`)
+    blank()
   }
 
-  if (data.network === 'INN' && data.copayApplies === 'Yes' && data.copayAmount) {
-    lines.push(`Copay: $${formatCurrency(data.copayAmount)}`)
-  } else if (data.network === 'INN' && data.copayApplies === 'Yes') {
-    lines.push('Copay: Yes (amount not specified)')
-  } else if (data.network === 'INN' && data.copayApplies === 'No') {
-    lines.push('Copay: No')
-  }
-
-  lines.push('')
-
-  // Rule 9 — deductible collection instructions
-  if (data.deductibleApplies === 'Yes' && deductibleRemaining !== null && deductibleRemaining > 0) {
-    lines.push(`⚑ Collect deductible only, up to $${formatCurrency(deductibleRemaining)} total.`)
-    if (calculatedOopRemaining === 0) {
-      lines.push('  Do not collect coinsurance after deductible is met.')
-    }
-  }
-
-  if (data.hasCurrentBalance === 'Yes') {
-    const balAmt = data.balanceAmount ? `$${formatCurrency(data.balanceAmount)}` : 'amount not specified'
-    const balType = data.balanceType ? ` (${data.balanceType})` : ''
-    lines.push(`Current Balance: ${balAmt}${balType}`)
-  }
-
-  if (data.financialActivities.length > 0) {
-    lines.push('')
-    lines.push('Financial Activity Detail:')
+  // Episode Financial Activity
+  lines.push('Episode Financial Activity:')
+  if (data.financialActivities.length === 0) {
+    lines.push('  None entered.')
+  } else {
     data.financialActivities.forEach((act, i) => {
-      lines.push(`  [${i + 1}] ${act.activityLoc || 'LOC?'} — ${act.activityStatus || 'Status?'}`)
-      if (act.sourceReviewed) lines.push(`      Source: ${act.sourceReviewed}`)
-      if (act.clientPaymentApplied) lines.push(`      Client Payment: $${formatCurrency(act.clientPaymentApplied)}`)
-      if (act.financialAssistanceApplied) {
-        lines.push(`      Financial Assistance: $${formatCurrency(act.financialAssistanceApplied)}${act.assistanceType ? ` (${act.assistanceType})` : ''}`)
-      }
-      if (act.appliesTo) lines.push(`      Applies To: ${act.appliesTo}`)
-      if (act.countsTowardOop) lines.push(`      Counts Toward OOP: ${act.countsTowardOop}`)
-      if (act.countsTowardDeductible) lines.push(`      Counts Toward Deductible: ${act.countsTowardDeductible}`)
-      if (act.notes) lines.push(`      Notes: ${act.notes}`)
+      blank()
+      lines.push(`  ${i + 1}. ${act.activityLoc || 'LOC?'} — ${act.activityStatus || 'Status?'}`)
+      lines.push(`     Source Reviewed: ${act.sourceReviewed || 'Not specified'}`)
+      lines.push(`     Client Payment Applied: $${formatCurrency(act.clientPaymentApplied || 0)}`)
+      lines.push(`     Financial Assistance Applied: $${formatCurrency(act.financialAssistanceApplied || 0)}`)
+      lines.push(`     Assistance Type: ${act.assistanceType || 'None'}`)
+      lines.push(`     Applies To: ${act.appliesTo || 'Not specified'}`)
+      lines.push(`     Counts Toward OOP: ${act.countsTowardOop || 'Not specified'}`)
+      lines.push(`     Counts Toward Deductible: ${act.countsTowardDeductible || 'Not specified'}`)
     })
+    blank()
+    lines.push('  Totals:')
+    lines.push(`    Client Payments Applied to OOP: $${formatCurrency(totalClientPaymentsToOop)}`)
+    lines.push(`    Assistance Applied to OOP: $${formatCurrency(totalAssistanceToOop)}`)
+    lines.push(`    Total Episode Activity Applied to OOP: $${formatCurrency(totalEpisodeActivityToOop)}`)
+  }
+  blank()
+
+  // Current Balance (only when Yes)
+  if (data.hasCurrentBalance === 'Yes') {
+    lines.push('Current Balance:')
+    lines.push(`  Balance Amount: $${formatCurrency(data.balanceAmount || 0)}`)
+    if (data.balanceType) lines.push(`  Balance Type: ${data.balanceType}`)
+    lines.push('  Balance Reviewed: Yes')
+    blank()
   }
 
-  lines.push('')
-  lines.push('─'.repeat(50))
-  lines.push('Generated by Insurance Snapshot System')
+  // Expected Collection
+  if (data.verifiedLoc) {
+    lines.push(`Expected ${data.verifiedLoc} Collection:`)
+    const dedApplies = data.deductibleApplies === 'Yes'
+    const dedRem = deductibleRemaining !== null ? deductibleRemaining : 0
+    const oopRem = calculatedOopRemaining !== null ? calculatedOopRemaining : 0
+
+    if (dedApplies && dedRem > 0 && oopRem === 0) {
+      lines.push(`  Collect deductible only, up to $${formatCurrency(dedRem)} total.`)
+      lines.push('  Do not collect coinsurance after deductible is met.')
+    } else if (dedApplies && dedRem > 0 && oopRem > 0) {
+      lines.push(`  Collect toward deductible up to $${formatCurrency(dedRem)}. After deductible is met, collect coinsurance until OOP max is met.`)
+    } else if (!dedApplies && oopRem > 0) {
+      lines.push('  Do not collect deductible for this LOC. Collect coinsurance only until OOP max is met.')
+    } else if (!dedApplies && oopRem === 0) {
+      lines.push('  Do not collect deductible or coinsurance for covered services because OOP max is met.')
+    }
+    blank()
+  }
+
+  // Final Check
+  lines.push('Final Check:')
+  lines.push(`  Deductible/OOP reviewed: ${data.deductibleOopReviewed ? 'Yes' : 'No'}`)
+  lines.push(`  Network confirmed: ${data.networkConfirmed ? 'Yes' : 'No'}`)
+  lines.push(`  LOC rules entered: ${data.locRulesEntered ? 'Yes' : 'No'}`)
+  lines.push(`  Episode financial activity reviewed: ${data.financialActivities.length > 0 ? (data.episodeActivityReviewed ? 'Yes' : 'No') : 'N/A'}`)
+  lines.push(`  Balance reviewed: ${data.hasCurrentBalance === 'Yes' ? (data.balanceReviewed ? 'Yes' : 'No') : 'N/A'}`)
 
   return lines.join('\n')
 }
