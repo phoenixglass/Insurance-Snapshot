@@ -278,21 +278,32 @@ function generateExplanation(data) {
     blank()
   }
 
-  if (oopSatisfied) {
-    lines.push('Because of this, you have now reached your out-of-pocket maximum for the year.')
-    blank()
-    lines.push('What this means:')
-    lines.push('Your insurance should now cover 100% of covered services for the rest of the year, and you should not have to pay coinsurance.')
-    blank()
-  }
-
   const dedAppliesClient = data.deductibleApplies === 'Yes'
   const isOutpatientLoc = data.verifiedLoc === 'IOP' || data.verifiedLoc === 'OP'
   const serviceLabel = isOutpatientLoc
     ? `outpatient services (${data.verifiedLoc})`
     : data.verifiedLoc ? `${data.verifiedLoc} services` : 'these services'
-  if (dedAppliesClient && deductibleRemaining !== null && deductibleRemaining > 0) {
-    lines.push(`However, for ${serviceLabel}, your deductible still applies separately.`)
+  const deductibleStillOwed = dedAppliesClient && deductibleRemaining !== null && deductibleRemaining > 0
+
+  if (oopSatisfied) {
+    lines.push('Because of this, you have now reached your out-of-pocket maximum for the year.')
+    blank()
+    lines.push('What this means:')
+    if (deductibleStillOwed) {
+      lines.push('Because your out-of-pocket maximum is met, you should not have to pay coinsurance.')
+      blank()
+      lines.push(`However, your deductible and out-of-pocket maximum are tracked separately on your plan. You still have $${formatCurrency(deductibleRemaining)} remaining toward your deductible for ${serviceLabel}.`)
+      blank()
+      lines.push('What you can expect to pay:')
+      lines.push(`You may be responsible for up to $${formatCurrency(deductibleRemaining)} total for ${serviceLabel}.`)
+      lines.push('After that, you should not owe additional costs for covered services.')
+      blank()
+    } else {
+      lines.push('Your insurance should now cover 100% of covered services for the rest of the year, and you should not have to pay coinsurance.')
+      blank()
+    }
+  } else if (deductibleStillOwed) {
+    lines.push(`For ${serviceLabel}, your deductible still applies.`)
     blank()
     lines.push(`You currently have $${formatCurrency(deductibleRemaining)} remaining toward your deductible.`)
     blank()
