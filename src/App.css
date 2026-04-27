@@ -456,6 +456,156 @@ body {
   background: #a0aec0;
 }
 
+/* ── Text Input ─────────────────────────────────────── */
+.text-input {
+  border: 1px solid #cbd5e0;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.875rem;
+  color: #1a202c;
+  background: #fff;
+  width: 100%;
+  transition: border-color 0.2s;
+}
+
+.text-input:focus {
+  outline: none;
+  border-color: #1a3a5c;
+  box-shadow: 0 0 0 3px rgba(26, 58, 92, 0.12);
+}
+
+.text-input::placeholder {
+  color: #a0aec0;
+  font-style: italic;
+}
+
+/* ── Activity Row ────────────────────────────────────── */
+.activity-row {
+  border: 1px solid #d1d9e0;
+  border-radius: 8px;
+  padding: 18px 18px 14px;
+  margin-bottom: 16px;
+  background: #f9fbfd;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.activity-row-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.activity-row-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #1a3a5c;
+}
+
+.btn-remove-activity {
+  background: transparent;
+  color: #e53e3e;
+  border: 1px solid #e53e3e;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn-remove-activity:hover {
+  background: #e53e3e;
+  color: #fff;
+}
+
+/* ── Add Activity Button ─────────────────────────────── */
+.btn-add-activity {
+  background: transparent;
+  color: #1a3a5c;
+  border: 2px dashed #4a90d9;
+  border-radius: 8px;
+  padding: 12px 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+  text-align: center;
+  transition: background 0.15s, border-color 0.15s;
+  margin-top: 4px;
+}
+
+.btn-add-activity:hover {
+  background: #ebf8ff;
+  border-color: #1a3a5c;
+}
+
+/* ── Calculated Fields ───────────────────────────────── */
+.calculated-fields {
+  background: #f0f7ff;
+  border: 1px solid #90cdf4;
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.calc-field-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.875rem;
+  color: #2c5282;
+  padding: 4px 0;
+}
+
+.calc-field-row + .calc-field-row {
+  border-top: 1px solid #bee3f8;
+}
+
+.calc-label {
+  font-weight: 500;
+}
+
+.calc-value {
+  font-weight: 700;
+  font-family: 'Courier New', monospace;
+}
+
+.calc-total {
+  font-weight: 700;
+  color: #1a3a5c;
+}
+
+.calc-total .calc-label,
+.calc-total .calc-value {
+  font-weight: 700;
+}
+
+.calc-oop-met {
+  background: #f0fff4;
+  border-radius: 4px;
+  padding: 6px 8px;
+  color: #276749;
+}
+
+.calc-oop-met .calc-value::before {
+  content: '✓ ';
+}
+
+/* ── Balance Subsection ──────────────────────────────── */
+.balance-subsection {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid #e2e8f0;
+}
+
 /* ── Explanation Card ───────────────────────────────── */
 .explanation-card {
   background: #fff;
