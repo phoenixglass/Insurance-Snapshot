@@ -259,61 +259,148 @@ function generateExplanation(data) {
   lines.push(`  Episode financial activity reviewed: ${data.financialActivities.length > 0 ? (data.episodeActivityReviewed ? 'Yes' : 'No') : 'N/A'}`)
   lines.push(`  Balance reviewed: ${data.hasCurrentBalance === 'Yes' ? (data.balanceReviewed ? 'Yes' : 'No') : 'N/A'}`)
 
-  // Client-Facing Explanation
+  // ── Client-Facing Explanation ─────────────────────────────
   blank()
   lines.push('═'.repeat(50))
   blank()
+
+  const oopRemaining = calculatedOopRemaining
+  const copayAmt =
+    data.copayApplies === 'Yes' && data.copayAmount ? parseFloat(data.copayAmount) : 0
+  const coinsurancePct =
+    !data.coinsuranceNa && data.coinsurancePercent !== ''
+      ? parseFloat(data.coinsurancePercent)
+      : 0
+  const hasCopay = copayAmt > 0
+  const hasCoinsurance = coinsurancePct > 0
+  const costSharingBlank = !data.coinsuranceNa && data.coinsurancePercent === '' && !hasCopay
+  const loc = data.verifiedLoc || 'this level of care'
+  const fmt = (n) => `$${formatCurrency(n)}`
+
+  // 1. Opening block
   lines.push("Here's how your insurance is working:")
+  if (dedTotal !== null && oopTotal !== null) {
+    lines.push(
+      `Your plan has a deductible of ${fmt(dedTotal)} and an out-of-pocket maximum of ${fmt(oopTotal)}.`
+    )
+  }
   blank()
 
-  if (dedTotal !== null && oopTotal !== null) {
-    lines.push(`Your plan has a deductible of $${formatCurrency(dedTotal)} and an out-of-pocket maximum of $${formatCurrency(oopTotal)}.`)
-    blank()
+  // 2. Deductible/OOP structure block
+  if (data.deductibleOopStructure === 'Separate') {
+    lines.push('Your deductible and out-of-pocket maximum are tracked separately.')
+  } else if (data.deductibleOopStructure === 'Combined') {
+    lines.push(
+      'Amounts applied to your deductible also count toward your out-of-pocket maximum.'
+    )
+  }
+  blank()
+
+  // 3. Verified LOC block
+  if (data.deductibleApplies === 'Yes') {
+    lines.push(`For ${loc}, your deductible applies.`)
+  } else if (data.deductibleApplies === 'No') {
+    lines.push(`For ${loc}, your deductible does not apply.`)
   }
 
-  if (totalEpisodeActivityToOop > 0) {
-    lines.push(`So far, a total of $${formatCurrency(totalEpisodeActivityToOop)} has already been applied toward your out-of-pocket maximum. This includes:`)
-    lines.push(`  - $${formatCurrency(totalClientPaymentsToOop)} that you paid`)
-    lines.push(`  - $${formatCurrency(totalAssistanceToOop)} that was applied as financial assistance`)
-    blank()
+  // 4. Deductible phase
+  if (data.deductibleApplies === 'Yes' && deductibleRemaining !== null && deductibleRemaining > 0) {
+    lines.push(
+      `You currently have ${fmt(deductibleRemaining)} remaining toward your deductible. You will first need to pay up to ${fmt(deductibleRemaining)} for covered ${loc} services before your post-deductible cost sharing begins.`
+    )
   }
+  blank()
 
-  const dedAppliesClient = data.deductibleApplies === 'Yes'
-  const isOutpatientLoc = data.verifiedLoc === 'IOP' || data.verifiedLoc === 'OP'
-  const serviceLabel = isOutpatientLoc
-    ? `outpatient services (${data.verifiedLoc})`
-    : data.verifiedLoc ? `${data.verifiedLoc} services` : 'these services'
-  const deductibleStillOwed = dedAppliesClient && deductibleRemaining !== null && deductibleRemaining > 0
-
-  if (oopSatisfied) {
-    lines.push('Because of this, you have now reached your out-of-pocket maximum for the year.')
-    blank()
-    lines.push('What this means:')
-    if (deductibleStillOwed) {
-      lines.push('Because your out-of-pocket maximum is met, you should not have to pay coinsurance.')
-      blank()
-      lines.push(`However, your deductible and out-of-pocket maximum are tracked separately on your plan. You still have $${formatCurrency(deductibleRemaining)} remaining toward your deductible for ${serviceLabel}.`)
-      blank()
-      lines.push('What you can expect to pay:')
-      lines.push(`You may be responsible for up to $${formatCurrency(deductibleRemaining)} total for ${serviceLabel}.`)
-      lines.push('After that, you should not owe additional costs for covered services.')
-      blank()
-    } else {
-      lines.push('Your insurance should now cover 100% of covered services for the rest of the year, and you should not have to pay coinsurance.')
-      blank()
+  // 5. Post-deductible cost-sharing phase — only if OOP Remaining > 0
+  if (oopRemaining !== null && oopRemaining > 0) {
+    if (hasCopay && hasCoinsurance) {
+      lines.push(
+        `After your deductible is met, your plan may apply a copay of ${fmt(copayAmt)} and/or coinsurance of ${coinsurancePct}%, depending on how the claim processes, until your out-of-pocket maximum is reached.`
+      )
+    } else if (hasCopay) {
+      lines.push(
+        `After your deductible is met, you will pay a copay of ${fmt(copayAmt)} per visit until your out-of-pocket maximum is reached.`
+      )
+    } else if (hasCoinsurance) {
+      lines.push(
+        `After your deductible is met, you will pay ${coinsurancePct}% of covered charges until your out-of-pocket maximum is reached.`
+      )
+    } else if (costSharingBlank) {
+      lines.push(
+        'Post-deductible cost sharing is not complete in this summary and must be confirmed before providing a final client estimate.'
+      )
     }
-  } else if (deductibleStillOwed) {
-    lines.push(`For ${serviceLabel}, your deductible still applies.`)
-    blank()
-    lines.push(`You currently have $${formatCurrency(deductibleRemaining)} remaining toward your deductible.`)
-    blank()
-    lines.push('What you can expect to pay:')
-    lines.push(`You may be responsible for up to $${formatCurrency(deductibleRemaining)} total for ${serviceLabel}.`)
-    lines.push('After that, you should not owe additional costs for covered services.')
+  }
+
+  // 6. OOP met block — only if OOP Remaining = 0
+  if (oopRemaining !== null && oopRemaining === 0) {
+    lines.push(
+      'You have met your out-of-pocket maximum. For covered services, coinsurance and copays should no longer apply.'
+    )
+  }
+
+  // 7. OOP remaining block — only if OOP Remaining > 0
+  if (oopRemaining !== null && oopRemaining > 0) {
+    lines.push(
+      `You currently have ${fmt(oopRemaining)} remaining toward your out-of-pocket maximum.`
+    )
+  }
+  blank()
+
+  // 8. Episode financial activity block — only when activity exists
+  if (totalEpisodeActivityToOop > 0) {
+    lines.push(
+      `So far, ${fmt(totalEpisodeActivityToOop)} has been applied toward your out-of-pocket maximum based on prior episode financial activity.`
+    )
+    if (totalClientPaymentsToOop > 0) {
+      lines.push(`  - Client payments applied to OOP: ${fmt(totalClientPaymentsToOop)}`)
+    }
+    if (totalAssistanceToOop > 0) {
+      lines.push(`  - Scholarship/hardship/assistance applied to OOP: ${fmt(totalAssistanceToOop)}`)
+    }
     blank()
   }
 
-  lines.push('If anything you are billed goes beyond this, please let us know so we can review it with you.')
+  // 9. Expected payment block — built from exact conditions, no freeform conclusions
+  if (
+    data.deductibleApplies === 'Yes' &&
+    deductibleRemaining !== null &&
+    deductibleRemaining > 0 &&
+    oopRemaining !== null &&
+    oopRemaining === 0
+  ) {
+    // A: deductible applies, deductible remaining, OOP already met
+    lines.push(
+      `You may be responsible for up to ${fmt(deductibleRemaining)} total for ${loc} services. After that, you should not owe additional copays or coinsurance for covered services.`
+    )
+  } else if (
+    data.deductibleApplies === 'Yes' &&
+    deductibleRemaining !== null &&
+    deductibleRemaining > 0 &&
+    oopRemaining !== null &&
+    oopRemaining > 0
+  ) {
+    // B: deductible applies, deductible remaining, OOP not yet met
+    lines.push(
+      `You may first be responsible for up to ${fmt(deductibleRemaining)} to meet your deductible. After that, you may still owe your plan's copay and/or coinsurance until your out-of-pocket maximum is reached.`
+    )
+  } else if (data.deductibleApplies === 'No' && oopRemaining !== null && oopRemaining > 0) {
+    // C: deductible does not apply, OOP not yet met
+    lines.push(
+      `You do not need to meet a deductible for ${loc}, but you may still owe your plan's copay and/or coinsurance until your out-of-pocket maximum is reached.`
+    )
+  } else if (data.deductibleApplies === 'No' && oopRemaining !== null && oopRemaining === 0) {
+    // D: deductible does not apply, OOP already met
+    lines.push(
+      `You should not owe deductible, copay, or coinsurance for covered ${loc} services because your out-of-pocket maximum has been met.`
+    )
+  }
+  blank()
+
+  // 10. Safety sentence
+  lines.push(
+    'If a claim processes differently than expected, we will review the balance and update your account as needed.'
+  )
 
   return lines.join('\n')
 }
