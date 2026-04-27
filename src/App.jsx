@@ -259,6 +259,51 @@ function generateExplanation(data) {
   lines.push(`  Episode financial activity reviewed: ${data.financialActivities.length > 0 ? (data.episodeActivityReviewed ? 'Yes' : 'No') : 'N/A'}`)
   lines.push(`  Balance reviewed: ${data.hasCurrentBalance === 'Yes' ? (data.balanceReviewed ? 'Yes' : 'No') : 'N/A'}`)
 
+  // Client-Facing Explanation
+  blank()
+  lines.push('═'.repeat(50))
+  blank()
+  lines.push("Here's how your insurance is working:")
+  blank()
+
+  if (dedTotal !== null && oopTotal !== null) {
+    lines.push(`Your plan has a deductible of $${formatCurrency(dedTotal)} and an out-of-pocket maximum of $${formatCurrency(oopTotal)}.`)
+    blank()
+  }
+
+  if (totalEpisodeActivityToOop > 0) {
+    lines.push(`So far, a total of $${formatCurrency(totalEpisodeActivityToOop)} has already been applied toward your out-of-pocket maximum. This includes:`)
+    lines.push(`  - $${formatCurrency(totalClientPaymentsToOop)} that you paid`)
+    lines.push(`  - $${formatCurrency(totalAssistanceToOop)} that was applied as financial assistance`)
+    blank()
+  }
+
+  if (oopSatisfied) {
+    lines.push('Because of this, you have now reached your out-of-pocket maximum for the year.')
+    blank()
+    lines.push('What this means:')
+    lines.push('Your insurance should now cover 100% of covered services for the rest of the year, and you should not have to pay coinsurance.')
+    blank()
+  }
+
+  const dedAppliesClient = data.deductibleApplies === 'Yes'
+  const isOutpatientLoc = data.verifiedLoc === 'IOP' || data.verifiedLoc === 'OP'
+  const serviceLabel = isOutpatientLoc
+    ? `outpatient services (${data.verifiedLoc})`
+    : data.verifiedLoc ? `${data.verifiedLoc} services` : 'these services'
+  if (dedAppliesClient && deductibleRemaining !== null && deductibleRemaining > 0) {
+    lines.push(`However, for ${serviceLabel}, your deductible still applies separately.`)
+    blank()
+    lines.push(`You currently have $${formatCurrency(deductibleRemaining)} remaining toward your deductible.`)
+    blank()
+    lines.push('What you can expect to pay:')
+    lines.push(`You may be responsible for up to $${formatCurrency(deductibleRemaining)} total for ${serviceLabel}.`)
+    lines.push('After that, you should not owe additional costs for covered services.')
+    blank()
+  }
+
+  lines.push('If anything you are billed goes beyond this, please let us know so we can review it with you.')
+
   return lines.join('\n')
 }
 
