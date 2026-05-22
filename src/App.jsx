@@ -376,17 +376,29 @@ function generateExplanation(data) {
 
   // 5. Post-deductible cost-sharing phase — only if OOP Remaining > 0
   if (oopRemaining !== null && oopRemaining > 0) {
+    // When the deductible does not apply, drop the "After your deductible is
+    // met," lead-in and capitalize the sentence instead.
+    const dedMetPrefix =
+      data.deductibleApplies === 'No' ? '' : 'After your deductible is met, '
+    const lead = (s) =>
+      dedMetPrefix ? dedMetPrefix + s : s.charAt(0).toUpperCase() + s.slice(1)
     if (hasCopay && hasCoinsurance) {
       lines.push(
-        `After your deductible is met, your plan may apply a copay of ${fmt(copayAmt)} and/or coinsurance of ${coinsurancePct}%, depending on how the claim processes, until your out-of-pocket maximum is reached.`
+        lead(
+          `your plan may apply a copay of ${fmt(copayAmt)} and/or coinsurance of ${coinsurancePct}%, depending on how the claim processes, until your out-of-pocket maximum is reached.`
+        )
       )
     } else if (hasCopay) {
       lines.push(
-        `After your deductible is met, you will pay a copay of ${fmt(copayAmt)} per visit until your out-of-pocket maximum is reached.`
+        lead(
+          `you will pay a copay of ${fmt(copayAmt)} per visit until your out-of-pocket maximum is reached.`
+        )
       )
     } else if (hasCoinsurance) {
       lines.push(
-        `After your deductible is met, you will pay ${coinsurancePct}% of covered charges until your out-of-pocket maximum is reached.`
+        lead(
+          `you will pay ${coinsurancePct}% of covered charges until your out-of-pocket maximum is reached.`
+        )
       )
     } else if (costSharingBlank) {
       lines.push(
