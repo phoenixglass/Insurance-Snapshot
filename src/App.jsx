@@ -306,7 +306,10 @@ function generateExplanation(data) {
     lines.push(`  Client will be responsible for up to $${formatCurrency(maxClientResponsibility)}`)
     if (currentBalance > 0) {
       lines.push(`    • ${data.verifiedLoc} services going forward: $${formatCurrency(locResponsibility)}`)
-      lines.push(`    • Existing balance: $${formatCurrency(currentBalance)}`)
+      const balanceLabel = data.balanceType
+        ? `Existing balance (${data.balanceType})`
+        : 'Existing balance'
+      lines.push(`    • ${balanceLabel}: $${formatCurrency(currentBalance)}`)
     }
     blank()
   }
