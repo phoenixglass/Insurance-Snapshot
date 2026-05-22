@@ -80,7 +80,7 @@ function computeCalc(data) {
     calculatedOopRemaining === 0
 
   const deductibleRemaining =
-    dedTotal !== null && dedMet !== null ? Math.max(dedTotal - dedMet, 0) : null
+    dedTotal !== null ? Math.max(dedTotal - (dedMet || 0), 0) : null
 
   return {
     totalClientPaymentsToOop,
@@ -92,8 +92,57 @@ function computeCalc(data) {
   }
 }
 
+// Maximum amount the client could be responsible for, derived from all five
+// sections: plan basics, verified LOC, LOC rules, episode activity, balance.
+function computeClientResponsibility(data, calc) {
+  const { calculatedOopRemaining, deductibleRemaining, oopSatisfied } = calc
+  const oopRem = calculatedOopRemaining !== null ? calculatedOopRemaining : 0
+  const dedRem = deductibleRemaining !== null ? deductibleRemaining : 0
+  const dedApplies = data.deductibleApplies === 'Yes'
+  const separate = data.deductibleOopStructure === 'Separate'
+
+  const coinsuranceConfirmed = data.coinsuranceNa || data.coinsurancePercent !== ''
+  const coinsurancePct =
+    !data.coinsuranceNa && data.coinsurancePercent !== ''
+      ? parseFloat(data.coinsurancePercent)
+      : 0
+  const copayAmt =
+    data.copayApplies === 'Yes' && data.copayAmount ? parseFloat(data.copayAmount) : 0
+  const hasCostSharing = coinsurancePct > 0 || copayAmt > 0
+  // Coinsurance left blank (only allowed when the deductible does not apply)
+  // means post-deductible cost sharing is unconfirmed — fall back to the OOP cap.
+  const costSharingUnconfirmed = !coinsuranceConfirmed && copayAmt === 0
+
+  let locResponsibility
+  if (oopSatisfied) {
+    locResponsibility = 0
+  } else if (dedApplies) {
+    if (hasCostSharing || costSharingUnconfirmed) {
+      locResponsibility = separate ? dedRem + oopRem : oopRem
+    } else {
+      // Deductible only — no cost sharing once the deductible is met.
+      locResponsibility = separate ? dedRem : Math.min(dedRem, oopRem)
+    }
+  } else {
+    locResponsibility = hasCostSharing || costSharingUnconfirmed ? oopRem : 0
+  }
+
+  const currentBalance =
+    data.hasCurrentBalance === 'Yes' && data.balanceAmount
+      ? parseFloat(data.balanceAmount)
+      : 0
+
+  return {
+    locResponsibility,
+    currentBalance,
+    maxClientResponsibility: locResponsibility + currentBalance,
+  }
+}
+
 function generateExplanation(data) {
   const calc = computeCalc(data)
+  const { locResponsibility, currentBalance, maxClientResponsibility } =
+    computeClientResponsibility(data, calc)
   const {
     totalClientPaymentsToOop,
     totalAssistanceToOop,
@@ -251,6 +300,17 @@ function generateExplanation(data) {
     blank()
   }
 
+  // Client Responsibility — bottom-line figure across all five sections
+  if (data.verifiedLoc) {
+    lines.push('Client Responsibility:')
+    lines.push(`  Client will be responsible for up to $${formatCurrency(maxClientResponsibility)}`)
+    if (currentBalance > 0) {
+      lines.push(`    • ${data.verifiedLoc} services going forward: $${formatCurrency(locResponsibility)}`)
+      lines.push(`    • Existing balance: $${formatCurrency(currentBalance)}`)
+    }
+    blank()
+  }
+
   // Final Check
   lines.push('Final Check:')
   lines.push(`  Deductible/OOP reviewed: ${data.deductibleOopReviewed ? 'Yes' : 'No'}`)
@@ -396,6 +456,19 @@ function generateExplanation(data) {
     )
   }
   blank()
+
+  // 9b. Bottom-line maximum for the verified LOC
+  if (data.verifiedLoc && locResponsibility > 0) {
+    lines.push(
+      `In total, you will not be responsible for more than ${fmt(locResponsibility)} for covered ${loc} services.`
+    )
+    if (currentBalance > 0) {
+      lines.push(
+        `This is separate from your existing balance of ${fmt(currentBalance)}.`
+      )
+    }
+    blank()
+  }
 
   // 10. Safety sentence
   lines.push(
