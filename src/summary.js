@@ -32,6 +32,11 @@ const DISPLAY_NAMES = {
   PSYCH: 'Psychiatric Services',
 }
 
+function joinList(names) {
+  if (names.length > 2) return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`
+  return names.join(' and ')
+}
+
 function displayName(r) {
   if (r.service === 'LOC_SERVICE') return r.contextLoc
   return DISPLAY_NAMES[r.service] || r.serviceLabel
@@ -496,7 +501,10 @@ export function generateExplanation(data) {
         )
       } else {
         lines.push(
-          '  Custom / Unsure — per-service cost sharing must be confirmed with insurance before collecting.'
+          '  ⚠ Custom / Unsure — per-service responsibility and bundling are UNCONFIRMED for this plan.'
+        )
+        lines.push(
+          '  Do not quote or collect an individual therapy, family therapy, or assessment amount until the plan\'s model is verified with insurance.'
         )
       }
       lines.push('  Psychiatric services always use the OP benefit.')
@@ -668,12 +676,8 @@ export function generateExplanation(data) {
   const bundledServices = secondary.filter((b) => b.responsibilityType === RESPONSIBILITY.BUNDLED)
   if (bundledServices.length > 0) {
     const names = bundledServices.map((b) => BUNDLE_SERVICE_NAMES[b.service] || b.serviceLabel)
-    const list =
-      names.length > 2
-        ? `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`
-        : names.join(' and ')
     lines.push(
-      `Your ${loc} program benefit includes ${list}, so there is no separate charge for those visits.`
+      `Your ${loc} program benefit includes ${joinList(names)}, so there is no separate charge for those visits.`
     )
     blank()
   }
@@ -682,13 +686,27 @@ export function generateExplanation(data) {
   const separateServices = secondary.filter(
     (b) => b.responsibilityType !== RESPONSIBILITY.BUNDLED && b.service !== 'PSYCH'
   )
-  separateServices.forEach((b) => {
-    const name = BUNDLE_SERVICE_NAMES[b.service] || b.serviceLabel
+  separateServices
+    .filter((b) => b.responsibilityType !== RESPONSIBILITY.UNKNOWN)
+    .forEach((b) => {
+      const name = BUNDLE_SERVICE_NAMES[b.service] || b.serviceLabel
+      lines.push(
+        `${name.charAt(0).toUpperCase()}${name.slice(1)} visits are billed separately under this plan: ${clientShortPhrase(b, calc)}.`
+      )
+      blank()
+    })
+
+  // Never imply a bundling arrangement that has not been verified.
+  const unconfirmedServices = separateServices.filter(
+    (b) => b.responsibilityType === RESPONSIBILITY.UNKNOWN
+  )
+  if (unconfirmedServices.length > 0) {
+    const names = unconfirmedServices.map((b) => BUNDLE_SERVICE_NAMES[b.service] || b.serviceLabel)
     lines.push(
-      `${name.charAt(0).toUpperCase()}${name.slice(1)} visits are billed separately under this plan: ${clientShortPhrase(b, calc)}.`
+      `We are still confirming with your plan how ${joinList(names)} visits are covered during ${loc} — whether they are included in your ${loc} benefit or billed separately. We will review those amounts with you before collecting anything for them.`
     )
     blank()
-  })
+  }
 
   const psych = secondary.find((b) => b.service === 'PSYCH')
   if (psych) {

@@ -426,6 +426,14 @@ export default function App() {
   if (showBundlingModel && !form.bundlingModel) {
     submitBlockers.push('Services During This LOC (bundling model) must be selected')
   }
+  // Submitting finalizes the VOB and generates actionable collection
+  // instructions, so an unconfirmed cost-sharing model gates it the same way
+  // the other unresolved insurance rules do.
+  if (showBundlingModel && form.bundlingModel === BUNDLING.CUSTOM) {
+    submitBlockers.push(
+      'Per-service cost sharing (Services During This LOC) must be confirmed before generating summary.'
+    )
+  }
   if (showBundlingModel && form.bundlingModel === BUNDLING.SEPARATE && !form.separateServiceBenefit) {
     submitBlockers.push(
       'Benefit used for individual therapy, family therapy, and assessment must be selected'
@@ -713,9 +721,10 @@ export default function App() {
                   </div>
                 )}
                 {form.bundlingModel === BUNDLING.CUSTOM && (
-                  <div className="warning-banner">
-                    ⚠ Per-service cost sharing will be reported as unconfirmed until the plan's
-                    rules are verified.
+                  <div className="alert-banner">
+                    ⚠ Per-service responsibility and bundling are unconfirmed. The snapshot cannot
+                    be generated — and no individual therapy, family therapy, or assessment amount
+                    can be quoted — until the plan's model is verified with insurance.
                   </div>
                 )}
               </div>
