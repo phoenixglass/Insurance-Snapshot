@@ -658,3 +658,45 @@ body {
   background: #1a3a5c;
   color: #fff;
 }
+
+/* ── LOC Benefit Card (Section 3) ─────────────────────── */
+.benefit-card {
+  border: 1px solid #d1d9e0;
+  border-radius: 8px;
+  padding: 18px 18px 14px;
+  margin-bottom: 16px;
+  background: #f9fbfd;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.benefit-card-primary {
+  border-color: #1a3a5c;
+  border-left: 4px solid #1a3a5c;
+  background: #fff;
+}
+
+.benefit-card .field-group {
+  margin-bottom: 0;
+}
+
+.primary-tag {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #1a3a5c;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.optional-hint {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #718096;
+}

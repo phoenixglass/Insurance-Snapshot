@@ -138,75 +138,75 @@ export function computeCalc(data) {
 
 // ── Step 3: benefit configurations ───────────────────────────────────────────
 
-export function opBenefitConfigured(data) {
-  if (!data.verifiedLoc) return false
-  if (data.verifiedLoc === 'OP') return true
-  return Boolean(data.opBenefitEnabled)
+// A benefit category is a level of care ('IOP', 'OP', 'PHP', …), or the
+// sentinel LOC meaning "whichever LOC this VOB was verified for".
+export function categoryLoc(data, category) {
+  return category === BENEFIT_CATEGORY.LOC ? data.verifiedLoc : category
 }
 
-// Returns the cost-sharing configuration for a benefit category, or null when
-// that category has not been verified on this VOB.
+// One plan holds an independent benefit per level of care:
+//
+//   PLAN ├── Detox ├── Resi ├── PHP ├── IOP └── OP
+//
+// The verified LOC names which of them is primary for this VOB; it does not
+// limit which benefits can be stored. Returns null when a LOC's benefit has not
+// been captured.
 export function readBenefitConfig(data, category) {
-  const secondaryOp = category === BENEFIT_CATEGORY.OP && data.verifiedLoc !== 'OP'
+  const targetLoc = categoryLoc(data, category)
+  if (!targetLoc) return null
 
-  if (secondaryOp) {
-    if (!data.opBenefitEnabled) return null
-    return {
-      category,
-      loc: 'OP',
-      deductibleApplies: data.opDeductibleApplies,
-      copay: data.opCopayNa ? null : num(data.opCopayAmount),
-      copayNa: Boolean(data.opCopayNa),
-      coinsurance: data.opCoinsuranceNa ? null : num(data.opCoinsurancePercent),
-      coinsuranceNa: Boolean(data.opCoinsuranceNa),
-      contractRate: num(data.opContractRate),
-      confirmed: Boolean(data.opRulesConfirmed),
-    }
-  }
-
-  // The verified LOC configuration. When the verified LOC is OP this same
-  // configuration is the OP benefit.
+  const entry = (data.locBenefits || []).find((b) => b.loc === targetLoc)
+  if (!entry) return null
   return {
     category,
-    loc: data.verifiedLoc,
-    deductibleApplies: data.deductibleApplies,
-    copay: data.copayNa ? null : num(data.copayAmount),
-    copayNa: Boolean(data.copayNa),
-    coinsurance: data.coinsuranceNa ? null : num(data.coinsurancePercent),
-    coinsuranceNa: Boolean(data.coinsuranceNa),
-    contractRate: num(data.contractRate),
-    confirmed: Boolean(data.locRulesConfirmed),
+    loc: targetLoc,
+    isPrimary: targetLoc === data.verifiedLoc,
+    deductibleApplies: entry.deductibleApplies,
+    copay: entry.copayNa ? null : num(entry.copayAmount),
+    copayNa: Boolean(entry.copayNa),
+    coinsurance: entry.coinsuranceNa ? null : num(entry.coinsurancePercent),
+    coinsuranceNa: Boolean(entry.coinsuranceNa),
+    contractRate: num(entry.contractRate),
+    confirmed: Boolean(entry.confirmed),
   }
+}
+
+export function hasBenefitConfig(data, category) {
+  return readBenefitConfig(data, category) !== null
 }
 
 // ── Step 4–6: service → bundling → benefit category ──────────────────────────
 
-export function isServiceBundled(data, serviceKey) {
+// The bundling model is captured for the LOC this VOB verifies, so it only
+// governs services delivered in that context.
+export function isServiceBundled(data, serviceKey, contextLoc = data.verifiedLoc) {
   const service = getService(serviceKey)
   if (!service || !service.inStandardBundle) return false
+  if (contextLoc !== data.verifiedLoc) return false
   // Bundling is a plan rule, not an automatic consequence of being in a LOC.
   return (
     data.network === 'INN' &&
-    Boolean(data.verifiedLoc) &&
-    data.verifiedLoc !== 'OP' &&
+    Boolean(contextLoc) &&
+    contextLoc !== 'OP' &&
     data.bundlingModel === BUNDLING.STANDARD
   )
 }
 
-export function resolveBenefitCategory(data, serviceKey) {
+export function resolveBenefitCategory(data, serviceKey, contextLoc = data.verifiedLoc) {
   const service = getService(serviceKey)
   // Psych is always an OP benefit, regardless of the LOC the client is in.
   if (service && service.alwaysOp) return BENEFIT_CATEGORY.OP
-  if (data.verifiedLoc === 'OP') return BENEFIT_CATEGORY.OP
+  if (contextLoc === 'OP') return BENEFIT_CATEGORY.OP
   if (
     service &&
     service.inStandardBundle &&
+    contextLoc === data.verifiedLoc &&
     data.bundlingModel === BUNDLING.SEPARATE &&
     data.separateServiceBenefit === 'OP benefit'
   ) {
     return BENEFIT_CATEGORY.OP
   }
-  return BENEFIT_CATEGORY.LOC
+  return contextLoc === data.verifiedLoc ? BENEFIT_CATEGORY.LOC : contextLoc
 }
 
 // ── Step 7–13: resolve the benefit into a single internal result ─────────────
@@ -260,11 +260,11 @@ function accumulators(type, amount, structure) {
  * Resolve one service into a single benefit result object. Everything the
  * output needs must come from this object.
  */
-export function resolveBenefit(data, calc, serviceKey) {
-  const loc = data.verifiedLoc
+export function resolveBenefit(data, calc, serviceKey, contextLoc = data.verifiedLoc) {
+  const loc = contextLoc
   const unit = unitLabel(loc)
-  const category = resolveBenefitCategory(data, serviceKey)
-  const bundled = isServiceBundled(data, serviceKey)
+  const category = resolveBenefitCategory(data, serviceKey, loc)
+  const bundled = isServiceBundled(data, serviceKey, loc)
   const structure = data.deductibleOopStructure
 
   const base = {
@@ -272,7 +272,7 @@ export function resolveBenefit(data, calc, serviceKey) {
     serviceLabel: serviceLabel(serviceKey, loc),
     contextLoc: loc,
     benefitCategory: category,
-    benefitLabel: category === BENEFIT_CATEGORY.OP ? 'OP' : loc,
+    benefitLabel: categoryLoc(data, category) || loc,
     network: data.network,
     unit,
     bundled,
@@ -304,10 +304,22 @@ export function resolveBenefit(data, calc, serviceKey) {
   }
 
   const service = getService(serviceKey)
-  if (service && service.inStandardBundle && data.bundlingModel === BUNDLING.CUSTOM) {
+  const bundleUnknown =
+    service &&
+    service.inStandardBundle &&
+    (loc === data.verifiedLoc
+      ? data.bundlingModel === BUNDLING.CUSTOM
+      : // The bundling model was only captured for the verified LOC, so nothing
+        // can be assumed about ancillary services delivered under another one.
+        loc !== 'OP')
+  if (bundleUnknown) {
     return {
       ...base,
-      notes: ['The plan uses a custom cost-sharing model — confirm this service with insurance.'],
+      notes: [
+        loc === data.verifiedLoc
+          ? 'The plan uses a custom cost-sharing model — confirm this service with insurance.'
+          : `Bundling for ${loc} was not captured on this VOB — confirm this service with insurance.`,
+      ],
       ...accumulators(RESPONSIBILITY.UNKNOWN, null, structure),
     }
   }
@@ -316,7 +328,7 @@ export function resolveBenefit(data, calc, serviceKey) {
   if (!config) {
     return {
       ...base,
-      notes: ['OP benefit rules were not entered on this VOB.'],
+      notes: [`${categoryLoc(data, category)} benefit rules were not entered on this VOB.`],
       ...accumulators(RESPONSIBILITY.UNKNOWN, null, structure),
     }
   }
@@ -445,7 +457,8 @@ export function contextServiceKeys(data) {
   // known (INN) or when bundling does not apply at all (OON).
   const bundlingKnown = data.network === 'INN' ? Boolean(data.bundlingModel) : true
   if (bundlingKnown) keys.push('IT', 'FT', 'ASSESSMENT')
-  if (data.opBenefitEnabled) keys.push('PSYCH')
+  // Psych is only listed once the OP benefit it bills under has been captured.
+  if (hasBenefitConfig(data, BENEFIT_CATEGORY.OP)) keys.push('PSYCH')
   return keys
 }
 
@@ -495,13 +508,17 @@ export function computeRemainingExposure(data, calc, primary) {
 export function deriveActivityBenefit(data, calc, activity) {
   if (!activity.serviceType || activity.serviceType === 'OTHER') return null
   if (!data.verifiedLoc) return null
-  if (activity.activityLoc && activity.activityLoc !== data.verifiedLoc) {
+
+  const contextLoc = activity.activityLoc || data.verifiedLoc
+  // A service delivered under another LOC can still be derived when that LOC's
+  // benefit was captured — otherwise say so rather than applying the wrong rule.
+  if (contextLoc !== data.verifiedLoc && !hasBenefitConfig(data, contextLoc)) {
     return {
       crossLoc: true,
-      note: `Service occurred under ${activity.activityLoc}. This VOB verifies ${data.verifiedLoc} rules, so expected cost sharing is not derived.`,
+      note: `Service occurred under ${contextLoc}, and no ${contextLoc} benefit was entered on this VOB. Add it under Section 3 to derive expected cost sharing.`,
     }
   }
-  return resolveBenefit(data, calc, activity.serviceType)
+  return resolveBenefit(data, calc, activity.serviceType, contextLoc)
 }
 
 export function responsibilityTypeLabel(type) {

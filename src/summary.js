@@ -470,23 +470,29 @@ export function generateExplanation(data) {
     blank()
   }
 
-  // ── Benefit blocks (resolved configuration, not raw fields) ────────────────
+  // ── Benefit blocks: one per level of care captured on this plan ───────────
   if (loc) {
-    const locConfig = readBenefitConfig(data, 'LOC')
-    benefitBlockLines(`${loc} Benefit`, locConfig, unit).forEach((l) => lines.push(l))
-    blank()
+    const stored = (data.locBenefits || []).filter((b) => b.loc)
+    const primary = stored.find((b) => b.loc === loc)
+    const others = stored.filter((b) => b.loc !== loc)
 
-    if (data.opBenefitEnabled && loc !== 'OP') {
-      const opConfig = readBenefitConfig(data, 'OP')
-      if (opConfig) {
-        benefitBlockLines(
-          `OP Benefit (used for services that bill under the OP benefit during ${loc})`,
-          opConfig,
-          'per visit'
-        ).forEach((l) => lines.push(l))
-        blank()
-      }
+    if (primary) {
+      benefitBlockLines(`${loc} Benefit (Verified LOC)`, readBenefitConfig(data, loc), unit).forEach(
+        (l) => lines.push(l)
+      )
+      blank()
     }
+
+    others.forEach((entry) => {
+      const config = readBenefitConfig(data, entry.loc)
+      if (!config) return
+      const title =
+        entry.loc === 'OP'
+          ? `OP Benefit (used for services that bill under the OP benefit during ${loc})`
+          : `${entry.loc} Benefit`
+      benefitBlockLines(title, config, unitLabel(entry.loc)).forEach((l) => lines.push(l))
+      blank()
+    })
 
     if (loc !== 'OP' && data.bundlingModel) {
       lines.push(`Services During ${loc}:`)
