@@ -346,8 +346,11 @@ function accumulators(type, amount, structure) {
  */
 export function resolveBenefit(data, calc, serviceKey, contextLoc = data.verifiedLoc) {
   const loc = contextLoc
-  const unit = unitLabel(loc)
   const category = resolveBenefitCategory(data, serviceKey, loc)
+  // The unit belongs to the benefit being billed, not to the LOC the client
+  // happens to be in: psychiatric work is an OP visit even during a per-diem
+  // stay, so it is never quoted "per day".
+  const unit = unitLabel(categoryLoc(data, category) || loc)
   const bundled = isServiceBundled(data, serviceKey, loc)
   const structure = data.deductibleOopStructure
 
