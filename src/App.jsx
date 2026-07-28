@@ -1,10 +1,25 @@
 import { useState } from 'react'
 import './App.css'
+import {
+  BUNDLING,
+  RESPONSIBILITY,
+  computeCalc,
+  deriveActivityBenefit,
+  formatCurrency,
+  money,
+  resolveBenefit,
+  responsibilityTypeLabel,
+  serviceLabel,
+  unitLabel,
+} from './benefits.js'
+import { generateExplanation } from './summary.js'
 
 const makeActivity = () => ({
   id: `${Date.now()}-${Math.random()}`,
   activityLoc: '',
   activityStatus: '',
+  serviceType: '',
+  serviceDate: '',
   sourceReviewed: '',
   clientPaymentApplied: '',
   financialAssistanceApplied: '',
@@ -14,6 +29,28 @@ const makeActivity = () => ({
   countsTowardDeductible: '',
   notes: '',
 })
+
+// Field names for the two benefit configurations Section 3 can capture. Both
+// use the same editor component; only the target fields differ.
+const LOC_BENEFIT_FIELDS = {
+  deductibleApplies: 'deductibleApplies',
+  copayAmount: 'copayAmount',
+  copayNa: 'copayNa',
+  coinsurancePercent: 'coinsurancePercent',
+  coinsuranceNa: 'coinsuranceNa',
+  contractRate: 'contractRate',
+}
+
+const OP_BENEFIT_FIELDS = {
+  deductibleApplies: 'opDeductibleApplies',
+  copayAmount: 'opCopayAmount',
+  copayNa: 'opCopayNa',
+  coinsurancePercent: 'opCoinsurancePercent',
+  coinsuranceNa: 'opCoinsuranceNa',
+  contractRate: 'opContractRate',
+}
+
+const ACTIVITY_SERVICE_OPTIONS = ['LOC_SERVICE', 'IT', 'FT', 'ASSESSMENT', 'PSYCH', 'OTHER']
 
 const INITIAL_FORM_STATE = {
   // Section 1 — Plan Basics
@@ -29,13 +66,29 @@ const INITIAL_FORM_STATE = {
   currentLoc: '',
   verifiedLoc: '',
 
-  // Section 3 — LOC Rules
+  // Section 3 — LOC Rule (benefit for the verified LOC)
   deductibleApplies: '',
+  copayAmount: '',
+  copayNa: false,
   coinsurancePercent: '',
   coinsuranceNa: false,
-  copayApplies: '',
-  copayAmount: '',
+  contractRate: '',
   locRulesConfirmed: false,
+
+  // Section 3 — how services delivered during this LOC are cost-shared
+  bundlingModel: '',
+  separateServiceBenefit: '',
+
+  // Section 3 — secondary OP benefit (services that bill under OP during
+  // another LOC, e.g. psych)
+  opBenefitEnabled: false,
+  opDeductibleApplies: '',
+  opCopayAmount: '',
+  opCopayNa: false,
+  opCoinsurancePercent: '',
+  opCoinsuranceNa: false,
+  opContractRate: '',
+  opRulesConfirmed: false,
 
   // Section 4 — Episode Financial Activity
   financialActivities: [],
@@ -51,468 +104,28 @@ const INITIAL_FORM_STATE = {
   episodeActivityReviewed: false,
 }
 
-function formatCurrency(value) {
-  return parseFloat(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-function computeCalc(data) {
-  const oopTotal = data.oopMaxTotal ? parseFloat(data.oopMaxTotal) : null
-  const oopMetVal = data.oopMet ? parseFloat(data.oopMet) : null
-  const dedTotal = data.deductibleTotal ? parseFloat(data.deductibleTotal) : null
-  const dedMet = data.deductibleMet ? parseFloat(data.deductibleMet) : null
-
-  const activities = data.financialActivities || []
-  const totalClientPaymentsToOop = activities
-    .filter((a) => a.countsTowardOop === 'Yes')
-    .reduce((sum, a) => sum + (parseFloat(a.clientPaymentApplied) || 0), 0)
-  const totalAssistanceToOop = activities
-    .filter((a) => a.countsTowardOop === 'Yes')
-    .reduce((sum, a) => sum + (parseFloat(a.financialAssistanceApplied) || 0), 0)
-  const totalEpisodeActivityToOop = totalClientPaymentsToOop + totalAssistanceToOop
-
-  const calculatedOopRemaining =
-    oopTotal !== null
-      ? Math.max(oopTotal - Math.max(oopMetVal || 0, totalEpisodeActivityToOop), 0)
-      : null
-
-  const oopSatisfied =
-    (oopTotal !== null && oopMetVal !== null && oopMetVal >= oopTotal) ||
-    calculatedOopRemaining === 0
-
-  const deductibleRemaining =
-    dedTotal !== null ? Math.max(dedTotal - (dedMet || 0), 0) : null
-
-  return {
-    totalClientPaymentsToOop,
-    totalAssistanceToOop,
-    totalEpisodeActivityToOop,
-    calculatedOopRemaining,
-    oopSatisfied,
-    deductibleRemaining,
-  }
-}
-
-// Maximum amount the client could be responsible for, derived from all five
-// sections: plan basics, verified LOC, LOC rules, episode activity, balance.
-function computeClientResponsibility(data, calc) {
-  const { calculatedOopRemaining, deductibleRemaining, oopSatisfied } = calc
-  const oopRem = calculatedOopRemaining !== null ? calculatedOopRemaining : 0
-  const dedRem = deductibleRemaining !== null ? deductibleRemaining : 0
-  const dedApplies = data.deductibleApplies === 'Yes'
-  const separate = data.deductibleOopStructure === 'Separate'
-
-  const coinsuranceConfirmed = data.coinsuranceNa || data.coinsurancePercent !== ''
-  const coinsurancePct =
-    !data.coinsuranceNa && data.coinsurancePercent !== ''
-      ? parseFloat(data.coinsurancePercent)
-      : 0
-  const copayAmt =
-    data.copayApplies === 'Yes' && data.copayAmount ? parseFloat(data.copayAmount) : 0
-  const hasCostSharing = coinsurancePct > 0 || copayAmt > 0
-  // Coinsurance left blank (only allowed when the deductible does not apply)
-  // means post-deductible cost sharing is unconfirmed — fall back to the OOP cap.
-  const costSharingUnconfirmed = !coinsuranceConfirmed && copayAmt === 0
-
-  let locResponsibility
-  if (oopSatisfied) {
-    locResponsibility = 0
-  } else if (dedApplies) {
-    if (hasCostSharing || costSharingUnconfirmed) {
-      locResponsibility = separate ? dedRem + oopRem : oopRem
-    } else {
-      // Deductible only — no cost sharing once the deductible is met.
-      locResponsibility = separate ? dedRem : Math.min(dedRem, oopRem)
-    }
-  } else {
-    locResponsibility = hasCostSharing || costSharingUnconfirmed ? oopRem : 0
-  }
-
-  const currentBalance =
-    data.hasCurrentBalance === 'Yes' && data.balanceAmount
-      ? parseFloat(data.balanceAmount)
-      : 0
-
-  return {
-    locResponsibility,
-    currentBalance,
-    maxClientResponsibility: locResponsibility + currentBalance,
-  }
-}
-
-function generateExplanation(data) {
-  const calc = computeCalc(data)
-  const { locResponsibility, currentBalance, maxClientResponsibility } =
-    computeClientResponsibility(data, calc)
-  const {
-    totalClientPaymentsToOop,
-    totalAssistanceToOop,
-    totalEpisodeActivityToOop,
-    calculatedOopRemaining,
-    oopSatisfied,
-    deductibleRemaining,
-  } = calc
-
-  const lines = []
-  const blank = () => lines.push('')
-
-  lines.push('CLIENT INSURANCE SUMMARY')
-  lines.push('═'.repeat(50))
-  blank()
-
-  // Network
-  lines.push(`Network: ${data.network || 'Not specified'}`)
-  blank()
-
-  // Deductible/OOP Structure
-  if (data.deductibleOopStructure) {
-    lines.push(`Deductible/OOP Structure: ${data.deductibleOopStructure}`)
-    if (data.deductibleOopStructure === 'Combined') {
-      lines.push('  → Deductible and Out-of-Pocket Maximum accumulate together.')
-    } else if (data.deductibleOopStructure === 'Separate') {
-      lines.push('  → Deductible and Out-of-Pocket Maximum are tracked independently.')
-    }
-    blank()
-  }
-
-  // Deductible
-  const dedMet = data.deductibleMet ? parseFloat(data.deductibleMet) : 0
-  const dedTotal = data.deductibleTotal ? parseFloat(data.deductibleTotal) : null
-  lines.push('Deductible:')
-  lines.push(`  $${formatCurrency(dedMet)} met of $${dedTotal !== null ? formatCurrency(dedTotal) : 'N/A'}`)
-  if (deductibleRemaining !== null) {
-    lines.push(`  $${formatCurrency(deductibleRemaining)} remaining`)
-  }
-  blank()
-
-  // Out-of-Pocket Max
-  const oopTotal = data.oopMaxTotal ? parseFloat(data.oopMaxTotal) : null
-  const oopMetVal = data.oopMet ? parseFloat(data.oopMet) : 0
-  const effectiveOopMet = oopTotal !== null
-    ? oopTotal - (calculatedOopRemaining ?? 0)
-    : Math.max(oopMetVal, totalEpisodeActivityToOop)
-  lines.push('Out-of-Pocket Max:')
-  lines.push(`  $${formatCurrency(effectiveOopMet)} met of $${oopTotal !== null ? formatCurrency(oopTotal) : 'N/A'}`)
-  if (calculatedOopRemaining !== null) {
-    lines.push(`  $${formatCurrency(calculatedOopRemaining)} remaining`)
-  }
-  if (oopSatisfied) {
-    lines.push('  ✓ OOP MAX MET — Coinsurance does not apply.')
-  }
-  blank()
-
-  // Current Status
-  if (data.currentStatus) {
-    lines.push('Current Status:')
-    lines.push(`  ${data.currentStatus}`)
-    blank()
-  }
-
-  // Current / Most Recent LOC
-  lines.push('Current / Most Recent LOC:')
-  lines.push(`  ${data.currentLoc || 'None'}`)
-  blank()
-
-  // Verified Level of Care
-  if (data.verifiedLoc) {
-    lines.push('Verified Level of Care:')
-    lines.push(`  ${data.verifiedLoc}`)
-    blank()
-  }
-
-  // Cross-LOC warning
-  const isCrossLoc =
-    (data.currentStatus === 'Currently in treatment' || data.currentStatus === 'Discharged') &&
-    data.currentLoc && data.currentLoc !== 'None' &&
-    data.verifiedLoc && data.currentLoc !== data.verifiedLoc
-  if (isCrossLoc) {
-    lines.push(`⚠ ${data.verifiedLoc} rules are being used for this agreement, while prior episode financial activity has been carried forward.`)
-    blank()
-  }
-
-  // LOC Rules
-  if (data.verifiedLoc) {
-    lines.push(`${data.verifiedLoc} Rules:`)
-    lines.push(`  Deductible Applies: ${data.deductibleApplies || 'Not specified'}`)
-    let coinsuranceText
-    if (oopSatisfied) {
-      coinsuranceText = 'Not applicable because OOP Max is met'
-    } else if (data.coinsuranceNa) {
-      coinsuranceText = 'N/A'
-    } else if (data.coinsurancePercent !== '') {
-      coinsuranceText = `${data.coinsurancePercent}% patient responsibility`
-    } else {
-      coinsuranceText = 'Not specified'
-    }
-    lines.push(`  Coinsurance: ${coinsuranceText}`)
-    blank()
-  }
-
-  // Episode Financial Activity
-  lines.push('Episode Financial Activity:')
-  if (data.financialActivities.length === 0) {
-    lines.push('  None entered.')
-  } else {
-    data.financialActivities.forEach((act, i) => {
-      blank()
-      lines.push(`  ${i + 1}. ${act.activityLoc || 'LOC?'} — ${act.activityStatus || 'Status?'}`)
-      lines.push(`     Source Reviewed: ${act.sourceReviewed || 'Not specified'}`)
-      lines.push(`     Client Payment Applied: $${formatCurrency(act.clientPaymentApplied || 0)}`)
-      lines.push(`     Financial Assistance Applied: $${formatCurrency(act.financialAssistanceApplied || 0)}`)
-      lines.push(`     Assistance Type: ${act.assistanceType || 'None'}`)
-      lines.push(`     Applies To: ${act.appliesTo || 'Not specified'}`)
-      lines.push(`     Counts Toward OOP: ${act.countsTowardOop || 'Not specified'}`)
-      lines.push(`     Counts Toward Deductible: ${act.countsTowardDeductible || 'Not specified'}`)
-    })
-    blank()
-    lines.push('  Totals:')
-    lines.push(`    Client Payments Applied to OOP: $${formatCurrency(totalClientPaymentsToOop)}`)
-    lines.push(`    Assistance Applied to OOP: $${formatCurrency(totalAssistanceToOop)}`)
-    lines.push(`    Total Episode Activity Applied to OOP: $${formatCurrency(totalEpisodeActivityToOop)}`)
-  }
-  blank()
-
-  // Current Balance (only when Yes)
-  if (data.hasCurrentBalance === 'Yes') {
-    lines.push('Current Balance:')
-    lines.push(`  Balance Amount: $${formatCurrency(data.balanceAmount || 0)}`)
-    if (data.balanceType) lines.push(`  Balance Type: ${data.balanceType}`)
-    lines.push('  Balance Reviewed: Yes')
-    blank()
-  }
-
-  // Expected Collection
-  if (data.verifiedLoc) {
-    lines.push(`Expected ${data.verifiedLoc} Collection:`)
-    const dedApplies = data.deductibleApplies === 'Yes'
-    const dedRem = deductibleRemaining !== null ? deductibleRemaining : 0
-    const oopRem = calculatedOopRemaining !== null ? calculatedOopRemaining : 0
-
-    if (dedApplies && dedRem > 0 && oopRem === 0) {
-      lines.push(`  Collect deductible only, up to $${formatCurrency(dedRem)} total.`)
-      lines.push('  Do not collect coinsurance after deductible is met.')
-    } else if (dedApplies && dedRem > 0 && oopRem > 0) {
-      lines.push(`  Collect toward deductible up to $${formatCurrency(dedRem)}. After deductible is met, collect coinsurance until OOP max is met.`)
-    } else if (!dedApplies && oopRem > 0) {
-      lines.push('  Do not collect deductible for this LOC. Collect coinsurance only until OOP max is met.')
-    } else if (!dedApplies && oopRem === 0) {
-      lines.push('  Do not collect deductible or coinsurance for covered services because OOP max is met.')
-    }
-    blank()
-  }
-
-  // Client Responsibility — bottom-line figure across all five sections
-  if (data.verifiedLoc) {
-    lines.push('Client Responsibility:')
-    lines.push(`  Client will be responsible for up to $${formatCurrency(maxClientResponsibility)}`)
-    if (currentBalance > 0) {
-      lines.push(`    • ${data.verifiedLoc} services going forward: $${formatCurrency(locResponsibility)}`)
-      const balanceLabel = data.balanceType
-        ? `Existing balance (${data.balanceType})`
-        : 'Existing balance'
-      lines.push(`    • ${balanceLabel}: $${formatCurrency(currentBalance)}`)
-    }
-    blank()
-  }
-
-  // Final Check
-  lines.push('Final Check:')
-  lines.push(`  Deductible/OOP reviewed: ${data.deductibleOopReviewed ? 'Yes' : 'No'}`)
-  lines.push(`  Network confirmed: ${data.networkConfirmed ? 'Yes' : 'No'}`)
-  lines.push(`  LOC rules entered: ${data.locRulesEntered ? 'Yes' : 'No'}`)
-  lines.push(`  Episode financial activity reviewed: ${data.financialActivities.length > 0 ? (data.episodeActivityReviewed ? 'Yes' : 'No') : 'N/A'}`)
-  lines.push(`  Balance reviewed: ${data.hasCurrentBalance === 'Yes' ? (data.balanceReviewed ? 'Yes' : 'No') : 'N/A'}`)
-
-  // ── Client-Facing Explanation ─────────────────────────────
-  blank()
-  lines.push('═'.repeat(50))
-  blank()
-
-  const oopRemaining = calculatedOopRemaining
-  const copayAmt =
-    data.copayApplies === 'Yes' && data.copayAmount ? parseFloat(data.copayAmount) : 0
-  const coinsurancePct =
-    !data.coinsuranceNa && data.coinsurancePercent !== ''
-      ? parseFloat(data.coinsurancePercent)
-      : 0
-  const hasCopay = copayAmt > 0
-  const hasCoinsurance = coinsurancePct > 0
-  const costSharingBlank = !data.coinsuranceNa && data.coinsurancePercent === '' && !hasCopay
-  const loc = data.verifiedLoc || 'this level of care'
-  const fmt = (n) => `$${formatCurrency(n)}`
-
-  // 1. Opening block
-  lines.push("Here's how your insurance is working:")
-  if (dedTotal !== null && oopTotal !== null) {
-    lines.push(
-      `Your plan has a deductible of ${fmt(dedTotal)} and an out-of-pocket maximum of ${fmt(oopTotal)}.`
-    )
-  }
-  blank()
-
-  // 2. Deductible/OOP structure block
-  if (data.deductibleOopStructure === 'Separate') {
-    lines.push('Your deductible and out-of-pocket maximum are tracked separately.')
-  } else if (data.deductibleOopStructure === 'Combined') {
-    lines.push(
-      'Amounts applied to your deductible also count toward your out-of-pocket maximum.'
-    )
-  }
-  blank()
-
-  // 3. Verified LOC block
-  if (data.deductibleApplies === 'Yes') {
-    lines.push(`For ${loc}, your deductible applies.`)
-  } else if (data.deductibleApplies === 'No') {
-    lines.push(`For ${loc}, your deductible does not apply.`)
-  }
-
-  // 4. Deductible phase
-  if (data.deductibleApplies === 'Yes' && deductibleRemaining !== null && deductibleRemaining > 0) {
-    lines.push(
-      `You currently have ${fmt(deductibleRemaining)} remaining toward your deductible. You will first need to pay up to ${fmt(deductibleRemaining)} for covered ${loc} services before your post-deductible cost sharing begins.`
-    )
-  }
-  blank()
-
-  // 5. Post-deductible cost-sharing phase — only if OOP Remaining > 0
-  if (oopRemaining !== null && oopRemaining > 0) {
-    // When the deductible does not apply, drop the "After your deductible is
-    // met," lead-in and capitalize the sentence instead.
-    const dedMetPrefix =
-      data.deductibleApplies === 'No' ? '' : 'After your deductible is met, '
-    const lead = (s) =>
-      dedMetPrefix ? dedMetPrefix + s : s.charAt(0).toUpperCase() + s.slice(1)
-    if (hasCopay && hasCoinsurance) {
-      lines.push(
-        lead(
-          `your plan may apply a copay of ${fmt(copayAmt)} and/or coinsurance of ${coinsurancePct}%, depending on how the claim processes, until your out-of-pocket maximum is reached.`
-        )
-      )
-    } else if (hasCopay) {
-      lines.push(
-        lead(
-          `you will pay a copay of ${fmt(copayAmt)} per visit until your out-of-pocket maximum is reached.`
-        )
-      )
-    } else if (hasCoinsurance) {
-      lines.push(
-        lead(
-          `you will pay ${coinsurancePct}% of covered charges until your out-of-pocket maximum is reached.`
-        )
-      )
-    } else if (costSharingBlank) {
-      lines.push(
-        'Post-deductible cost sharing is not complete in this summary and must be confirmed before providing a final client estimate.'
-      )
-    }
-  }
-
-  // 6. OOP met block — only if OOP Remaining = 0
-  if (oopRemaining !== null && oopRemaining === 0) {
-    lines.push(
-      'You have met your out-of-pocket maximum. For covered services, coinsurance and copays should no longer apply.'
-    )
-  }
-
-  // 7. OOP remaining block — only if OOP Remaining > 0
-  if (oopRemaining !== null && oopRemaining > 0) {
-    lines.push(
-      `You currently have ${fmt(oopRemaining)} remaining toward your out-of-pocket maximum.`
-    )
-  }
-  blank()
-
-  // 8. Episode financial activity block — only when activity exists
-  if (totalEpisodeActivityToOop > 0) {
-    lines.push(
-      `So far, ${fmt(totalEpisodeActivityToOop)} has been applied toward your out-of-pocket maximum based on prior episode financial activity.`
-    )
-    if (totalClientPaymentsToOop > 0) {
-      lines.push(`  - Client payments applied to OOP: ${fmt(totalClientPaymentsToOop)}`)
-    }
-    if (totalAssistanceToOop > 0) {
-      lines.push(`  - Scholarship/hardship/assistance applied to OOP: ${fmt(totalAssistanceToOop)}`)
-    }
-    blank()
-  }
-
-  // 9. Expected payment block — built from exact conditions, no freeform conclusions
-  if (
-    data.deductibleApplies === 'Yes' &&
-    deductibleRemaining !== null &&
-    deductibleRemaining > 0 &&
-    oopRemaining !== null &&
-    oopRemaining === 0
-  ) {
-    // A: deductible applies, deductible remaining, OOP already met
-    lines.push(
-      `You may be responsible for up to ${fmt(deductibleRemaining)} total for ${loc} services. After that, you should not owe additional copays or coinsurance for covered services.`
-    )
-  } else if (
-    data.deductibleApplies === 'Yes' &&
-    deductibleRemaining !== null &&
-    deductibleRemaining > 0 &&
-    oopRemaining !== null &&
-    oopRemaining > 0
-  ) {
-    // B: deductible applies, deductible remaining, OOP not yet met
-    lines.push(
-      `You may first be responsible for up to ${fmt(deductibleRemaining)} to meet your deductible. After that, you may still owe your plan's copay and/or coinsurance until your out-of-pocket maximum is reached.`
-    )
-  } else if (data.deductibleApplies === 'No' && oopRemaining !== null && oopRemaining > 0) {
-    // C: deductible does not apply, OOP not yet met
-    lines.push(
-      `You do not need to meet a deductible for ${loc}, but you may still owe your plan's copay and/or coinsurance until your out-of-pocket maximum is reached.`
-    )
-  } else if (data.deductibleApplies === 'No' && oopRemaining !== null && oopRemaining === 0) {
-    // D: deductible does not apply, OOP already met
-    lines.push(
-      `You should not owe deductible, copay, or coinsurance for covered ${loc} services because your out-of-pocket maximum has been met.`
-    )
-  }
-  blank()
-
-  // 9b. Bottom-line maximum for the verified LOC
-  if (data.verifiedLoc && locResponsibility > 0) {
-    lines.push(
-      `In total, you will not be responsible for more than ${fmt(locResponsibility)} for covered ${loc} services.`
-    )
-    if (currentBalance > 0) {
-      lines.push(
-        `This is separate from your existing balance of ${fmt(currentBalance)}.`
-      )
-    }
-    blank()
-  }
-
-  // 10. Safety sentence
-  lines.push(
-    'If a claim processes differently than expected, we will review the balance and update your account as needed.'
-  )
-
-  return lines.join('\n')
-}
 
 function RadioGroup({ name, options, value, onChange }) {
+  const items = options.map((opt) => (typeof opt === 'string' ? { value: opt, label: opt } : opt))
   return (
     <div className="radio-group">
-      {options.map((opt) => (
-        <label key={opt} className="radio-label">
+      {items.map((opt) => (
+        <label key={opt.value} className="radio-label">
           <input
             type="radio"
             name={name}
-            value={opt}
-            checked={value === opt}
-            onChange={() => onChange(opt)}
+            value={opt.value}
+            checked={value === opt.value}
+            onChange={() => onChange(opt.value)}
           />
-          {opt}
+          {opt.label}
         </label>
       ))}
     </div>
   )
 }
 
-function CurrencyInput({ id, value, onChange, placeholder = '0.00' }) {
+function CurrencyInput({ id, value, onChange, placeholder = '0.00', disabled = false }) {
   return (
     <div className="currency-input-wrapper">
       <span className="currency-symbol">$</span>
@@ -525,7 +138,185 @@ function CurrencyInput({ id, value, onChange, placeholder = '0.00' }) {
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        disabled={disabled}
       />
+    </div>
+  )
+}
+
+// Cost-sharing rules for one benefit category. Copay and coinsurance are both
+// first-class: "deductible applies = No" says nothing about which of the two
+// the plan actually uses, so each has to be entered or explicitly marked N/A.
+function BenefitRuleFields({ idPrefix, values, onChange, unit }) {
+  const coinsurancePct =
+    !values.coinsuranceNa && values.coinsurancePercent !== ''
+      ? parseFloat(values.coinsurancePercent)
+      : 0
+  const showContractRate = values.deductibleApplies === 'Yes' || coinsurancePct > 0
+
+  return (
+    <>
+      <div className="field-group">
+        <label className="field-label">Does Deductible Apply?</label>
+        <RadioGroup
+          name={`${idPrefix}-deductibleApplies`}
+          options={['Yes', 'No', 'Unsure']}
+          value={values.deductibleApplies}
+          onChange={(v) => onChange('deductibleApplies', v)}
+        />
+      </div>
+
+      <div className="field-group">
+        <label className="field-label" htmlFor={`${idPrefix}-copayAmount`}>
+          Copay ({unit})
+        </label>
+        <div className="coinsurance-row">
+          <CurrencyInput
+            id={`${idPrefix}-copayAmount`}
+            value={values.copayAmount}
+            onChange={(v) => onChange('copayAmount', v)}
+            disabled={values.copayNa}
+          />
+          <label className="checkbox-label na-checkbox">
+            <input
+              type="checkbox"
+              checked={values.copayNa}
+              onChange={(e) => onChange('copayNa', e.target.checked)}
+            />
+            N/A
+          </label>
+        </div>
+      </div>
+
+      <div className="field-group">
+        <label className="field-label" htmlFor={`${idPrefix}-coinsurancePercent`}>
+          Coinsurance %
+        </label>
+        <div className="coinsurance-row">
+          <div className="percent-input-wrapper">
+            <input
+              id={`${idPrefix}-coinsurancePercent`}
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              className="percent-input"
+              value={values.coinsurancePercent}
+              onChange={(e) => onChange('coinsurancePercent', e.target.value)}
+              placeholder="0"
+              disabled={values.coinsuranceNa}
+            />
+            <span className="percent-symbol">%</span>
+          </div>
+          <label className="checkbox-label na-checkbox">
+            <input
+              type="checkbox"
+              checked={values.coinsuranceNa}
+              onChange={(e) => onChange('coinsuranceNa', e.target.checked)}
+            />
+            N/A
+          </label>
+        </div>
+      </div>
+
+      {showContractRate && (
+        <div className="field-group">
+          <label className="field-label" htmlFor={`${idPrefix}-contractRate`}>
+            Contract Rate ({unit})
+          </label>
+          <CurrencyInput
+            id={`${idPrefix}-contractRate`}
+            value={values.contractRate}
+            onChange={(v) => onChange('contractRate', v)}
+          />
+          <div className="info-banner">
+            ℹ Optional. Used to calculate the actual per-visit amount — deductible-phase
+            collection and coinsurance (contract rate × coinsurance %).
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+// Read-only view of what the engine resolved, so staff can see the benefit that
+// the generated output will actually describe.
+function ResolvedBenefitPreview({ title, resolved }) {
+  if (!resolved) return null
+  const amountText = resolved.amountKnown
+    ? `${money(resolved.amount)} ${resolved.unit}`
+    : resolved.responsibilityType === RESPONSIBILITY.UNKNOWN
+      ? 'Not established'
+      : 'Contract rate not entered'
+  const towardText = (value) => (value === null ? 'Confirm with plan' : value ? 'Yes' : 'No')
+
+  return (
+    <div className="calculated-fields">
+      <div className="calc-field-row calc-total">
+        <span className="calc-label">{title}</span>
+        <span className="calc-value">{responsibilityTypeLabel(resolved.responsibilityType)}</span>
+      </div>
+      <div className="calc-field-row">
+        <span className="calc-label">Patient Responsibility</span>
+        <span className="calc-value">{amountText}</span>
+      </div>
+      <div className="calc-field-row">
+        <span className="calc-label">Applies Toward Deductible</span>
+        <span className="calc-value">{towardText(resolved.countsTowardDeductible)}</span>
+      </div>
+      <div className="calc-field-row">
+        <span className="calc-label">Applies Toward OOP Max</span>
+        <span className="calc-value">{towardText(resolved.countsTowardOOP)}</span>
+      </div>
+    </div>
+  )
+}
+
+// Section 4 captures what HAS happened financially. The benefit category,
+// responsibility type and expected amount for a recorded service are derived
+// from Sections 1–3 instead of being re-entered by hand.
+function ActivityDerivedBenefit({ form, calc, activity }) {
+  const derived = deriveActivityBenefit(form, calc, activity)
+  if (!derived) return null
+  if (derived.crossLoc) {
+    return <div className="info-banner">ℹ {derived.note}</div>
+  }
+
+  const amountText = derived.amountKnown
+    ? `${money(derived.amount)} ${derived.unit}`
+    : derived.responsibilityType === RESPONSIBILITY.UNKNOWN
+      ? 'Not established'
+      : 'Contract rate not entered'
+  const towardText = (value) => (value === null ? 'Confirm with plan' : value ? 'Yes' : 'No')
+
+  return (
+    <div className="calculated-fields">
+      <div className="calc-field-row">
+        <span className="calc-label">Benefit Category Used</span>
+        <span className="calc-value">{derived.benefitLabel}</span>
+      </div>
+      <div className="calc-field-row">
+        <span className="calc-label">Responsibility Type</span>
+        <span className="calc-value">{responsibilityTypeLabel(derived.responsibilityType)}</span>
+      </div>
+      <div className="calc-field-row">
+        <span className="calc-label">Expected Patient Responsibility</span>
+        <span className="calc-value">{amountText}</span>
+      </div>
+      <div className="calc-field-row">
+        <span className="calc-label">Expected to Apply Toward Deductible</span>
+        <span className="calc-value">{towardText(derived.countsTowardDeductible)}</span>
+      </div>
+      <div className="calc-field-row">
+        <span className="calc-label">Expected to Apply Toward OOP</span>
+        <span className="calc-value">{towardText(derived.countsTowardOOP)}</span>
+      </div>
+      {derived.bundled && (
+        <div className="calc-field-row">
+          <span className="calc-label">Bundled</span>
+          <span className="calc-value">Included in the {derived.contextLoc} bundle</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -555,6 +346,25 @@ export default function App() {
       ),
     }))
 
+  // Benefit editors write through a field map so the LOC benefit and the
+  // secondary OP benefit can share one component.
+  const updateBenefit = (fields) => (field, value) =>
+    setForm((prev) => {
+      const next = { ...prev, [fields[field]]: value }
+      if (field === 'copayNa' && value) next[fields.copayAmount] = ''
+      if (field === 'coinsuranceNa' && value) next[fields.coinsurancePercent] = ''
+      return next
+    })
+
+  const benefitValues = (fields) => ({
+    deductibleApplies: form[fields.deductibleApplies],
+    copayAmount: form[fields.copayAmount],
+    copayNa: form[fields.copayNa],
+    coinsurancePercent: form[fields.coinsurancePercent],
+    coinsuranceNa: form[fields.coinsuranceNa],
+    contractRate: form[fields.contractRate],
+  })
+
   // ── Derived state ──────────────────────────────────────
   const isNotYetAdmitted = form.currentStatus === 'Not yet admitted'
   const isActiveClient =
@@ -567,15 +377,27 @@ export default function App() {
     Boolean(form.verifiedLoc) &&
     form.currentLoc !== form.verifiedLoc
 
+  const calc = computeCalc(form)
   const { totalClientPaymentsToOop, totalAssistanceToOop, totalEpisodeActivityToOop,
-    calculatedOopRemaining, oopSatisfied, deductibleRemaining } = computeCalc(form)
+    totalEpisodeActivityToDeductible, calculatedOopRemaining, oopSatisfied,
+    deductibleRemaining } = calc
 
   const hasActivities = form.financialActivities.length > 0
 
-  const showZeroCopayWarning =
+  // Section 3 visibility: bundling only exists as an INN program concept, and a
+  // secondary OP benefit is only relevant when the verified LOC is not OP.
+  const showBundlingModel = Boolean(form.verifiedLoc) && form.verifiedLoc !== 'OP' && form.network === 'INN'
+  const showOpSubsection = Boolean(form.verifiedLoc) && form.verifiedLoc !== 'OP'
+
+  const resolvedLocBenefit = form.verifiedLoc ? resolveBenefit(form, calc, 'LOC_SERVICE') : null
+  const resolvedOpBenefit =
+    form.verifiedLoc && form.opBenefitEnabled ? resolveBenefit(form, calc, 'PSYCH') : null
+
+  const showNoResponsibilityWarning =
     Boolean(form.verifiedLoc) &&
-    !form.coinsuranceNa &&
-    (form.coinsurancePercent === '0' || form.coinsurancePercent === '')
+    !oopSatisfied &&
+    resolvedLocBenefit &&
+    resolvedLocBenefit.responsibilityType === RESPONSIBILITY.NONE
 
   // ── Submit blockers ────────────────────────────────────
   const submitBlockers = []
@@ -590,11 +412,43 @@ export default function App() {
     if (!form.deductibleApplies) {
       submitBlockers.push('Deductible Applies must be selected for Verified LOC')
     }
-    if (!form.coinsuranceNa && form.coinsurancePercent === '' && form.deductibleApplies !== 'No') {
+    if (!form.copayNa && form.copayAmount === '') {
+      submitBlockers.push('Copay must be entered or marked N/A')
+    }
+    if (!form.coinsuranceNa && form.coinsurancePercent === '') {
       submitBlockers.push('Coinsurance % must be entered or marked N/A')
     }
     if (!form.locRulesConfirmed) {
       submitBlockers.push('LOC rules must be confirmed from insurance')
+    }
+  }
+
+  if (showBundlingModel && !form.bundlingModel) {
+    submitBlockers.push('Services During This LOC (bundling model) must be selected')
+  }
+  if (showBundlingModel && form.bundlingModel === BUNDLING.SEPARATE && !form.separateServiceBenefit) {
+    submitBlockers.push(
+      'Benefit used for individual therapy, family therapy, and assessment must be selected'
+    )
+  }
+
+  // Only gate on the OP subsection while it is actually visible, so a stale
+  // value cannot block submission after the verified LOC changes.
+  if (showOpSubsection && form.opBenefitEnabled) {
+    if (!form.opDeductibleApplies) {
+      submitBlockers.push('OP: Does Deductible Apply must be selected')
+    }
+    if (form.opDeductibleApplies === 'Unsure') {
+      submitBlockers.push('OP deductible applicability must be confirmed before generating summary.')
+    }
+    if (!form.opCopayNa && form.opCopayAmount === '') {
+      submitBlockers.push('OP: Copay must be entered or marked N/A')
+    }
+    if (!form.opCoinsuranceNa && form.opCoinsurancePercent === '') {
+      submitBlockers.push('OP: Coinsurance % must be entered or marked N/A')
+    }
+    if (!form.opRulesConfirmed) {
+      submitBlockers.push('OP rules must be confirmed from insurance')
     }
   }
 
@@ -712,7 +566,7 @@ export default function App() {
 
             {oopSatisfied && (
               <div className="success-banner">
-                ✓ OOP MAX MET — Coinsurance will not be applied in the generated explanation
+                ✓ OOP MAX MET — no further cost sharing will be applied in the generated explanation
               </div>
             )}
 
@@ -790,76 +644,17 @@ export default function App() {
               <div className="info-banner">ℹ Select a Verified LOC in Section 2 to activate these rules</div>
             )}
 
-            <div className="field-group">
-              <label className="field-label">Does Deductible Apply?</label>
-              <RadioGroup
-                name="deductibleApplies"
-                options={['Yes', 'No', 'Unsure']}
-                value={form.deductibleApplies}
-                onChange={set('deductibleApplies')}
-              />
-            </div>
+            <BenefitRuleFields
+              idPrefix="loc"
+              values={benefitValues(LOC_BENEFIT_FIELDS)}
+              onChange={updateBenefit(LOC_BENEFIT_FIELDS)}
+              unit={form.verifiedLoc ? unitLabel(form.verifiedLoc) : 'per visit'}
+            />
 
-            <div className="field-group">
-              <label className="field-label" htmlFor="coinsurancePercent">
-                Coinsurance % (for this LOC)
-              </label>
-              <div className="coinsurance-row">
-                <div className="percent-input-wrapper">
-                  <input
-                    id="coinsurancePercent"
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="1"
-                    className="percent-input"
-                    value={form.coinsurancePercent}
-                    onChange={(e) => set('coinsurancePercent')(e.target.value)}
-                    placeholder="0"
-                    disabled={form.coinsuranceNa}
-                  />
-                  <span className="percent-symbol">%</span>
-                </div>
-                <label className="checkbox-label na-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={form.coinsuranceNa}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        coinsuranceNa: e.target.checked,
-                        ...(e.target.checked && { coinsurancePercent: '' }),
-                      }))
-                    }
-                  />
-                  N/A
-                </label>
-              </div>
-              {showZeroCopayWarning && (
-                <div className="confirm-prompt">⚠ Confirm patient responsibility is 0% — some plans are 100% covered</div>
-              )}
-            </div>
-
-            {form.network === 'INN' && (
-              <div className="field-group">
-                <label className="field-label">Copay Applies?</label>
-                <RadioGroup
-                  name="copayApplies"
-                  options={['Yes', 'No']}
-                  value={form.copayApplies}
-                  onChange={set('copayApplies')}
-                />
-                {form.copayApplies === 'Yes' && (
-                  <div className="conditional-block">
-                    <label className="field-label" htmlFor="copayAmount">Copay Amount</label>
-                    <CurrencyInput id="copayAmount" value={form.copayAmount} onChange={set('copayAmount')} />
-                  </div>
-                )}
-                {form.copayApplies === 'Yes' && form.deductibleApplies === 'Yes' && (
-                  <div className="info-banner">
-                    ℹ Deductible applies first — once met, a copay applies instead of coinsurance.
-                  </div>
-                )}
+            {showNoResponsibilityWarning && (
+              <div className="confirm-prompt">
+                ⚠ No deductible, copay, or coinsurance is recorded for this LOC — confirm the plan
+                covers it at 100%.
               </div>
             )}
 
@@ -867,6 +662,107 @@ export default function App() {
               <input type="checkbox" checked={form.locRulesConfirmed} onChange={setCheck('locRulesConfirmed')} />
               LOC rules confirmed from insurance
             </label>
+
+            {form.verifiedLoc && (
+              <ResolvedBenefitPreview
+                title={`Resolved ${form.verifiedLoc} Benefit`}
+                resolved={resolvedLocBenefit}
+              />
+            )}
+
+            {/* Services during this LOC — bundling / cost-sharing model */}
+            {showBundlingModel && (
+              <div className="field-group" style={{ marginTop: '18px' }}>
+                <label className="field-label">
+                  Services During {form.verifiedLoc} <span className="required-star">*</span>
+                </label>
+                <RadioGroup
+                  name="bundlingModel"
+                  options={[BUNDLING.STANDARD, BUNDLING.SEPARATE, BUNDLING.CUSTOM]}
+                  value={form.bundlingModel}
+                  onChange={set('bundlingModel')}
+                />
+                {form.bundlingModel === BUNDLING.STANDARD && (
+                  <div className="info-banner">
+                    ℹ Individual therapy, family therapy, and assessment are included in the{' '}
+                    {form.verifiedLoc} benefit — $0 additional patient responsibility. Psychiatric
+                    services still use the OP benefit.
+                  </div>
+                )}
+                {form.bundlingModel === BUNDLING.SEPARATE && (
+                  <div className="conditional-block">
+                    <div className="field-group">
+                      <label className="field-label">
+                        Benefit used for individual therapy, family therapy, and assessment{' '}
+                        <span className="required-star">*</span>
+                      </label>
+                      <RadioGroup
+                        name="separateServiceBenefit"
+                        options={[
+                          { value: 'Same as LOC benefit', label: `Same as ${form.verifiedLoc} benefit` },
+                          { value: 'OP benefit', label: 'OP benefit' },
+                        ]}
+                        value={form.separateServiceBenefit}
+                        onChange={set('separateServiceBenefit')}
+                      />
+                    </div>
+                    <div className="info-banner">
+                      ℹ Each service generates its own patient responsibility — nothing is bundled
+                      to $0.
+                    </div>
+                  </div>
+                )}
+                {form.bundlingModel === BUNDLING.CUSTOM && (
+                  <div className="warning-banner">
+                    ⚠ Per-service cost sharing will be reported as unconfirmed until the plan's
+                    rules are verified.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Secondary OP benefit — psych always uses OP, even during another LOC */}
+            {showOpSubsection && (
+              <div className="field-group">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={form.opBenefitEnabled}
+                    onChange={setCheck('opBenefitEnabled')}
+                  />
+                  Client may receive services that use the OP benefit during {form.verifiedLoc}
+                </label>
+                <div className="info-banner">
+                  ℹ Psychiatric services always bill under the OP benefit, even while the client is
+                  enrolled in {form.verifiedLoc}. Add the OP rule here so the output does not apply{' '}
+                  {form.verifiedLoc} cost sharing to those visits.
+                </div>
+
+                {form.opBenefitEnabled && (
+                  <div className="conditional-block">
+                    <div className="activity-row-label">OP Services During {form.verifiedLoc}</div>
+                    <BenefitRuleFields
+                      idPrefix="op"
+                      values={benefitValues(OP_BENEFIT_FIELDS)}
+                      onChange={updateBenefit(OP_BENEFIT_FIELDS)}
+                      unit="per visit"
+                    />
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={form.opRulesConfirmed}
+                        onChange={setCheck('opRulesConfirmed')}
+                      />
+                      OP rules confirmed from insurance
+                    </label>
+                    <ResolvedBenefitPreview
+                      title="Resolved OP Benefit (psych)"
+                      resolved={resolvedOpBenefit}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </section>
 
           {/* SECTION 4 — Episode Financial Activity */}
@@ -912,6 +808,37 @@ export default function App() {
                     />
                   </div>
                 </div>
+
+                <div className="field-row">
+                  <div className="field-group">
+                    <label className="field-label">Service Type</label>
+                    <RadioGroup
+                      name={`serviceType-${act.id}`}
+                      options={ACTIVITY_SERVICE_OPTIONS.map((key) => ({
+                        value: key,
+                        label: serviceLabel(key, act.activityLoc || form.verifiedLoc),
+                      }))}
+                      value={act.serviceType}
+                      onChange={(v) => updateActivity(act.id, 'serviceType', v)}
+                    />
+                  </div>
+                  <div className="field-group">
+                    <label className="field-label" htmlFor={`serviceDate-${act.id}`}>
+                      Date of Service
+                    </label>
+                    <input
+                      id={`serviceDate-${act.id}`}
+                      type="date"
+                      className="date-input"
+                      value={act.serviceDate}
+                      onChange={(e) => updateActivity(act.id, 'serviceDate', e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {/* Benefit category, responsibility type and expected amount are
+                    derived rather than entered by hand. */}
+                <ActivityDerivedBenefit form={form} calc={calc} activity={act} />
 
                 <div className="field-group">
                   <label className="field-label" htmlFor={`sourceReviewed-${act.id}`}>
@@ -1043,6 +970,10 @@ export default function App() {
                     <div className="calc-field-row calc-total">
                       <span className="calc-label">Total Episode Activity Applied to OOP</span>
                       <span className="calc-value">${formatCurrency(totalEpisodeActivityToOop)}</span>
+                    </div>
+                    <div className="calc-field-row">
+                      <span className="calc-label">Total Episode Activity Applied to Deductible</span>
+                      <span className="calc-value">${formatCurrency(totalEpisodeActivityToDeductible)}</span>
                     </div>
                   </>
                 )}
