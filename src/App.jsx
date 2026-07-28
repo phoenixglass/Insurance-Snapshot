@@ -30,25 +30,26 @@ const makeActivity = () => ({
   notes: '',
 })
 
-// Field names for the two benefit configurations Section 3 can capture. Both
-// use the same editor component; only the target fields differ.
-const LOC_BENEFIT_FIELDS = {
-  deductibleApplies: 'deductibleApplies',
-  copayAmount: 'copayAmount',
-  copayNa: 'copayNa',
-  coinsurancePercent: 'coinsurancePercent',
-  coinsuranceNa: 'coinsuranceNa',
-  contractRate: 'contractRate',
-}
+const LOC_OPTIONS = ['Detox', 'Resi', 'PHP', 'IOP', 'OP']
 
-const OP_BENEFIT_FIELDS = {
-  deductibleApplies: 'opDeductibleApplies',
-  copayAmount: 'opCopayAmount',
-  copayNa: 'opCopayNa',
-  coinsurancePercent: 'opCoinsurancePercent',
-  coinsuranceNa: 'opCoinsuranceNa',
-  contractRate: 'opContractRate',
-}
+// One independent benefit configuration per level of care. Every LOC — including
+// OP — uses this same shape; none of them is a special case.
+const makeBenefit = (loc = '') => ({
+  id: `${Date.now()}-${Math.random()}`,
+  loc,
+  deductibleApplies: '',
+  copayAmount: '',
+  copayNa: false,
+  coinsurancePercent: '',
+  coinsuranceNa: false,
+  contractRate: '',
+  confirmed: false,
+})
+
+// Selecting a verified LOC names which stored benefit is primary. It never
+// discards benefits already captured for other levels of care.
+const ensureBenefitFor = (benefits, loc) =>
+  !loc || benefits.some((b) => b.loc === loc) ? benefits : [...benefits, makeBenefit(loc)]
 
 const ACTIVITY_SERVICE_OPTIONS = ['LOC_SERVICE', 'IT', 'FT', 'ASSESSMENT', 'PSYCH', 'OTHER']
 
@@ -66,29 +67,12 @@ const INITIAL_FORM_STATE = {
   currentLoc: '',
   verifiedLoc: '',
 
-  // Section 3 — LOC Rule (benefit for the verified LOC)
-  deductibleApplies: '',
-  copayAmount: '',
-  copayNa: false,
-  coinsurancePercent: '',
-  coinsuranceNa: false,
-  contractRate: '',
-  locRulesConfirmed: false,
+  // Section 3 — one benefit configuration per level of care
+  locBenefits: [],
 
-  // Section 3 — how services delivered during this LOC are cost-shared
+  // Section 3 — how services delivered during the verified LOC are cost-shared
   bundlingModel: '',
   separateServiceBenefit: '',
-
-  // Section 3 — secondary OP benefit (services that bill under OP during
-  // another LOC, e.g. psych)
-  opBenefitEnabled: false,
-  opDeductibleApplies: '',
-  opCopayAmount: '',
-  opCopayNa: false,
-  opCoinsurancePercent: '',
-  opCoinsuranceNa: false,
-  opContractRate: '',
-  opRulesConfirmed: false,
 
   // Section 4 — Episode Financial Activity
   financialActivities: [],
@@ -152,7 +136,9 @@ function BenefitRuleFields({ idPrefix, values, onChange, unit }) {
     !values.coinsuranceNa && values.coinsurancePercent !== ''
       ? parseFloat(values.coinsurancePercent)
       : 0
-  const showContractRate = values.deductibleApplies === 'Yes' || coinsurancePct > 0
+  // The rate is always recordable — a LOC can have both a contracted rate and a
+  // copay — but it only drives a calculation in the deductible/coinsurance case.
+  const rateDrivesCalculation = values.deductibleApplies === 'Yes' || coinsurancePct > 0
 
   return (
     <>
@@ -219,23 +205,78 @@ function BenefitRuleFields({ idPrefix, values, onChange, unit }) {
         </div>
       </div>
 
-      {showContractRate && (
-        <div className="field-group">
-          <label className="field-label" htmlFor={`${idPrefix}-contractRate`}>
-            Contract Rate ({unit})
-          </label>
-          <CurrencyInput
-            id={`${idPrefix}-contractRate`}
-            value={values.contractRate}
-            onChange={(v) => onChange('contractRate', v)}
-          />
+      <div className="field-group">
+        <label className="field-label" htmlFor={`${idPrefix}-contractRate`}>
+          Contract Rate ({unit}) <span className="optional-hint">— optional</span>
+        </label>
+        <CurrencyInput
+          id={`${idPrefix}-contractRate`}
+          value={values.contractRate}
+          onChange={(v) => onChange('contractRate', v)}
+        />
+        {rateDrivesCalculation && (
           <div className="info-banner">
-            ℹ Optional. Used to calculate the actual per-visit amount — deductible-phase
-            collection and coinsurance (contract rate × coinsurance %).
+            ℹ Used to calculate the actual per-visit amount — deductible-phase collection and
+            coinsurance (contract rate × coinsurance %).
           </div>
+        )}
+      </div>
+    </>
+  )
+}
+
+// One level of care's benefit. The verified LOC's card is marked primary, but
+// it behaves exactly like every other card.
+function BenefitCard({ benefit, isPrimary, takenLocs, onChange, onRemove, resolved }) {
+  const unit = benefit.loc ? unitLabel(benefit.loc) : 'per visit'
+  return (
+    <div className={`benefit-card${isPrimary ? ' benefit-card-primary' : ''}`}>
+      <div className="activity-row-header">
+        <span className="activity-row-label">
+          {benefit.loc ? `${benefit.loc} Benefit` : 'New LOC Benefit'}
+          {isPrimary && <span className="primary-tag">Verified LOC</span>}
+        </span>
+        {!isPrimary && (
+          <button type="button" className="btn-remove-activity" onClick={onRemove}>
+            ✕ Remove
+          </button>
+        )}
+      </div>
+
+      {!isPrimary && (
+        <div className="field-group">
+          <label className="field-label">
+            Level of Care <span className="required-star">*</span>
+          </label>
+          <RadioGroup
+            name={`benefitLoc-${benefit.id}`}
+            options={LOC_OPTIONS.filter((l) => l === benefit.loc || !takenLocs.includes(l))}
+            value={benefit.loc}
+            onChange={(v) => onChange('loc', v)}
+          />
         </div>
       )}
-    </>
+
+      <BenefitRuleFields
+        idPrefix={`benefit-${benefit.id}`}
+        values={benefit}
+        onChange={onChange}
+        unit={unit}
+      />
+
+      <label className="checkbox-label">
+        <input
+          type="checkbox"
+          checked={benefit.confirmed}
+          onChange={(e) => onChange('confirmed', e.target.checked)}
+        />
+        {benefit.loc ? `${benefit.loc} rules` : 'Rules'} confirmed from insurance
+      </label>
+
+      {benefit.loc && (
+        <ResolvedBenefitPreview title={`Resolved ${benefit.loc} Benefit`} resolved={resolved} />
+      )}
+    </div>
   )
 }
 
@@ -346,24 +387,32 @@ export default function App() {
       ),
     }))
 
-  // Benefit editors write through a field map so the LOC benefit and the
-  // secondary OP benefit can share one component.
-  const updateBenefit = (fields) => (field, value) =>
-    setForm((prev) => {
-      const next = { ...prev, [fields[field]]: value }
-      if (field === 'copayNa' && value) next[fields.copayAmount] = ''
-      if (field === 'coinsuranceNa' && value) next[fields.coinsurancePercent] = ''
-      return next
-    })
+  const addLocBenefit = () =>
+    setForm((prev) => ({ ...prev, locBenefits: [...prev.locBenefits, makeBenefit()] }))
 
-  const benefitValues = (fields) => ({
-    deductibleApplies: form[fields.deductibleApplies],
-    copayAmount: form[fields.copayAmount],
-    copayNa: form[fields.copayNa],
-    coinsurancePercent: form[fields.coinsurancePercent],
-    coinsuranceNa: form[fields.coinsuranceNa],
-    contractRate: form[fields.contractRate],
-  })
+  const removeLocBenefit = (id) =>
+    setForm((prev) => ({ ...prev, locBenefits: prev.locBenefits.filter((b) => b.id !== id) }))
+
+  const updateLocBenefit = (id, field, value) =>
+    setForm((prev) => ({
+      ...prev,
+      locBenefits: prev.locBenefits.map((b) => {
+        if (b.id !== id) return b
+        const next = { ...b, [field]: value }
+        if (field === 'copayNa' && value) next.copayAmount = ''
+        if (field === 'coinsuranceNa' && value) next.coinsurancePercent = ''
+        return next
+      }),
+    }))
+
+  // Choosing the verified LOC creates its benefit card if the call has not
+  // already produced one, and leaves every other stored benefit untouched.
+  const setVerifiedLoc = (loc) =>
+    setForm((prev) => ({
+      ...prev,
+      verifiedLoc: loc,
+      locBenefits: ensureBenefitFor(prev.locBenefits, loc),
+    }))
 
   // ── Derived state ──────────────────────────────────────
   const isNotYetAdmitted = form.currentStatus === 'Not yet admitted'
@@ -387,11 +436,14 @@ export default function App() {
   // Section 3 visibility: bundling only exists as an INN program concept, and a
   // secondary OP benefit is only relevant when the verified LOC is not OP.
   const showBundlingModel = Boolean(form.verifiedLoc) && form.verifiedLoc !== 'OP' && form.network === 'INN'
-  const showOpSubsection = Boolean(form.verifiedLoc) && form.verifiedLoc !== 'OP'
+
+  // The verified LOC's card sorts first; the rest keep insertion order.
+  const primaryBenefit = form.locBenefits.find((b) => b.loc && b.loc === form.verifiedLoc) || null
+  const orderedBenefits = primaryBenefit
+    ? [primaryBenefit, ...form.locBenefits.filter((b) => b !== primaryBenefit)]
+    : form.locBenefits
 
   const resolvedLocBenefit = form.verifiedLoc ? resolveBenefit(form, calc, 'LOC_SERVICE') : null
-  const resolvedOpBenefit =
-    form.verifiedLoc && form.opBenefitEnabled ? resolveBenefit(form, calc, 'PSYCH') : null
 
   const showNoResponsibilityWarning =
     Boolean(form.verifiedLoc) &&
@@ -408,20 +460,31 @@ export default function App() {
     submitBlockers.push('Current / Most Recent LOC is required when client is in treatment or discharged')
   }
 
-  if (form.verifiedLoc) {
-    if (!form.deductibleApplies) {
-      submitBlockers.push('Deductible Applies must be selected for Verified LOC')
-    }
-    if (!form.copayNa && form.copayAmount === '') {
-      submitBlockers.push('Copay must be entered or marked N/A')
-    }
-    if (!form.coinsuranceNa && form.coinsurancePercent === '') {
-      submitBlockers.push('Coinsurance % must be entered or marked N/A')
-    }
-    if (!form.locRulesConfirmed) {
-      submitBlockers.push('LOC rules must be confirmed from insurance')
-    }
+  if (form.verifiedLoc && !primaryBenefit) {
+    submitBlockers.push(`A ${form.verifiedLoc} benefit must be entered in Section 3`)
   }
+
+  // Every stored benefit is held to the same standard, primary or not — a
+  // half-entered LOC rule is worse than no LOC rule.
+  form.locBenefits.forEach((b, i) => {
+    const label = b.loc || `LOC benefit ${i + 1}`
+    if (!b.loc) {
+      submitBlockers.push(`${label}: Level of Care must be selected`)
+    } else if (form.locBenefits.filter((o) => o.loc === b.loc).length > 1) {
+      submitBlockers.push(`${b.loc}: only one benefit can be entered per level of care`)
+    }
+    if (!b.deductibleApplies) submitBlockers.push(`${label}: Deductible Applies must be selected`)
+    if (b.deductibleApplies === 'Unsure') {
+      submitBlockers.push(`${label}: deductible applicability must be confirmed before generating summary.`)
+    }
+    if (!b.copayNa && b.copayAmount === '') {
+      submitBlockers.push(`${label}: Copay must be entered or marked N/A`)
+    }
+    if (!b.coinsuranceNa && b.coinsurancePercent === '') {
+      submitBlockers.push(`${label}: Coinsurance % must be entered or marked N/A`)
+    }
+    if (!b.confirmed) submitBlockers.push(`${label}: rules must be confirmed from insurance`)
+  })
 
   if (showBundlingModel && !form.bundlingModel) {
     submitBlockers.push('Services During This LOC (bundling model) must be selected')
@@ -440,32 +503,10 @@ export default function App() {
     )
   }
 
-  // Only gate on the OP subsection while it is actually visible, so a stale
-  // value cannot block submission after the verified LOC changes.
-  if (showOpSubsection && form.opBenefitEnabled) {
-    if (!form.opDeductibleApplies) {
-      submitBlockers.push('OP: Does Deductible Apply must be selected')
-    }
-    if (form.opDeductibleApplies === 'Unsure') {
-      submitBlockers.push('OP deductible applicability must be confirmed before generating summary.')
-    }
-    if (!form.opCopayNa && form.opCopayAmount === '') {
-      submitBlockers.push('OP: Copay must be entered or marked N/A')
-    }
-    if (!form.opCoinsuranceNa && form.opCoinsurancePercent === '') {
-      submitBlockers.push('OP: Coinsurance % must be entered or marked N/A')
-    }
-    if (!form.opRulesConfirmed) {
-      submitBlockers.push('OP rules must be confirmed from insurance')
-    }
-  }
 
   // Rule 5 & 6 — structure/deductible blockers
   if (form.deductibleOopStructure === 'Unsure') {
     submitBlockers.push('Deductible/OOP structure must be confirmed before generating summary.')
-  }
-  if (form.deductibleApplies === 'Unsure') {
-    submitBlockers.push('Deductible applicability for the verified LOC must be confirmed before generating summary.')
   }
 
   if (!form.deductibleTotal) submitBlockers.push('Deductible Total is required')
@@ -633,7 +674,7 @@ export default function App() {
                 name="verifiedLoc"
                 options={['Detox', 'Resi', 'PHP', 'IOP', 'OP']}
                 value={form.verifiedLoc}
-                onChange={set('verifiedLoc')}
+                onChange={setVerifiedLoc}
               />
             </div>
 
@@ -644,41 +685,51 @@ export default function App() {
             )}
           </section>
 
-          {/* SECTION 3 — LOC Rules */}
+          {/* SECTION 3 — Benefits by Level of Care */}
           <section className="form-section">
-            <h2 className="section-title">Section 3 — LOC Rule (For Verified LOC)</h2>
+            <h2 className="section-title">Section 3 — Benefits by Level of Care</h2>
 
             {!form.verifiedLoc && (
               <div className="info-banner">ℹ Select a Verified LOC in Section 2 to activate these rules</div>
             )}
 
-            <BenefitRuleFields
-              idPrefix="loc"
-              values={benefitValues(LOC_BENEFIT_FIELDS)}
-              onChange={updateBenefit(LOC_BENEFIT_FIELDS)}
-              unit={form.verifiedLoc ? unitLabel(form.verifiedLoc) : 'per visit'}
-            />
+            <div className="info-banner">
+              ℹ Each level of care carries its own independent benefit. Record every LOC the
+              verification call covers — the Verified LOC is the one this VOB collects against,
+              but it does not limit what can be stored. Psychiatric services always bill under
+              the OP benefit, so add OP when psych visits are expected.
+            </div>
+
+            {orderedBenefits.map((benefit) => (
+              <BenefitCard
+                key={benefit.id}
+                benefit={benefit}
+                isPrimary={Boolean(form.verifiedLoc) && benefit.loc === form.verifiedLoc}
+                takenLocs={form.locBenefits.map((b) => b.loc).filter(Boolean)}
+                onChange={(field, value) => updateLocBenefit(benefit.id, field, value)}
+                onRemove={() => removeLocBenefit(benefit.id)}
+                resolved={
+                  benefit.loc ? resolveBenefit(form, calc, 'LOC_SERVICE', benefit.loc) : null
+                }
+              />
+            ))}
+
+            {form.locBenefits.length < LOC_OPTIONS.length && (
+              <button type="button" className="btn-add-activity" onClick={addLocBenefit}>
+                + Add Another LOC Benefit
+              </button>
+            )}
 
             {showNoResponsibilityWarning && (
               <div className="confirm-prompt">
-                ⚠ No deductible, copay, or coinsurance is recorded for this LOC — confirm the plan
-                covers it at 100%.
+                ⚠ No deductible, copay, or coinsurance is recorded for {form.verifiedLoc} — confirm
+                the plan covers it at 100%.
               </div>
             )}
 
-            <label className="checkbox-label">
-              <input type="checkbox" checked={form.locRulesConfirmed} onChange={setCheck('locRulesConfirmed')} />
-              LOC rules confirmed from insurance
-            </label>
-
-            {form.verifiedLoc && (
-              <ResolvedBenefitPreview
-                title={`Resolved ${form.verifiedLoc} Benefit`}
-                resolved={resolvedLocBenefit}
-              />
-            )}
-
-            {/* Services during this LOC — bundling / cost-sharing model */}
+            {/* Services during the verified LOC — bundling / cost-sharing model.
+                This sits on top of the per-LOC benefits: it decides which LOC
+                benefit a given service uses, or whether it is bundled at all. */}
             {showBundlingModel && (
               <div className="field-group" style={{ marginTop: '18px' }}>
                 <label className="field-label">
@@ -729,50 +780,8 @@ export default function App() {
                 )}
               </div>
             )}
-
-            {/* Secondary OP benefit — psych always uses OP, even during another LOC */}
-            {showOpSubsection && (
-              <div className="field-group">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={form.opBenefitEnabled}
-                    onChange={setCheck('opBenefitEnabled')}
-                  />
-                  Client may receive services that use the OP benefit during {form.verifiedLoc}
-                </label>
-                <div className="info-banner">
-                  ℹ Psychiatric services always bill under the OP benefit, even while the client is
-                  enrolled in {form.verifiedLoc}. Add the OP rule here so the output does not apply{' '}
-                  {form.verifiedLoc} cost sharing to those visits.
-                </div>
-
-                {form.opBenefitEnabled && (
-                  <div className="conditional-block">
-                    <div className="activity-row-label">OP Services During {form.verifiedLoc}</div>
-                    <BenefitRuleFields
-                      idPrefix="op"
-                      values={benefitValues(OP_BENEFIT_FIELDS)}
-                      onChange={updateBenefit(OP_BENEFIT_FIELDS)}
-                      unit="per visit"
-                    />
-                    <label className="checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={form.opRulesConfirmed}
-                        onChange={setCheck('opRulesConfirmed')}
-                      />
-                      OP rules confirmed from insurance
-                    </label>
-                    <ResolvedBenefitPreview
-                      title="Resolved OP Benefit (psych)"
-                      resolved={resolvedOpBenefit}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
           </section>
+
 
           {/* SECTION 4 — Episode Financial Activity */}
           <section className="form-section">
