@@ -2,7 +2,11 @@ import { useState } from 'react'
 import './App.css'
 import {
   BUNDLING,
+  LOC_ORDER,
+  PSYCH_RATES,
+  PSYCH_RATE_SERVICES,
   RESPONSIBILITY,
+  SERVICE_OPTIONS,
   computeCalc,
   deriveActivityBenefit,
   formatCurrency,
@@ -10,6 +14,7 @@ import {
   resolveBenefit,
   responsibilityTypeLabel,
   serviceLabel,
+  stepDownOptions,
   unitLabel,
 } from './benefits.js'
 import { generateExplanation } from './summary.js'
@@ -30,13 +35,11 @@ const makeActivity = () => ({
   notes: '',
 })
 
-const LOC_OPTIONS = ['Detox', 'Resi', 'PHP', 'IOP', 'OP']
+const LOC_OPTIONS = LOC_ORDER
 
-// One independent benefit configuration per level of care. Every LOC — including
-// OP — uses this same shape; none of them is a special case.
-const makeBenefit = (loc = '') => ({
-  id: `${Date.now()}-${Math.random()}`,
-  loc,
+// The cost-sharing rules shared by a LOC benefit and by any service-specific
+// rate that overrides it.
+const makeRules = () => ({
   deductibleApplies: '',
   copayAmount: '',
   copayNa: false,
@@ -46,12 +49,26 @@ const makeBenefit = (loc = '') => ({
   confirmed: false,
 })
 
+// One independent benefit configuration per level of care. Every LOC — including
+// OP — uses this same shape; none of them is a special case. Bundling lives here
+// too: a plan can bundle PHP and itemize IOP.
+const makeBenefit = (loc = '') => ({
+  id: `${Date.now()}-${Math.random()}`,
+  loc,
+  ...makeRules(),
+  bundlingModel: '',
+  separateServiceBenefit: '',
+  // OP only — how the plan prices psychiatric evaluations and follow-ups.
+  psychRates: '',
+  serviceRates: [],
+})
+
+const makeServiceRate = (service) => ({ service, ...makeRules() })
+
 // Selecting a verified LOC names which stored benefit is primary. It never
 // discards benefits already captured for other levels of care.
 const ensureBenefitFor = (benefits, loc) =>
   !loc || benefits.some((b) => b.loc === loc) ? benefits : [...benefits, makeBenefit(loc)]
-
-const ACTIVITY_SERVICE_OPTIONS = ['LOC_SERVICE', 'IT', 'FT', 'ASSESSMENT', 'PSYCH', 'OTHER']
 
 const INITIAL_FORM_STATE = {
   // Section 1 — Plan Basics
@@ -67,12 +84,14 @@ const INITIAL_FORM_STATE = {
   currentLoc: '',
   verifiedLoc: '',
 
-  // Section 3 — one benefit configuration per level of care
-  locBenefits: [],
+  // Section 2 — planned step-down to a lower level of care
+  stepDownPlanned: '',
+  stepDownLoc: '',
+  stepDownDate: '',
 
-  // Section 3 — how services delivered during the verified LOC are cost-shared
-  bundlingModel: '',
-  separateServiceBenefit: '',
+  // Section 3 — one benefit configuration per level of care, each carrying its
+  // own bundling model and (for OP) its own psychiatric rates
+  locBenefits: [],
 
   // Section 4 — Episode Financial Activity
   financialActivities: [],
@@ -225,16 +244,59 @@ function BenefitRuleFields({ idPrefix, values, onChange, unit }) {
   )
 }
 
+// A rate that replaces the parent benefit's rules for one specific service —
+// today, a psychiatric evaluation or follow-up priced separately from plain OP.
+function ServiceRateCard({ idPrefix, title, values, onChange, resolved }) {
+  return (
+    <div className="service-rate-card">
+      <div className="activity-row-header">
+        <span className="activity-row-label">{title}</span>
+      </div>
+
+      <BenefitRuleFields idPrefix={idPrefix} values={values} onChange={onChange} unit="per visit" />
+
+      <label className="checkbox-label">
+        <input
+          type="checkbox"
+          checked={values.confirmed}
+          onChange={(e) => onChange('confirmed', e.target.checked)}
+        />
+        {title} rate confirmed from insurance
+      </label>
+
+      <ResolvedBenefitPreview title={`Resolved ${title}`} resolved={resolved} />
+    </div>
+  )
+}
+
 // One level of care's benefit. The verified LOC's card is marked primary, but
 // it behaves exactly like every other card.
-function BenefitCard({ benefit, isPrimary, takenLocs, onChange, onRemove, resolved }) {
+function BenefitCard({
+  benefit,
+  isPrimary,
+  roleTag,
+  network,
+  takenLocs,
+  onChange,
+  onRateChange,
+  onRemove,
+  resolveFor,
+}) {
   const unit = benefit.loc ? unitLabel(benefit.loc) : 'per visit'
+  // Bundling only exists as an INN program concept, and OP has no program to
+  // bundle into.
+  const showBundling = Boolean(benefit.loc) && benefit.loc !== 'OP' && network === 'INN'
+  // Psychiatric work always bills under OP, so its rates belong to the OP card.
+  const showPsychRates = benefit.loc === 'OP'
+  const rateFor = (service) =>
+    (benefit.serviceRates || []).find((r) => r.service === service) || makeServiceRate(service)
+
   return (
     <div className={`benefit-card${isPrimary ? ' benefit-card-primary' : ''}`}>
       <div className="activity-row-header">
         <span className="activity-row-label">
           {benefit.loc ? `${benefit.loc} Benefit` : 'New LOC Benefit'}
-          {isPrimary && <span className="primary-tag">Verified LOC</span>}
+          {roleTag && <span className="primary-tag">{roleTag}</span>}
         </span>
         {!isPrimary && (
           <button type="button" className="btn-remove-activity" onClick={onRemove}>
@@ -274,7 +336,114 @@ function BenefitCard({ benefit, isPrimary, takenLocs, onChange, onRemove, resolv
       </label>
 
       {benefit.loc && (
-        <ResolvedBenefitPreview title={`Resolved ${benefit.loc} Benefit`} resolved={resolved} />
+        <ResolvedBenefitPreview
+          title={`Resolved ${benefit.loc} Benefit`}
+          resolved={resolveFor('LOC_SERVICE')}
+        />
+      )}
+
+      {/* Psychiatric rates — evaluations and follow-ups routinely price
+          differently from each other and from the rest of the OP benefit. */}
+      {showPsychRates && (
+        <div className="benefit-subsection">
+          <div className="field-group">
+            <label className="field-label">
+              Psychiatric Evaluations & Follow-Ups <span className="required-star">*</span>
+            </label>
+            <RadioGroup
+              name={`psychRates-${benefit.id}`}
+              options={[PSYCH_RATES.SAME, PSYCH_RATES.SEPARATE, PSYCH_RATES.UNSURE]}
+              value={benefit.psychRates}
+              onChange={(v) => onChange('psychRates', v)}
+            />
+            {benefit.psychRates === PSYCH_RATES.SAME && (
+              <div className="info-banner">
+                ℹ Psychiatric visits are priced at the OP rules above, at every level of care.
+              </div>
+            )}
+            {benefit.psychRates === PSYCH_RATES.UNSURE && (
+              <div className="alert-banner">
+                ⚠ Psychiatric pricing is unconfirmed. No psychiatric evaluation or follow-up amount
+                can be quoted until the plan's rates are verified with insurance.
+              </div>
+            )}
+          </div>
+
+          {benefit.psychRates === PSYCH_RATES.SEPARATE && (
+            <div className="conditional-block">
+              <div className="info-banner">
+                ℹ These rates apply whenever the client is seen by psychiatry — including while
+                they are enrolled in a program level of care such as IOP.
+              </div>
+              {PSYCH_RATE_SERVICES.map((service) => (
+                <ServiceRateCard
+                  key={service}
+                  idPrefix={`benefit-${benefit.id}-${service}`}
+                  title={serviceLabel(service)}
+                  values={rateFor(service)}
+                  onChange={(field, value) => onRateChange(service, field, value)}
+                  resolved={resolveFor(service)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Services delivered during this LOC — bundling / cost-sharing model.
+          This sits on top of the LOC's own rules: it decides which benefit a
+          given service uses, or whether it is bundled at all. */}
+      {showBundling && (
+        <div className="benefit-subsection">
+          <div className="field-group">
+            <label className="field-label">
+              Services During {benefit.loc} <span className="required-star">*</span>
+            </label>
+            <RadioGroup
+              name={`bundlingModel-${benefit.id}`}
+              options={[BUNDLING.STANDARD, BUNDLING.SEPARATE, BUNDLING.CUSTOM]}
+              value={benefit.bundlingModel}
+              onChange={(v) => onChange('bundlingModel', v)}
+            />
+            {benefit.bundlingModel === BUNDLING.STANDARD && (
+              <div className="info-banner">
+                ℹ Individual therapy, family therapy, and assessment are included in the{' '}
+                {benefit.loc} benefit — $0 additional patient responsibility. Psychiatric services
+                still use the OP benefit.
+              </div>
+            )}
+            {benefit.bundlingModel === BUNDLING.SEPARATE && (
+              <div className="conditional-block">
+                <div className="field-group">
+                  <label className="field-label">
+                    Benefit used for individual therapy, family therapy, and assessment{' '}
+                    <span className="required-star">*</span>
+                  </label>
+                  <RadioGroup
+                    name={`separateServiceBenefit-${benefit.id}`}
+                    options={[
+                      { value: 'Same as LOC benefit', label: `Same as ${benefit.loc} benefit` },
+                      { value: 'OP benefit', label: 'OP benefit' },
+                    ]}
+                    value={benefit.separateServiceBenefit}
+                    onChange={(v) => onChange('separateServiceBenefit', v)}
+                  />
+                </div>
+                <div className="info-banner">
+                  ℹ Each service generates its own patient responsibility — nothing is bundled to
+                  $0.
+                </div>
+              </div>
+            )}
+            {benefit.bundlingModel === BUNDLING.CUSTOM && (
+              <div className="alert-banner">
+                ⚠ Per-service responsibility and bundling are unconfirmed for {benefit.loc}. No
+                individual therapy, family therapy, or assessment amount can be quoted until the
+                plan's model is verified with insurance.
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )
@@ -393,25 +562,91 @@ export default function App() {
   const removeLocBenefit = (id) =>
     setForm((prev) => ({ ...prev, locBenefits: prev.locBenefits.filter((b) => b.id !== id) }))
 
+  const applyRuleEdit = (rules, field, value) => {
+    const next = { ...rules, [field]: value }
+    if (field === 'copayNa' && value) next.copayAmount = ''
+    if (field === 'coinsuranceNa' && value) next.coinsurancePercent = ''
+    return next
+  }
+
   const updateLocBenefit = (id, field, value) =>
     setForm((prev) => ({
       ...prev,
       locBenefits: prev.locBenefits.map((b) => {
         if (b.id !== id) return b
-        const next = { ...b, [field]: value }
-        if (field === 'copayNa' && value) next.copayAmount = ''
-        if (field === 'coinsuranceNa' && value) next.coinsurancePercent = ''
+        const next = applyRuleEdit(b, field, value)
+        // Switching a LOC's card wipes rules that only made sense for the old
+        // LOC — OP has no bundling, and only OP carries psychiatric rates.
+        if (field === 'loc') {
+          if (value === 'OP') {
+            next.bundlingModel = ''
+            next.separateServiceBenefit = ''
+          } else {
+            next.psychRates = ''
+            next.serviceRates = []
+          }
+        }
+        if (field === 'bundlingModel' && value !== BUNDLING.SEPARATE) {
+          next.separateServiceBenefit = ''
+        }
+        if (field === 'psychRates') {
+          next.serviceRates =
+            value === PSYCH_RATES.SEPARATE
+              ? PSYCH_RATE_SERVICES.map(
+                  (s) => (b.serviceRates || []).find((r) => r.service === s) || makeServiceRate(s)
+                )
+              : []
+        }
         return next
       }),
+    }))
+
+  const updateServiceRate = (benefitId, service, field, value) =>
+    setForm((prev) => ({
+      ...prev,
+      locBenefits: prev.locBenefits.map((b) =>
+        b.id !== benefitId
+          ? b
+          : {
+              ...b,
+              serviceRates: (b.serviceRates || []).map((r) =>
+                r.service === service ? applyRuleEdit(r, field, value) : r
+              ),
+            }
+      ),
     }))
 
   // Choosing the verified LOC creates its benefit card if the call has not
   // already produced one, and leaves every other stored benefit untouched.
   const setVerifiedLoc = (loc) =>
+    setForm((prev) => {
+      // A step-down must still be to a less intensive level of care; from the
+      // lowest one there is nowhere left to step down to.
+      const targets = stepDownOptions(loc)
+      return {
+        ...prev,
+        verifiedLoc: loc,
+        stepDownPlanned: targets.length > 0 ? prev.stepDownPlanned : '',
+        stepDownLoc: targets.includes(prev.stepDownLoc) ? prev.stepDownLoc : '',
+        stepDownDate: targets.length > 0 ? prev.stepDownDate : '',
+        locBenefits: ensureBenefitFor(prev.locBenefits, loc),
+      }
+    })
+
+  // A step-down is a second set of rates on the same plan, so naming one opens
+  // that LOC's benefit card for entry.
+  const setStepDownLoc = (loc) =>
     setForm((prev) => ({
       ...prev,
-      verifiedLoc: loc,
+      stepDownLoc: loc,
       locBenefits: ensureBenefitFor(prev.locBenefits, loc),
+    }))
+
+  const setStepDownPlanned = (value) =>
+    setForm((prev) => ({
+      ...prev,
+      stepDownPlanned: value,
+      ...(value === 'Yes' ? {} : { stepDownLoc: '', stepDownDate: '' }),
     }))
 
   // ── Derived state ──────────────────────────────────────
@@ -433,15 +668,23 @@ export default function App() {
 
   const hasActivities = form.financialActivities.length > 0
 
-  // Section 3 visibility: bundling only exists as an INN program concept, and a
-  // secondary OP benefit is only relevant when the verified LOC is not OP.
-  const showBundlingModel = Boolean(form.verifiedLoc) && form.verifiedLoc !== 'OP' && form.network === 'INN'
+  const stepDownTargets = stepDownOptions(form.verifiedLoc)
+  const plannedStepDownLoc =
+    form.stepDownPlanned === 'Yes' && form.stepDownLoc ? form.stepDownLoc : null
+  // The levels of care this VOB actually generates collection instructions for.
+  const instructedLocs = [form.verifiedLoc, plannedStepDownLoc].filter(Boolean)
 
-  // The verified LOC's card sorts first; the rest keep insertion order.
+  // The verified LOC's card sorts first, then the step-down; the rest keep
+  // insertion order.
   const primaryBenefit = form.locBenefits.find((b) => b.loc && b.loc === form.verifiedLoc) || null
-  const orderedBenefits = primaryBenefit
-    ? [primaryBenefit, ...form.locBenefits.filter((b) => b !== primaryBenefit)]
-    : form.locBenefits
+  const stepDownBenefit =
+    plannedStepDownLoc && plannedStepDownLoc !== form.verifiedLoc
+      ? form.locBenefits.find((b) => b.loc === plannedStepDownLoc) || null
+      : null
+  const orderedBenefits = [
+    ...[primaryBenefit, stepDownBenefit].filter(Boolean),
+    ...form.locBenefits.filter((b) => b !== primaryBenefit && b !== stepDownBenefit),
+  ]
 
   const resolvedLocBenefit = form.verifiedLoc ? resolveBenefit(form, calc, 'LOC_SERVICE') : null
 
@@ -464,6 +707,37 @@ export default function App() {
     submitBlockers.push(`A ${form.verifiedLoc} benefit must be entered in Section 3`)
   }
 
+  // A step-down changes the rates the client will be quoted, so it has to name
+  // a LOC and that LOC's benefit has to exist.
+  if (stepDownTargets.length > 0 && !form.stepDownPlanned) {
+    submitBlockers.push('Planned Step-Down must be answered')
+  }
+  if (stepDownTargets.length > 0 && form.stepDownPlanned === 'Unsure') {
+    submitBlockers.push('Planned step-down must be confirmed before generating summary.')
+  }
+  if (stepDownTargets.length > 0 && form.stepDownPlanned === 'Yes' && !form.stepDownLoc) {
+    submitBlockers.push('Step-Down LOC must be selected')
+  }
+  if (plannedStepDownLoc && !stepDownBenefit) {
+    submitBlockers.push(`A ${plannedStepDownLoc} benefit must be entered in Section 3`)
+  }
+
+  // Cost-sharing rules, whether they belong to a LOC benefit or to a
+  // service-specific rate that overrides it.
+  const checkRules = (label, rules) => {
+    if (!rules.deductibleApplies) submitBlockers.push(`${label}: Deductible Applies must be selected`)
+    if (rules.deductibleApplies === 'Unsure') {
+      submitBlockers.push(`${label}: deductible applicability must be confirmed before generating summary.`)
+    }
+    if (!rules.copayNa && rules.copayAmount === '') {
+      submitBlockers.push(`${label}: Copay must be entered or marked N/A`)
+    }
+    if (!rules.coinsuranceNa && rules.coinsurancePercent === '') {
+      submitBlockers.push(`${label}: Coinsurance % must be entered or marked N/A`)
+    }
+    if (!rules.confirmed) submitBlockers.push(`${label}: rules must be confirmed from insurance`)
+  }
+
   // Every stored benefit is held to the same standard, primary or not — a
   // half-entered LOC rule is worse than no LOC rule.
   form.locBenefits.forEach((b, i) => {
@@ -473,35 +747,44 @@ export default function App() {
     } else if (form.locBenefits.filter((o) => o.loc === b.loc).length > 1) {
       submitBlockers.push(`${b.loc}: only one benefit can be entered per level of care`)
     }
-    if (!b.deductibleApplies) submitBlockers.push(`${label}: Deductible Applies must be selected`)
-    if (b.deductibleApplies === 'Unsure') {
-      submitBlockers.push(`${label}: deductible applicability must be confirmed before generating summary.`)
-    }
-    if (!b.copayNa && b.copayAmount === '') {
-      submitBlockers.push(`${label}: Copay must be entered or marked N/A`)
-    }
-    if (!b.coinsuranceNa && b.coinsurancePercent === '') {
-      submitBlockers.push(`${label}: Coinsurance % must be entered or marked N/A`)
-    }
-    if (!b.confirmed) submitBlockers.push(`${label}: rules must be confirmed from insurance`)
-  })
+    checkRules(label, b)
 
-  if (showBundlingModel && !form.bundlingModel) {
-    submitBlockers.push('Services During This LOC (bundling model) must be selected')
-  }
-  // Submitting finalizes the VOB and generates actionable collection
-  // instructions, so an unconfirmed cost-sharing model gates it the same way
-  // the other unresolved insurance rules do.
-  if (showBundlingModel && form.bundlingModel === BUNDLING.CUSTOM) {
-    submitBlockers.push(
-      'Per-service cost sharing (Services During This LOC) must be confirmed before generating summary.'
-    )
-  }
-  if (showBundlingModel && form.bundlingModel === BUNDLING.SEPARATE && !form.separateServiceBenefit) {
-    submitBlockers.push(
-      'Benefit used for individual therapy, family therapy, and assessment must be selected'
-    )
-  }
+    // Psychiatric work always bills under OP, so the OP benefit has to say
+    // whether the plan prices evaluations and follow-ups at its own rate.
+    if (b.loc === 'OP') {
+      if (!b.psychRates) {
+        submitBlockers.push('OP benefit: psychiatric evaluation / follow-up rates must be answered')
+      }
+      if (b.psychRates === PSYCH_RATES.UNSURE) {
+        submitBlockers.push(
+          'Psychiatric evaluation and follow-up rates must be confirmed before generating summary.'
+        )
+      }
+      if (b.psychRates === PSYCH_RATES.SEPARATE) {
+        (b.serviceRates || []).forEach((rate) => checkRules(serviceLabel(rate.service), rate))
+      }
+    }
+
+    // Bundling is only required for the levels of care this VOB will quote.
+    // Submitting finalizes the VOB and generates actionable collection
+    // instructions, so an unconfirmed cost-sharing model gates it the same way
+    // the other unresolved insurance rules do.
+    if (b.loc && b.loc !== 'OP' && form.network === 'INN' && instructedLocs.includes(b.loc)) {
+      if (!b.bundlingModel) {
+        submitBlockers.push(`${b.loc}: Services During ${b.loc} (bundling model) must be selected`)
+      }
+      if (b.bundlingModel === BUNDLING.CUSTOM) {
+        submitBlockers.push(
+          `${b.loc}: per-service cost sharing must be confirmed before generating summary.`
+        )
+      }
+      if (b.bundlingModel === BUNDLING.SEPARATE && !b.separateServiceBenefit) {
+        submitBlockers.push(
+          `${b.loc}: benefit used for individual therapy, family therapy, and assessment must be selected`
+        )
+      }
+    }
+  })
 
 
   // Rule 5 & 6 — structure/deductible blockers
@@ -683,6 +966,66 @@ export default function App() {
                 ⚠ Cross-LOC scenario — episode financial activity should be reviewed before generating output.
               </div>
             )}
+
+            {/* A step-down keeps the same plan and the same accumulators, but
+                cost sharing switches to the lower LOC's benefit. */}
+            {stepDownTargets.length > 0 && (
+              <div className="field-group">
+                <label className="field-label">
+                  Planned Step-Down From {form.verifiedLoc}?{' '}
+                  <span className="required-star">*</span>
+                </label>
+                <RadioGroup
+                  name="stepDownPlanned"
+                  options={['Yes', 'No', 'Unsure']}
+                  value={form.stepDownPlanned}
+                  onChange={setStepDownPlanned}
+                />
+
+                {form.stepDownPlanned === 'Yes' && (
+                  <div className="conditional-block">
+                    <div className="field-group">
+                      <label className="field-label">
+                        Step-Down LOC <span className="required-star">*</span>
+                      </label>
+                      <RadioGroup
+                        name="stepDownLoc"
+                        options={stepDownTargets}
+                        value={form.stepDownLoc}
+                        onChange={setStepDownLoc}
+                      />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" htmlFor="stepDownDate">
+                        Expected Step-Down Date{' '}
+                        <span className="optional-hint">— optional</span>
+                      </label>
+                      <input
+                        id="stepDownDate"
+                        type="date"
+                        className="date-input"
+                        value={form.stepDownDate}
+                        onChange={(e) => set('stepDownDate')(e.target.value)}
+                      />
+                    </div>
+                    {form.stepDownLoc && (
+                      <div className="info-banner">
+                        ℹ Cost sharing changes at the step-down. Enter the {form.stepDownLoc}{' '}
+                        benefit in Section 3 — the deductible and OOP maximum carry over, the rates
+                        do not.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {form.stepDownPlanned === 'Unsure' && (
+                  <div className="alert-banner">
+                    ⚠ Confirm whether a step-down is planned — ongoing costs cannot be quoted
+                    without knowing which benefit applies going forward.
+                  </div>
+                )}
+              </div>
+            )}
           </section>
 
           {/* SECTION 3 — Benefits by Level of Care */}
@@ -694,10 +1037,11 @@ export default function App() {
             )}
 
             <div className="info-banner">
-              ℹ Each level of care carries its own independent benefit. Record every LOC the
-              verification call covers — the Verified LOC is the one this VOB collects against,
-              but it does not limit what can be stored. Psychiatric services always bill under
-              the OP benefit, so add OP when psych visits are expected.
+              ℹ Each level of care carries its own independent benefit, including how services
+              delivered during it are bundled. Record every LOC the verification call covers — the
+              Verified LOC is the one this VOB collects against, but it does not limit what can be
+              stored. Psychiatric services always bill under the OP benefit, so add OP when psych
+              visits are expected, and record its psychiatric rates there.
             </div>
 
             {orderedBenefits.map((benefit) => (
@@ -705,11 +1049,22 @@ export default function App() {
                 key={benefit.id}
                 benefit={benefit}
                 isPrimary={Boolean(form.verifiedLoc) && benefit.loc === form.verifiedLoc}
+                roleTag={
+                  benefit.loc && benefit.loc === form.verifiedLoc
+                    ? 'Verified LOC'
+                    : benefit.loc && benefit.loc === plannedStepDownLoc
+                      ? 'Step-Down'
+                      : null
+                }
+                network={form.network}
                 takenLocs={form.locBenefits.map((b) => b.loc).filter(Boolean)}
                 onChange={(field, value) => updateLocBenefit(benefit.id, field, value)}
+                onRateChange={(service, field, value) =>
+                  updateServiceRate(benefit.id, service, field, value)
+                }
                 onRemove={() => removeLocBenefit(benefit.id)}
-                resolved={
-                  benefit.loc ? resolveBenefit(form, calc, 'LOC_SERVICE', benefit.loc) : null
+                resolveFor={(serviceKey) =>
+                  benefit.loc ? resolveBenefit(form, calc, serviceKey, benefit.loc) : null
                 }
               />
             ))}
@@ -727,59 +1082,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Services during the verified LOC — bundling / cost-sharing model.
-                This sits on top of the per-LOC benefits: it decides which LOC
-                benefit a given service uses, or whether it is bundled at all. */}
-            {showBundlingModel && (
-              <div className="field-group" style={{ marginTop: '18px' }}>
-                <label className="field-label">
-                  Services During {form.verifiedLoc} <span className="required-star">*</span>
-                </label>
-                <RadioGroup
-                  name="bundlingModel"
-                  options={[BUNDLING.STANDARD, BUNDLING.SEPARATE, BUNDLING.CUSTOM]}
-                  value={form.bundlingModel}
-                  onChange={set('bundlingModel')}
-                />
-                {form.bundlingModel === BUNDLING.STANDARD && (
-                  <div className="info-banner">
-                    ℹ Individual therapy, family therapy, and assessment are included in the{' '}
-                    {form.verifiedLoc} benefit — $0 additional patient responsibility. Psychiatric
-                    services still use the OP benefit.
-                  </div>
-                )}
-                {form.bundlingModel === BUNDLING.SEPARATE && (
-                  <div className="conditional-block">
-                    <div className="field-group">
-                      <label className="field-label">
-                        Benefit used for individual therapy, family therapy, and assessment{' '}
-                        <span className="required-star">*</span>
-                      </label>
-                      <RadioGroup
-                        name="separateServiceBenefit"
-                        options={[
-                          { value: 'Same as LOC benefit', label: `Same as ${form.verifiedLoc} benefit` },
-                          { value: 'OP benefit', label: 'OP benefit' },
-                        ]}
-                        value={form.separateServiceBenefit}
-                        onChange={set('separateServiceBenefit')}
-                      />
-                    </div>
-                    <div className="info-banner">
-                      ℹ Each service generates its own patient responsibility — nothing is bundled
-                      to $0.
-                    </div>
-                  </div>
-                )}
-                {form.bundlingModel === BUNDLING.CUSTOM && (
-                  <div className="alert-banner">
-                    ⚠ Per-service responsibility and bundling are unconfirmed. The snapshot cannot
-                    be generated — and no individual therapy, family therapy, or assessment amount
-                    can be quoted — until the plan's model is verified with insurance.
-                  </div>
-                )}
-              </div>
-            )}
           </section>
 
 
@@ -832,7 +1134,7 @@ export default function App() {
                     <label className="field-label">Service Type</label>
                     <RadioGroup
                       name={`serviceType-${act.id}`}
-                      options={ACTIVITY_SERVICE_OPTIONS.map((key) => ({
+                      options={SERVICE_OPTIONS.map((key) => ({
                         value: key,
                         label: serviceLabel(key, act.activityLoc || form.verifiedLoc),
                       }))}

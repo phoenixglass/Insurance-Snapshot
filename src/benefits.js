@@ -29,6 +29,15 @@ export const BUNDLING = {
   CUSTOM: 'Custom / Unsure',
 }
 
+// Whether the OP benefit prices psychiatric work at the plain OP rate or at its
+// own rates. Evaluations and follow-ups routinely price differently from each
+// other, so "separate" splits into one rate per psychiatric service.
+export const PSYCH_RATES = {
+  SAME: 'Same as the OP benefit',
+  SEPARATE: 'Separate psychiatric rates',
+  UNSURE: 'Unsure',
+}
+
 export const BENEFIT_CATEGORY = {
   LOC: 'LOC',
   OP: 'OP',
@@ -44,12 +53,38 @@ export const SERVICES = [
   { key: 'FT', label: 'Family Therapy', inStandardBundle: true, alwaysOp: false },
   { key: 'ASSESSMENT', label: 'Assessment', inStandardBundle: true, alwaysOp: false },
   { key: 'PSYCH', label: 'Psychiatric Services', inStandardBundle: false, alwaysOp: true },
+  { key: 'PSYCH_EVAL', label: 'Psychiatric Evaluation', inStandardBundle: false, alwaysOp: true },
+  { key: 'PSYCH_FOLLOWUP', label: 'Psychiatric Follow-Up', inStandardBundle: false, alwaysOp: true },
 ]
 
+// The psychiatric services that can carry their own rate. The generic PSYCH key
+// stands in whenever the plan prices all psychiatric work at the OP rate.
+export const PSYCH_RATE_SERVICES = ['PSYCH_EVAL', 'PSYCH_FOLLOWUP']
+export const PSYCH_ALL_SERVICES = ['PSYCH', ...PSYCH_RATE_SERVICES]
+
 // Radio options for Section 4 — the LOC service label depends on the LOC.
-export const SERVICE_OPTIONS = ['LOC_SERVICE', 'IT', 'FT', 'ASSESSMENT', 'PSYCH', 'OTHER']
+// Psychiatric activity is always recorded as an evaluation or a follow-up; the
+// two resolve to the same rules when the plan does not price them separately.
+export const SERVICE_OPTIONS = [
+  'LOC_SERVICE',
+  'IT',
+  'FT',
+  'ASSESSMENT',
+  'PSYCH_EVAL',
+  'PSYCH_FOLLOWUP',
+  'OTHER',
+]
+
+// Most intensive to least. Step-downs move rightward through this list.
+export const LOC_ORDER = ['Detox', 'Resi', 'PHP', 'IOP', 'OP']
 
 const PER_DIEM_LOCS = ['Detox', 'Resi']
+
+// A client can only step down to a less intensive level of care.
+export function stepDownOptions(loc) {
+  const i = LOC_ORDER.indexOf(loc)
+  return i === -1 ? [] : LOC_ORDER.slice(i + 1)
+}
 
 export function formatCurrency(value) {
   const n = parseFloat(value)
@@ -144,6 +179,36 @@ export function categoryLoc(data, category) {
   return category === BENEFIT_CATEGORY.LOC ? data.verifiedLoc : category
 }
 
+export function benefitEntry(data, loc) {
+  if (!loc) return null
+  return (data.locBenefits || []).find((b) => b.loc === loc) || null
+}
+
+// Bundling is a property of the LOC's benefit, not of the VOB as a whole — a
+// plan can bundle PHP and itemize IOP. Returns null when the LOC has no benefit.
+export function readBundling(data, loc) {
+  const entry = benefitEntry(data, loc)
+  if (!entry) return null
+  return { model: entry.bundlingModel || '', serviceBenefit: entry.separateServiceBenefit || '' }
+}
+
+// Which psychiatric rate a service should be priced at. Psychiatric work always
+// bills under OP, so the model lives on the OP benefit.
+export function readPsychRates(data) {
+  const entry = benefitEntry(data, 'OP')
+  return entry ? entry.psychRates || '' : ''
+}
+
+// A service-specific rate replaces the benefit's own rules for that service.
+// Only psychiatric services carry one today, and only when the OP benefit says
+// the plan prices them separately.
+function serviceRateEntry(data, entry, serviceKey) {
+  if (!entry || !serviceKey) return null
+  if (!PSYCH_RATE_SERVICES.includes(serviceKey)) return null
+  if (entry.psychRates !== PSYCH_RATES.SEPARATE) return null
+  return (entry.serviceRates || []).find((r) => r.service === serviceKey) || null
+}
+
 // One plan holds an independent benefit per level of care:
 //
 //   PLAN ├── Detox ├── Resi ├── PHP ├── IOP └── OP
@@ -151,23 +216,33 @@ export function categoryLoc(data, category) {
 // The verified LOC names which of them is primary for this VOB; it does not
 // limit which benefits can be stored. Returns null when a LOC's benefit has not
 // been captured.
-export function readBenefitConfig(data, category) {
+export function readBenefitConfig(data, category, serviceKey = null) {
   const targetLoc = categoryLoc(data, category)
   if (!targetLoc) return null
 
-  const entry = (data.locBenefits || []).find((b) => b.loc === targetLoc)
+  const entry = benefitEntry(data, targetLoc)
   if (!entry) return null
+
+  const rate = serviceRateEntry(data, entry, serviceKey)
+  const source = rate || entry
+  // "Unsure" on the psychiatric rate model means the plan's psychiatric pricing
+  // is unknown — the plain OP rate must not be quoted in its place.
+  const rateUnconfirmed =
+    PSYCH_ALL_SERVICES.includes(serviceKey) && entry.psychRates === PSYCH_RATES.UNSURE
+
   return {
     category,
     loc: targetLoc,
     isPrimary: targetLoc === data.verifiedLoc,
-    deductibleApplies: entry.deductibleApplies,
-    copay: entry.copayNa ? null : num(entry.copayAmount),
-    copayNa: Boolean(entry.copayNa),
-    coinsurance: entry.coinsuranceNa ? null : num(entry.coinsurancePercent),
-    coinsuranceNa: Boolean(entry.coinsuranceNa),
-    contractRate: num(entry.contractRate),
-    confirmed: Boolean(entry.confirmed),
+    serviceRate: rate ? serviceKey : null,
+    rateUnconfirmed,
+    deductibleApplies: source.deductibleApplies,
+    copay: source.copayNa ? null : num(source.copayAmount),
+    copayNa: Boolean(source.copayNa),
+    coinsurance: source.coinsuranceNa ? null : num(source.coinsurancePercent),
+    coinsuranceNa: Boolean(source.coinsuranceNa),
+    contractRate: num(source.contractRate),
+    confirmed: Boolean(entry.confirmed) && (!rate || Boolean(rate.confirmed)),
   }
 }
 
@@ -175,21 +250,29 @@ export function hasBenefitConfig(data, category) {
   return readBenefitConfig(data, category) !== null
 }
 
+// Whether the VOB records a step-down to a lower level of care. The step-down
+// LOC is a second collection context: same accumulators, different rates.
+export function stepDownPlan(data) {
+  if (data.stepDownPlanned !== 'Yes') return null
+  if (!data.stepDownLoc || data.stepDownLoc === data.verifiedLoc) return null
+  return {
+    loc: data.stepDownLoc,
+    date: data.stepDownDate || null,
+    hasBenefit: hasBenefitConfig(data, data.stepDownLoc),
+  }
+}
+
 // ── Step 4–6: service → bundling → benefit category ──────────────────────────
 
-// The bundling model is captured for the LOC this VOB verifies, so it only
-// governs services delivered in that context.
+// Bundling only exists as an INN program concept, and only for the LOC whose
+// benefit records it.
 export function isServiceBundled(data, serviceKey, contextLoc = data.verifiedLoc) {
   const service = getService(serviceKey)
   if (!service || !service.inStandardBundle) return false
-  if (contextLoc !== data.verifiedLoc) return false
+  if (data.network !== 'INN' || !contextLoc || contextLoc === 'OP') return false
   // Bundling is a plan rule, not an automatic consequence of being in a LOC.
-  return (
-    data.network === 'INN' &&
-    Boolean(contextLoc) &&
-    contextLoc !== 'OP' &&
-    data.bundlingModel === BUNDLING.STANDARD
-  )
+  const bundling = readBundling(data, contextLoc)
+  return Boolean(bundling) && bundling.model === BUNDLING.STANDARD
 }
 
 export function resolveBenefitCategory(data, serviceKey, contextLoc = data.verifiedLoc) {
@@ -197,12 +280,13 @@ export function resolveBenefitCategory(data, serviceKey, contextLoc = data.verif
   // Psych is always an OP benefit, regardless of the LOC the client is in.
   if (service && service.alwaysOp) return BENEFIT_CATEGORY.OP
   if (contextLoc === 'OP') return BENEFIT_CATEGORY.OP
+  const bundling = readBundling(data, contextLoc)
   if (
     service &&
     service.inStandardBundle &&
-    contextLoc === data.verifiedLoc &&
-    data.bundlingModel === BUNDLING.SEPARATE &&
-    data.separateServiceBenefit === 'OP benefit'
+    bundling &&
+    bundling.model === BUNDLING.SEPARATE &&
+    bundling.serviceBenefit === 'OP benefit'
   ) {
     return BENEFIT_CATEGORY.OP
   }
@@ -304,31 +388,42 @@ export function resolveBenefit(data, calc, serviceKey, contextLoc = data.verifie
   }
 
   const service = getService(serviceKey)
+  const bundling = readBundling(data, loc)
   const bundleUnknown =
     service &&
     service.inStandardBundle &&
-    (loc === data.verifiedLoc
-      ? data.bundlingModel === BUNDLING.CUSTOM
-      : // The bundling model was only captured for the verified LOC, so nothing
-        // can be assumed about ancillary services delivered under another one.
-        loc !== 'OP')
+    data.network === 'INN' &&
+    loc !== 'OP' &&
+    (!bundling || !bundling.model || bundling.model === BUNDLING.CUSTOM)
   if (bundleUnknown) {
     return {
       ...base,
       notes: [
-        loc === data.verifiedLoc
-          ? 'The plan uses a custom cost-sharing model — confirm this service with insurance.'
+        bundling && bundling.model === BUNDLING.CUSTOM
+          ? `The plan uses a custom cost-sharing model for ${loc} — confirm this service with insurance.`
           : `Bundling for ${loc} was not captured on this VOB — confirm this service with insurance.`,
       ],
       ...accumulators(RESPONSIBILITY.UNKNOWN, null, structure),
     }
   }
 
-  const config = readBenefitConfig(data, category)
+  const config = readBenefitConfig(data, category, serviceKey)
   if (!config) {
     return {
       ...base,
       notes: [`${categoryLoc(data, category)} benefit rules were not entered on this VOB.`],
+      ...accumulators(RESPONSIBILITY.UNKNOWN, null, structure),
+    }
+  }
+
+  // A psychiatric rate model of "Unsure" leaves psychiatric pricing unknown even
+  // though the OP benefit itself is fully entered.
+  if (config.rateUnconfirmed) {
+    return {
+      ...base,
+      notes: [
+        `Whether the plan prices ${serviceKey === 'PSYCH' ? 'psychiatric services' : serviceLabel(serviceKey, loc).toLowerCase()} at the OP rate or at a separate psychiatric rate is unconfirmed.`,
+      ],
       ...accumulators(RESPONSIBILITY.UNKNOWN, null, structure),
     }
   }
@@ -348,6 +443,7 @@ export function resolveBenefit(data, calc, serviceKey, contextLoc = data.verifie
     coinsurance: config.coinsurance,
     contractRate: config.contractRate,
     confirmed: config.confirmed,
+    usesServiceRate: Boolean(config.serviceRate),
   }
 
   if (calc.oopSatisfied) {
@@ -446,24 +542,36 @@ export function resolveBenefit(data, calc, serviceKey, contextLoc = data.verifie
   }
 }
 
-// Which services need to be described for the verified LOC context.
-export function contextServiceKeys(data) {
-  const loc = data.verifiedLoc
+// Which services need to be described for a given LOC context — the verified
+// LOC by default, or the step-down LOC when describing life after the step-down.
+export function contextServiceKeys(data, contextLoc = data.verifiedLoc) {
+  const loc = contextLoc
   if (!loc) return []
-  if (loc === 'OP') return ['LOC_SERVICE']
 
   const keys = ['LOC_SERVICE']
-  // Ancillary services are only listed once the plan's bundling behavior is
-  // known (INN) or when bundling does not apply at all (OON).
-  const bundlingKnown = data.network === 'INN' ? Boolean(data.bundlingModel) : true
-  if (bundlingKnown) keys.push('IT', 'FT', 'ASSESSMENT')
+  if (loc !== 'OP') {
+    // Ancillary services are only listed once the plan's bundling behavior is
+    // known (INN) or when bundling does not apply at all (OON).
+    const bundling = readBundling(data, loc)
+    const bundlingKnown = data.network === 'INN' ? Boolean(bundling && bundling.model) : true
+    if (bundlingKnown) keys.push('IT', 'FT', 'ASSESSMENT')
+  }
+
   // Psych is only listed once the OP benefit it bills under has been captured.
-  if (hasBenefitConfig(data, BENEFIT_CATEGORY.OP)) keys.push('PSYCH')
+  // In an OP context it is only worth listing separately when the plan prices
+  // psychiatric work differently from the rest of the OP benefit.
+  if (hasBenefitConfig(data, BENEFIT_CATEGORY.OP)) {
+    const psychRates = readPsychRates(data)
+    if (psychRates === PSYCH_RATES.SEPARATE) keys.push(...PSYCH_RATE_SERVICES)
+    else if (loc !== 'OP' || psychRates === PSYCH_RATES.UNSURE) keys.push('PSYCH')
+  }
   return keys
 }
 
-export function resolveContextBenefits(data, calc) {
-  return contextServiceKeys(data).map((key) => resolveBenefit(data, calc, key))
+export function resolveContextBenefits(data, calc, contextLoc = data.verifiedLoc) {
+  return contextServiceKeys(data, contextLoc).map((key) =>
+    resolveBenefit(data, calc, key, contextLoc)
+  )
 }
 
 // ── Remaining exposure (formerly "client responsibility") ────────────────────
@@ -510,9 +618,15 @@ export function deriveActivityBenefit(data, calc, activity) {
   if (!data.verifiedLoc) return null
 
   const contextLoc = activity.activityLoc || data.verifiedLoc
+  const service = getService(activity.serviceType)
   // A service delivered under another LOC can still be derived when that LOC's
   // benefit was captured — otherwise say so rather than applying the wrong rule.
-  if (contextLoc !== data.verifiedLoc && !hasBenefitConfig(data, contextLoc)) {
+  // Services that always bill under OP do not depend on the surrounding LOC.
+  if (
+    contextLoc !== data.verifiedLoc &&
+    !(service && service.alwaysOp) &&
+    !hasBenefitConfig(data, contextLoc)
+  ) {
     return {
       crossLoc: true,
       note: `Service occurred under ${contextLoc}, and no ${contextLoc} benefit was entered on this VOB. Add it under Section 3 to derive expected cost sharing.`,

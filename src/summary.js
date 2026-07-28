@@ -9,13 +9,19 @@
 
 import {
   BUNDLING,
+  PSYCH_ALL_SERVICES,
+  PSYCH_RATES,
+  PSYCH_RATE_SERVICES,
   RESPONSIBILITY,
   computeCalc,
   computeRemainingExposure,
   formatCurrency,
   money,
   readBenefitConfig,
+  readBundling,
+  readPsychRates,
   resolveContextBenefits,
+  stepDownPlan,
   unitLabel,
 } from './benefits.js'
 
@@ -30,6 +36,15 @@ const DISPLAY_NAMES = {
   FT: 'Family Therapy',
   ASSESSMENT: 'Assessment',
   PSYCH: 'Psychiatric Services',
+  PSYCH_EVAL: 'Psychiatric Evaluation',
+  PSYCH_FOLLOWUP: 'Psychiatric Follow-Up',
+}
+
+// Client-facing name for a psychiatric service.
+const PSYCH_CLIENT_NAMES = {
+  PSYCH: 'Psychiatric visits',
+  PSYCH_EVAL: 'Psychiatric evaluation (your first visit)',
+  PSYCH_FOLLOWUP: 'Psychiatric follow-up visits',
 }
 
 function joinList(names) {
@@ -50,6 +65,10 @@ function unitPhrase(r) {
       return `per ${r.contextLoc} ${noun}`
     case 'PSYCH':
       return 'per psychiatric visit'
+    case 'PSYCH_EVAL':
+      return 'per psychiatric evaluation'
+    case 'PSYCH_FOLLOWUP':
+      return 'per psychiatric follow-up visit'
     case 'IT':
     case 'FT':
       return 'per session'
@@ -69,6 +88,10 @@ function plainUnitPhrase(r) {
       return 'per session'
     case 'ASSESSMENT':
       return 'per assessment'
+    case 'PSYCH':
+    case 'PSYCH_EVAL':
+    case 'PSYCH_FOLLOWUP':
+      return 'per visit'
     default:
       return unitLabel(r.contextLoc)
   }
@@ -80,6 +103,10 @@ function subjectLabel(r) {
   switch (r.service) {
     case 'PSYCH':
       return 'psychiatric services'
+    case 'PSYCH_EVAL':
+      return 'psychiatric evaluations'
+    case 'PSYCH_FOLLOWUP':
+      return 'psychiatric follow-up visits'
     case 'IT':
       return 'individual therapy'
     case 'FT':
@@ -128,10 +155,15 @@ function collectionLines(r, data, calc) {
   const dedRem = calc.deductibleRemaining !== null ? calc.deductibleRemaining : 0
   const rate = rateName(r.network)
 
-  if (r.service === 'PSYCH') {
-    lines.push(
-      `Psychiatric services use the OP benefit even while the client is enrolled in ${r.contextLoc}.`
-    )
+  if (PSYCH_ALL_SERVICES.includes(r.service)) {
+    if (r.contextLoc !== 'OP') {
+      lines.push(
+        `${subject.charAt(0).toUpperCase()}${subject.slice(1)} use the OP benefit even while the client is enrolled in ${r.contextLoc}.`
+      )
+    }
+    if (r.usesServiceRate) {
+      lines.push(`The plan prices ${subject} at their own rate, not at the plain OP rate.`)
+    }
   }
 
   switch (r.responsibilityType) {
@@ -332,11 +364,45 @@ function clientShortPhrase(r, calc) {
   }
 }
 
-function benefitBlockLines(title, config, unit) {
-  const lines = [`${title}:`]
-  lines.push(`  Deductible Applies: ${config.deductibleApplies || 'Not specified'}`)
+// Client-facing psychiatric paragraph. When the plan prices evaluations and
+// follow-ups separately, each gets its own line so the first visit is never
+// quoted at the follow-up rate.
+function psychClientLines(resolvedServices, calc, loc) {
+  const psych = resolvedServices.filter((b) => PSYCH_ALL_SERVICES.includes(b.service))
+  if (psych.length === 0) return []
+
+  const opening =
+    loc === 'OP'
+      ? 'Psychiatric visits are billed under your outpatient benefit'
+      : `Psychiatric visits use your outpatient benefit even while you are in ${loc}`
+
+  if (psych.length === 1) {
+    const only = psych[0]
+    return [
+      only.responsibilityType === RESPONSIBILITY.UNKNOWN
+        ? `${opening}. We are still confirming that benefit with your plan.`
+        : `${opening}: ${clientShortPhrase(only, calc)}.`,
+    ]
+  }
+
+  // Separate rates — the plan charges differently for the evaluation.
+  const block = [`${opening}, and your plan charges differently for each type of visit:`]
+  psych.forEach((p) => {
+    const name = PSYCH_CLIENT_NAMES[p.service] || p.serviceLabel
+    block.push(
+      p.responsibilityType === RESPONSIBILITY.UNKNOWN
+        ? `  - ${name}: we are still confirming this with your plan.`
+        : `  - ${name}: ${clientShortPhrase(p, calc)}.`
+    )
+  })
+  return [block.join('\n')]
+}
+
+function ruleLines(config, unit, indent) {
+  const lines = []
+  lines.push(`${indent}Deductible Applies: ${config.deductibleApplies || 'Not specified'}`)
   lines.push(
-    `  Copay: ${
+    `${indent}Copay: ${
       config.copayNa ? 'N/A' : config.copay !== null ? `${money(config.copay)} ${unit}` : 'Not specified'
     }`
   )
@@ -345,7 +411,7 @@ function benefitBlockLines(title, config, unit) {
       ? 'Coinsurance After Deductible'
       : 'Coinsurance'
   lines.push(
-    `  ${coinsLabel}: ${
+    `${indent}${coinsLabel}: ${
       config.coinsuranceNa
         ? 'N/A'
         : config.coinsurance !== null
@@ -354,11 +420,65 @@ function benefitBlockLines(title, config, unit) {
     }`
   )
   if (config.contractRate !== null) {
-    lines.push(`  Contract Rate: ${money(config.contractRate)} ${unit}`)
+    lines.push(`${indent}Contract Rate: ${money(config.contractRate)} ${unit}`)
   }
-  if (!config.confirmed) {
-    lines.push('  ⚠ Not yet confirmed from insurance.')
+  return lines
+}
+
+// One block per stored level of care: its rules, how services delivered during
+// it are cost-shared, and — for OP — how psychiatric work is priced.
+function benefitBlockLines(data, loc, title) {
+  const config = readBenefitConfig(data, loc)
+  if (!config) return []
+  const unit = unitLabel(loc)
+  const lines = [`${title}:`]
+  ruleLines(config, unit, '  ').forEach((l) => lines.push(l))
+  if (!config.confirmed) lines.push('  ⚠ Not yet confirmed from insurance.')
+
+  if (loc === 'OP') {
+    const psychRates = readPsychRates(data)
+    lines.push('  Psychiatric Services:')
+    if (psychRates === PSYCH_RATES.SEPARATE) {
+      lines.push('    Priced at their own rates, separate from the plain OP rate.')
+      PSYCH_RATE_SERVICES.forEach((key) => {
+        const rate = readBenefitConfig(data, loc, key)
+        lines.push(`    ${DISPLAY_NAMES[key]}:`)
+        ruleLines(rate, 'per visit', '      ').forEach((l) => lines.push(l))
+        if (!rate.confirmed) lines.push('      ⚠ Not yet confirmed from insurance.')
+      })
+    } else if (psychRates === PSYCH_RATES.SAME) {
+      lines.push('    Priced at the OP rates listed above — no separate psychiatric rate.')
+    } else {
+      lines.push(
+        '    ⚠ UNCONFIRMED — whether psychiatric evaluations and follow-ups price at the OP rate'
+      )
+      lines.push('      or at separate psychiatric rates has not been verified with insurance.')
+    }
   }
+
+  const bundling = readBundling(data, loc)
+  if (loc !== 'OP' && bundling && bundling.model) {
+    lines.push(`  Services During ${loc}:`)
+    if (bundling.model === BUNDLING.STANDARD) {
+      lines.push(
+        `    Standard INN bundle — individual therapy, family therapy, and assessment are included in the ${loc} benefit.`
+      )
+    } else if (bundling.model === BUNDLING.SEPARATE) {
+      const source = bundling.serviceBenefit === 'OP benefit' ? 'OP' : loc
+      lines.push(
+        `    Separate patient responsibility for each service — individual therapy, family therapy, and assessment each generate their own cost share using the ${source} benefit.`
+      )
+    } else {
+      lines.push(
+        '    ⚠ Custom / Unsure — per-service responsibility and bundling are UNCONFIRMED for this plan.'
+      )
+      lines.push(
+        "    Do not quote or collect an individual therapy, family therapy, or assessment amount until the plan's model is verified with insurance."
+      )
+    }
+    lines.push('    Psychiatric services always use the OP benefit.')
+  }
+
   return lines
 }
 
@@ -376,6 +496,20 @@ export function generateExplanation(data) {
   const secondary = benefits.filter((b) => b.service !== 'LOC_SERVICE')
   const exposure = computeRemainingExposure(data, calc, primary)
 
+  // A planned step-down is a second collection context on the same plan: the
+  // accumulators carry over, the rates do not.
+  const stepDown = stepDownPlan(data)
+  const stepDownBenefits = stepDown && stepDown.hasBenefit
+    ? resolveContextBenefits(data, calc, stepDown.loc)
+    : []
+  const stepDownPrimary = stepDownBenefits.find((b) => b.service === 'LOC_SERVICE') || null
+  // Psychiatric work bills under OP at every level of care, so a step-down does
+  // not change it — describing it twice would only imply it does.
+  const psychAlreadyDescribed = benefits.some((b) => PSYCH_ALL_SERVICES.includes(b.service))
+  const stepDownChanged = stepDownBenefits.filter(
+    (b) => !(psychAlreadyDescribed && PSYCH_ALL_SERVICES.includes(b.service))
+  )
+
   const {
     totalClientPaymentsToOop,
     totalAssistanceToOop,
@@ -387,7 +521,6 @@ export function generateExplanation(data) {
   } = calc
 
   const loc = data.verifiedLoc
-  const unit = unitLabel(loc)
   const lines = []
   const blank = () => lines.push('')
 
@@ -457,6 +590,22 @@ export function generateExplanation(data) {
     blank()
   }
 
+  lines.push('Planned Step-Down:')
+  if (stepDown) {
+    const when = formatDate(stepDown.date)
+    lines.push(`  ${loc} → ${stepDown.loc}${when ? ` (expected ${when})` : ''}`)
+    lines.push(
+      stepDown.hasBenefit
+        ? `  Cost sharing changes at the step-down — the ${stepDown.loc} benefit applies from that point forward.`
+        : `  ⚠ No ${stepDown.loc} benefit was entered on this VOB — post-step-down cost sharing cannot be quoted.`
+    )
+  } else if (data.stepDownPlanned === 'Unsure') {
+    lines.push('  Unsure — confirm whether a step-down is planned before quoting ongoing costs.')
+  } else {
+    lines.push('  None planned.')
+  }
+  blank()
+
   const isCrossLoc =
     (data.currentStatus === 'Currently in treatment' || data.currentStatus === 'Discharged') &&
     data.currentLoc &&
@@ -473,49 +622,24 @@ export function generateExplanation(data) {
   // ── Benefit blocks: one per level of care captured on this plan ───────────
   if (loc) {
     const stored = (data.locBenefits || []).filter((b) => b.loc)
-    const primary = stored.find((b) => b.loc === loc)
+    const verified = stored.find((b) => b.loc === loc)
     const others = stored.filter((b) => b.loc !== loc)
 
-    if (primary) {
-      benefitBlockLines(`${loc} Benefit (Verified LOC)`, readBenefitConfig(data, loc), unit).forEach(
-        (l) => lines.push(l)
-      )
+    if (verified) {
+      benefitBlockLines(data, loc, `${loc} Benefit (Verified LOC)`).forEach((l) => lines.push(l))
       blank()
     }
 
     others.forEach((entry) => {
-      const config = readBenefitConfig(data, entry.loc)
-      if (!config) return
-      const title =
-        entry.loc === 'OP'
-          ? `OP Benefit (used for services that bill under the OP benefit during ${loc})`
-          : `${entry.loc} Benefit`
-      benefitBlockLines(title, config, unitLabel(entry.loc)).forEach((l) => lines.push(l))
+      let title = `${entry.loc} Benefit`
+      if (stepDown && entry.loc === stepDown.loc) {
+        title = `${entry.loc} Benefit (Planned Step-Down)`
+      } else if (entry.loc === 'OP') {
+        title = `OP Benefit (used for services that bill under the OP benefit during ${loc})`
+      }
+      benefitBlockLines(data, entry.loc, title).forEach((l) => lines.push(l))
       blank()
     })
-
-    if (loc !== 'OP' && data.bundlingModel) {
-      lines.push(`Services During ${loc}:`)
-      if (data.bundlingModel === BUNDLING.STANDARD) {
-        lines.push(
-          `  Standard INN bundle — individual therapy, family therapy, and assessment are included in the ${loc} benefit.`
-        )
-      } else if (data.bundlingModel === BUNDLING.SEPARATE) {
-        const source = data.separateServiceBenefit === 'OP benefit' ? 'OP' : loc
-        lines.push(
-          `  Separate patient responsibility for each service — individual therapy, family therapy, and assessment each generate their own cost share using the ${source} benefit.`
-        )
-      } else {
-        lines.push(
-          '  ⚠ Custom / Unsure — per-service responsibility and bundling are UNCONFIRMED for this plan.'
-        )
-        lines.push(
-          '  Do not quote or collect an individual therapy, family therapy, or assessment amount until the plan\'s model is verified with insurance.'
-        )
-      }
-      lines.push('  Psychiatric services always use the OP benefit.')
-      blank()
-    }
   }
 
   // ── Episode Financial Activity ────────────────────────────────────────────
@@ -578,6 +702,36 @@ export function generateExplanation(data) {
         collectionLines(b, data, calc).forEach((l) => lines.push(`    ${l}`))
       })
     }
+    blank()
+  }
+
+  // ── Expected collection after the step-down ───────────────────────────────
+  if (stepDown && stepDownPrimary) {
+    lines.push(`Expected Collection After Step-Down To ${stepDown.loc}:`)
+    if (stepDownChanged.length === 1) {
+      collectionLines(stepDownPrimary, data, calc).forEach((l) => lines.push(`  ${l}`))
+    } else {
+      stepDownChanged.forEach((b) => {
+        blank()
+        lines.push(`  ${displayName(b)}:`)
+        collectionLines(b, data, calc).forEach((l) => lines.push(`    ${l}`))
+      })
+      blank()
+    }
+    if (stepDownBenefits.length !== stepDownChanged.length) {
+      lines.push(
+        '  Psychiatric services are unaffected by the step-down — they already bill under the OP benefit.'
+      )
+    }
+    lines.push(
+      `  The deductible and OOP maximum do not reset at the step-down — amounts collected during ${loc} still count.`
+    )
+    blank()
+  } else if (stepDown) {
+    lines.push(`Expected Collection After Step-Down To ${stepDown.loc}:`)
+    lines.push(
+      `  ⚠ Not established — add a ${stepDown.loc} benefit in Section 3 to quote post-step-down cost sharing.`
+    )
     blank()
   }
 
@@ -690,7 +844,8 @@ export function generateExplanation(data) {
 
   // Services that carry their own cost share.
   const separateServices = secondary.filter(
-    (b) => b.responsibilityType !== RESPONSIBILITY.BUNDLED && b.service !== 'PSYCH'
+    (b) =>
+      b.responsibilityType !== RESPONSIBILITY.BUNDLED && !PSYCH_ALL_SERVICES.includes(b.service)
   )
   separateServices
     .filter((b) => b.responsibilityType !== RESPONSIBILITY.UNKNOWN)
@@ -714,15 +869,45 @@ export function generateExplanation(data) {
     blank()
   }
 
-  const psych = secondary.find((b) => b.service === 'PSYCH')
-  if (psych) {
-    if (psych.responsibilityType === RESPONSIBILITY.UNKNOWN) {
+  psychClientLines(secondary, calc, loc).forEach((l) => {
+    lines.push(l)
+    blank()
+  })
+
+  // What changes when the client steps down — same accumulators, new rates.
+  if (stepDown) {
+    if (stepDownPrimary) {
+      lines.push(`When you step down from ${loc} to ${stepDown.loc}, your cost sharing changes:`)
+      blank()
+      clientBenefitLines(stepDownPrimary, data, calc).forEach((l) => {
+        lines.push(l)
+        blank()
+      })
+      const stepDownSecondary = stepDownChanged.filter((b) => b.service !== 'LOC_SERVICE')
+      stepDownSecondary
+        .filter(
+          (b) =>
+            !PSYCH_ALL_SERVICES.includes(b.service) &&
+            b.responsibilityType !== RESPONSIBILITY.BUNDLED &&
+            b.responsibilityType !== RESPONSIBILITY.UNKNOWN
+        )
+        .forEach((b) => {
+          const name = BUNDLE_SERVICE_NAMES[b.service] || b.serviceLabel
+          lines.push(
+            `In ${stepDown.loc}, ${name} visits are billed separately: ${clientShortPhrase(b, calc)}.`
+          )
+          blank()
+        })
+      psychClientLines(stepDownSecondary, calc, stepDown.loc).forEach((l) => {
+        lines.push(l)
+        blank()
+      })
       lines.push(
-        `Psychiatric visits use your outpatient benefit even while you are in ${loc}. We are still confirming that benefit with your plan.`
+        'Your deductible and out-of-pocket maximum do not restart when you step down — everything you have already paid this plan year still counts.'
       )
     } else {
       lines.push(
-        `Psychiatric visits use your outpatient benefit even while you are in ${loc}: ${clientShortPhrase(psych, calc)}.`
+        `You are expected to step down from ${loc} to ${stepDown.loc}. Your costs will change at that point, and we are still confirming your ${stepDown.loc} benefit with your plan. We will review those amounts with you before collecting anything.`
       )
     }
     blank()

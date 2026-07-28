@@ -681,6 +681,31 @@ body {
   margin-bottom: 0;
 }
 
+/* A rule set that sits inside a LOC benefit — bundling, psychiatric rates. */
+.benefit-subsection {
+  border-top: 1px solid #d1d9e0;
+  padding-top: 14px;
+}
+
+.benefit-subsection .field-group {
+  margin-bottom: 0;
+}
+
+.service-rate-card {
+  border: 1px solid #d1d9e0;
+  border-radius: 6px;
+  padding: 14px 14px 12px;
+  margin-top: 12px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.service-rate-card .field-group {
+  margin-bottom: 0;
+}
+
 .primary-tag {
   display: inline-block;
   margin-left: 10px;
