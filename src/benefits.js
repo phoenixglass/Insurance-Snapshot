@@ -51,6 +51,19 @@ export const SERVICE_OPTIONS = ['LOC_SERVICE', 'IT', 'FT', 'ASSESSMENT', 'PSYCH'
 
 const PER_DIEM_LOCS = ['Detox', 'Resi']
 
+// A per diem level of care is billed by the day, but its copay is very often
+// charged once for the whole stay ("$500 copay per admission"). The two are not
+// interchangeable — reading a per-admission copay out as a daily one overstates
+// a 30-day stay by 30x — so the basis is captured rather than assumed.
+export const COPAY_BASIS = {
+  PER_UNIT: 'Per day',
+  PER_ADMISSION: 'Per admission',
+}
+
+export function copayBasisApplies(loc) {
+  return PER_DIEM_LOCS.includes(loc)
+}
+
 export function formatCurrency(value) {
   const n = parseFloat(value)
   return (Number.isNaN(n) ? 0 : n).toLocaleString('en-US', {
@@ -82,6 +95,14 @@ export function serviceLabel(key, loc) {
 
 export function unitLabel(loc) {
   return PER_DIEM_LOCS.includes(loc) ? 'per day' : 'per visit'
+}
+
+// The unit a specific service is billed in. Therapy and assessments are billed
+// per encounter regardless of whether the LOC around them is per diem.
+export function serviceUnitLabel(serviceKey, loc) {
+  if (serviceKey === 'IT' || serviceKey === 'FT') return 'per session'
+  if (serviceKey === 'ASSESSMENT') return 'per assessment'
+  return unitLabel(loc)
 }
 
 // ── Step 1–2: running plan-level calculations ────────────────────────────────
@@ -164,6 +185,7 @@ export function readBenefitConfig(data, category) {
     deductibleApplies: entry.deductibleApplies,
     copay: entry.copayNa ? null : num(entry.copayAmount),
     copayNa: Boolean(entry.copayNa),
+    copayBasis: copayBasisApplies(targetLoc) ? entry.copayBasis || '' : '',
     coinsurance: entry.coinsuranceNa ? null : num(entry.coinsurancePercent),
     coinsuranceNa: Boolean(entry.coinsuranceNa),
     contractRate: num(entry.contractRate),
@@ -275,6 +297,9 @@ export function resolveBenefit(data, calc, serviceKey, contextLoc = data.verifie
     benefitLabel: categoryLoc(data, category) || loc,
     network: data.network,
     unit,
+    // The unit the copay is charged in, which is not always the unit the LOC is
+    // billed in — a per diem stay can carry a single per-admission copay.
+    copayUnit: serviceUnitLabel(serviceKey, loc),
     bundled,
     deductibleApplies: null,
     responsibilityType: RESPONSIBILITY.UNKNOWN,
@@ -285,6 +310,7 @@ export function resolveBenefit(data, calc, serviceKey, contextLoc = data.verifie
     amount: null,
     amountKnown: false,
     cappedByDeductible: false,
+    cappedByContractRate: false,
     countsTowardDeductible: null,
     countsTowardOOP: null,
     towardDeductible: null,
@@ -341,8 +367,15 @@ export function resolveBenefit(data, calc, serviceKey, contextLoc = data.verifie
   const coinsuranceSpecified = config.coinsuranceNa || config.coinsurance !== null
   const dedRemaining = calc.deductibleRemaining !== null ? calc.deductibleRemaining : 0
 
+  // A per-admission copay is charged once for the stay, so it belongs to the
+  // level of care itself — a therapy session inside that stay is still priced
+  // per session.
+  const perAdmission =
+    serviceKey === 'LOC_SERVICE' && config.copayBasis === COPAY_BASIS.PER_ADMISSION
+
   const resolved = {
     ...base,
+    copayUnit: perAdmission ? 'per admission' : base.copayUnit,
     deductibleApplies: dedUnknown ? null : dedApplies,
     copay: config.copay,
     coinsurance: config.coinsurance,
@@ -390,6 +423,26 @@ export function resolveBenefit(data, calc, serviceKey, contextLoc = data.verifie
     type = RESPONSIBILITY.NONE
   }
 
+  // A copay can never exceed what the service actually costs: we cannot collect
+  // more than the contracted rate, so a $50 copay against a $40 contracted rate
+  // is collected as $40. The plan's stated copay is kept on `copay`; what to
+  // actually collect is `amount`.
+  //
+  // The cap only applies to the level of care's own service, because that is
+  // the only service the stored rate describes. A therapy or psychiatric visit
+  // billing under the same benefit is a different code at a different rate — an
+  // OP benefit's rate is the routine/group visit rate, so capping an individual
+  // therapy copay with it would under-collect. A per-admission copay is exempt
+  // for the same reason in the other direction: a per-day rate is not a ceiling
+  // on a charge that covers the whole stay.
+  const rateAppliesToService = serviceKey === 'LOC_SERVICE' && !perAdmission
+  const collectibleCopay =
+    config.copay !== null && config.contractRate !== null && rateAppliesToService
+      ? Math.min(config.copay, config.contractRate)
+      : config.copay
+  const copayCapped = collectibleCopay !== null && collectibleCopay < config.copay
+  const copayCapNote = `The plan lists a ${money(config.copay)} copay, but the ${config.contractRate !== null ? money(config.contractRate) : ''} contracted rate is lower — collect ${money(collectibleCopay)}. We cannot charge more than the contracted rate.`
+
   // Patient responsibility for the phase the client is actually in.
   let amount = null
   let amountKnown = false
@@ -405,8 +458,9 @@ export function resolveBenefit(data, calc, serviceKey, contextLoc = data.verifie
       notes.push('Contract rate not entered — the exact per-visit amount cannot be calculated.')
     }
   } else if (type === RESPONSIBILITY.COPAY || type === RESPONSIBILITY.COPAY_AND_COINSURANCE) {
-    amount = config.copay
+    amount = collectibleCopay
     amountKnown = true
+    if (copayCapped) notes.push(copayCapNote)
     if (type === RESPONSIBILITY.COPAY_AND_COINSURANCE) {
       notes.push(
         `The plan lists both a copay and ${config.coinsurance}% coinsurance — confirm which applies before quoting a final estimate.`
@@ -430,7 +484,8 @@ export function resolveBenefit(data, calc, serviceKey, contextLoc = data.verifie
   if (type === RESPONSIBILITY.DEDUCTIBLE_THEN_COINSURANCE && config.contractRate !== null) {
     postDeductibleAmount = round2((config.contractRate * config.coinsurance) / 100)
   } else if (type === RESPONSIBILITY.DEDUCTIBLE_THEN_COPAY) {
-    postDeductibleAmount = config.copay
+    postDeductibleAmount = collectibleCopay
+    if (copayCapped) notes.push(copayCapNote)
   }
 
   return {
@@ -440,6 +495,11 @@ export function resolveBenefit(data, calc, serviceKey, contextLoc = data.verifie
     amount,
     amountKnown,
     cappedByDeductible,
+    cappedByContractRate:
+      copayCapped &&
+      (type === RESPONSIBILITY.COPAY ||
+        type === RESPONSIBILITY.COPAY_AND_COINSURANCE ||
+        type === RESPONSIBILITY.DEDUCTIBLE_THEN_COPAY),
     postDeductibleAmount,
     notes,
     ...accumulators(type, amount, structure),

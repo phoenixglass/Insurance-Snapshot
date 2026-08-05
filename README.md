@@ -1,6 +1,6 @@
 # Insurance Snapshot
 
-A single-page React application that helps staff quickly capture and summarize a client's insurance details for a behavioral health or treatment episode — then generates a plain-language explanation that can be shared directly with the client.
+A single-page React application that helps staff quickly capture and summarize a client's insurance details for a behavioral health or treatment episode — then generates the short cost note that the person relaying costs actually reads to the client, plus the full detail behind it.
 
 ---
 
@@ -15,7 +15,9 @@ A single-page React application that helps staff quickly capture and summarize a
 - **Running Calculations** — Automatically computes deductible remaining, OOP remaining, and total episode activity applied to OOP.
 - **Cross-LOC Warning** — Flags when the verified LOC differs from the current/most recent LOC so staff know prior activity is being carried forward.
 - **Final Check** — Checklist confirming all key fields have been reviewed before submission.
-- **Client-Facing Summary** — Generates a formatted plain-language summary (staff view + client explanation) that can be copied and shared.
+- **Copay Capped at the Contracted Rate** — A plan's stated copay is never collected above the level of care's contracted rate, because we cannot charge more than we contracted for. A $50 copay against a $40 contracted rate is collected as $40, and the note says why.
+- **Per-Admission Copays** — A per diem level of care (Detox, Resi) can carry a single copay for the whole stay rather than one per day. Which one it is has to be stated, since the difference is one charge versus one charge per day.
+- **Three Outputs, One Engine** — Every submission produces a **Cost Note**, a **Staff Detail** breakdown, and a **Client Explanation**, all resolved from the same benefit objects so they cannot disagree. Each can be copied to the clipboard.
 
 ---
 
@@ -70,5 +72,17 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 3. **Enter Benefits by Level of Care** — The verified LOC's card appears automatically. Specify whether the deductible applies, enter copay and coinsurance (or mark them N/A), and record the contracted rate when known. Use **+ Add Another LOC Benefit** for any other level of care the verification call covered — add OP if the client may receive psychiatric visits. Then select how services during the verified LOC are bundled.
 4. **Add Episode Financial Activity** — Use the "+ Add Activity" button to log any prior financial activity for the episode.
 5. **Complete the Final Check** — Check off each item to confirm everything has been reviewed.
-6. **Generate Summary** — Click **Generate Snapshot** to produce a formatted staff summary and a plain-language client explanation that can be copied to the clipboard.
+6. **Generate the Snapshot** — Submitting produces three views of the same result:
+   - **Cost Note** — the default. A handful of lines saying what each thing costs, in the shape the billing team already writes by hand. This is the part that gets read to the client.
+   - **Staff Detail** — the full VOB breakdown, collection instructions, and accumulator behavior.
+   - **Client Explanation** — long-form plain-language wording for when the client asks how their plan works.
+
+### What the Cost Note leaves out
+
+The cost note answers one question per line — "what does this cost?" — and nothing else. Deductibles, accumulators, network, and episode history appear only where they change a number the client has to pay. Two rules keep it short:
+
+- A service only gets its own line when its price differs from the level of care it happens in. `IOP: no cost.` already covers everything bundled into IOP.
+- Services that cost the same share a line.
+
+A price the plan has not established is never guessed at. It is listed under a "do not quote" warning instead.
 

@@ -16,8 +16,10 @@ import {
   money,
   readBenefitConfig,
   resolveContextBenefits,
+  serviceUnitLabel,
   unitLabel,
 } from './benefits.js'
+import { generateCostNote } from './costNote.js'
 
 const BUNDLE_SERVICE_NAMES = {
   IT: 'individual therapy',
@@ -62,17 +64,13 @@ function unitPhrase(r) {
 
 // Client-facing sentences already name the service, so they use the bare unit
 // ("per visit") rather than the staff form ("per IOP visit").
-function plainUnitPhrase(r) {
-  switch (r.service) {
-    case 'IT':
-    case 'FT':
-      return 'per session'
-    case 'ASSESSMENT':
-      return 'per assessment'
-    default:
-      return unitLabel(r.contextLoc)
-  }
-}
+const plainUnitPhrase = (r) => serviceUnitLabel(r.service, r.contextLoc)
+
+// Copays are not always charged in the unit the level of care is billed in — a
+// per diem stay can carry one copay for the whole admission.
+const perAdmissionCopay = (r) => r.copayUnit === 'per admission'
+const copayUnitPhrase = (r) => (perAdmissionCopay(r) ? 'per admission' : unitPhrase(r))
+const plainCopayUnitPhrase = (r) => (perAdmissionCopay(r) ? 'per admission' : plainUnitPhrase(r))
 
 // The thing a staff sentence is about: "IOP", "psychiatric services", ...
 function subjectLabel(r) {
@@ -149,7 +147,7 @@ function collectionLines(r, data, calc) {
       break
 
     case RESPONSIBILITY.COPAY:
-      lines.push(`Collect ${money(r.amount)} ${unitPhrase(r)}.`)
+      lines.push(`Collect ${money(r.amount)} ${copayUnitPhrase(r)}.`)
       lines.push(`Do not collect toward the deductible for ${subject}.`)
       lines.push(
         primary
@@ -209,7 +207,7 @@ function collectionLines(r, data, calc) {
         lines.push(`${money(dedRem)} of deductible remains.`)
       }
       lines.push(
-        `Once the deductible is met, collect a ${money(r.copay)} copay ${unitPhrase(r)} until the applicable OOP maximum is reached.`
+        `Once the deductible is met, collect a ${money(r.postDeductibleAmount)} copay ${copayUnitPhrase(r)} until the applicable OOP maximum is reached.`
       )
       deductibleAccumulatorLines(structure).forEach((l) => lines.push(l))
       break
@@ -223,7 +221,7 @@ function collectionLines(r, data, calc) {
       break
 
     case RESPONSIBILITY.COPAY_AND_COINSURANCE:
-      lines.push(`Collect ${money(r.copay)} ${unitPhrase(r)}.`)
+      lines.push(`Collect ${money(r.amount)} ${copayUnitPhrase(r)}.`)
       lines.push(
         `The plan also lists ${r.coinsurance}% coinsurance — confirm which applies before quoting a final estimate.`
       )
@@ -249,12 +247,13 @@ function clientBenefitLines(r, data, calc) {
   const loc = r.contextLoc
   const dedRem = calc.deductibleRemaining !== null ? calc.deductibleRemaining : 0
   const unit = plainUnitPhrase(r)
+  const copayUnit = plainCopayUnitPhrase(r)
   const lines = []
 
   switch (r.responsibilityType) {
     case RESPONSIBILITY.COPAY:
       lines.push(
-        `Your ${loc} copay is ${money(r.amount)} ${unit}. These copays apply toward your out-of-pocket maximum.`
+        `Your ${loc} copay is ${money(r.amount)} ${copayUnit}. These copays apply toward your out-of-pocket maximum.`
       )
       break
     case RESPONSIBILITY.COINSURANCE:
@@ -279,7 +278,7 @@ function clientBenefitLines(r, data, calc) {
       lines.push(
         `You have ${money(dedRem)} remaining on your deductible. For ${loc}, you pay your plan's contracted rate${
           r.amountKnown ? ` — about ${money(r.amount)} ${unit}` : ''
-        } until the deductible is met. After that, your copay is ${money(r.copay)} ${unit} until you reach your out-of-pocket maximum.`
+        } until the deductible is met. After that, your copay is ${money(r.postDeductibleAmount)} ${copayUnit} until you reach your out-of-pocket maximum.`
       )
       break
     case RESPONSIBILITY.DEDUCTIBLE:
@@ -289,7 +288,7 @@ function clientBenefitLines(r, data, calc) {
       break
     case RESPONSIBILITY.COPAY_AND_COINSURANCE:
       lines.push(
-        `Your plan lists a ${money(r.copay)} copay ${unit} and ${r.coinsurance}% coinsurance for ${loc}. We are confirming which one your plan applies and will review the amount with you before collecting.`
+        `Your plan lists a ${money(r.amount)} copay ${copayUnit} and ${r.coinsurance}% coinsurance for ${loc}. We are confirming which one your plan applies and will review the amount with you before collecting.`
       )
       break
     case RESPONSIBILITY.NONE:
@@ -312,19 +311,20 @@ function clientBenefitLines(r, data, calc) {
 // Short client-facing phrase used when listing secondary services.
 function clientShortPhrase(r, calc) {
   const unit = plainUnitPhrase(r)
+  const copayUnit = plainCopayUnitPhrase(r)
   switch (r.responsibilityType) {
     case RESPONSIBILITY.COPAY:
-      return `a ${money(r.amount)} copay ${unit}`
+      return `a ${money(r.amount)} copay ${copayUnit}`
     case RESPONSIBILITY.COINSURANCE:
       return `${r.coinsurance}% coinsurance${r.amountKnown ? ` (about ${money(r.amount)} ${unit})` : ''}`
     case RESPONSIBILITY.DEDUCTIBLE_THEN_COINSURANCE:
       return `your plan's contracted rate until the deductible is met, then ${r.coinsurance}% coinsurance`
     case RESPONSIBILITY.DEDUCTIBLE_THEN_COPAY:
-      return `your plan's contracted rate until the deductible is met, then a ${money(r.copay)} copay ${unit}`
+      return `your plan's contracted rate until the deductible is met, then a ${money(r.postDeductibleAmount)} copay ${copayUnit}`
     case RESPONSIBILITY.DEDUCTIBLE:
       return `your plan's contracted rate until the deductible is met`
     case RESPONSIBILITY.COPAY_AND_COINSURANCE:
-      return `a ${money(r.copay)} copay ${unit} (we are confirming whether coinsurance also applies)`
+      return `a ${money(r.amount)} copay ${copayUnit} (we are confirming whether coinsurance also applies)`
     case RESPONSIBILITY.NONE:
       return calc.oopSatisfied ? 'no cost to you, because your out-of-pocket maximum is met' : 'no cost to you'
     default:
@@ -369,7 +369,14 @@ function formatDate(value) {
   return `${parts[1]}/${parts[2]}/${parts[0]}`
 }
 
-export function generateExplanation(data) {
+/**
+ * Build all three outputs from one form state. They are generated together, and
+ * every one of them is built from the same resolved benefits, so the one-line
+ * price a staff member reads out cannot disagree with the detail behind it.
+ *
+ * @returns {{costNote: string, staffSummary: string, clientExplanation: string}}
+ */
+export function generateSnapshot(data) {
   const calc = computeCalc(data)
   const benefits = resolveContextBenefits(data, calc)
   const primary = benefits.find((b) => b.service === 'LOC_SERVICE') || null
@@ -388,7 +395,12 @@ export function generateExplanation(data) {
 
   const loc = data.verifiedLoc
   const unit = unitLabel(loc)
-  const lines = []
+
+  // The two long-form outputs are written into separate buffers. `lines` points
+  // at whichever one is being written, and `blank()` follows it.
+  const staff = []
+  const client = []
+  let lines = staff
   const blank = () => lines.push('')
 
   lines.push('CLIENT INSURANCE SUMMARY')
@@ -626,9 +638,7 @@ export function generateExplanation(data) {
   )
 
   // ── Client-Facing Explanation ─────────────────────────────────────────────
-  blank()
-  lines.push('═'.repeat(50))
-  blank()
+  lines = client
 
   lines.push("Here's how your insurance is working:")
   blank()
@@ -770,7 +780,11 @@ export function generateExplanation(data) {
     'If a claim processes differently than expected, we will review the balance and update your account as needed.'
   )
 
-  return lines.join('\n')
+  return {
+    costNote: generateCostNote(data),
+    staffSummary: staff.join('\n'),
+    clientExplanation: client.join('\n'),
+  }
 }
 
 export { formatCurrency }
