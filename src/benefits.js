@@ -64,6 +64,23 @@ export function copayBasisApplies(loc) {
   return PER_DIEM_LOCS.includes(loc)
 }
 
+// What a level of care's own service actually is. For OP that is the routine
+// group visit, which matters because it is a different code at a different
+// contracted rate than the individual services billed under the same OP
+// benefit — the reason a plan's OP copay can land differently on a group than
+// on an individual therapy session.
+export function locServiceName(loc) {
+  return loc === 'OP' ? 'Groups' : loc
+}
+
+// What a benefit's stored contract rate is the rate *for*. Named explicitly
+// because the rate caps that service's copay and no other.
+export function contractRateSubject(loc) {
+  if (loc === 'OP') return 'groups'
+  if (PER_DIEM_LOCS.includes(loc)) return `a day of ${loc}`
+  return `an ${loc} visit`
+}
+
 export function formatCurrency(value) {
   const n = parseFloat(value)
   return (Number.isNaN(n) ? 0 : n).toLocaleString('en-US', {
@@ -510,7 +527,10 @@ export function resolveBenefit(data, calc, serviceKey, contextLoc = data.verifie
 export function contextServiceKeys(data) {
   const loc = data.verifiedLoc
   if (!loc) return []
-  if (loc === 'OP') return ['LOC_SERVICE']
+  // A client in OP still receives therapy and psych visits, and all of them
+  // price off the OP benefit — there is no bundling question to settle first,
+  // so nothing has to be withheld.
+  if (loc === 'OP') return ['LOC_SERVICE', 'IT', 'FT', 'ASSESSMENT', 'PSYCH']
 
   const keys = ['LOC_SERVICE']
   // Ancillary services are only listed once the plan's bundling behavior is

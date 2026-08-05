@@ -5,8 +5,10 @@ import {
   COPAY_BASIS,
   RESPONSIBILITY,
   computeCalc,
+  contractRateSubject,
   copayBasisApplies,
   deriveActivityBenefit,
+  locServiceName,
   formatCurrency,
   money,
   resolveBenefit,
@@ -239,20 +241,29 @@ function BenefitRuleFields({ idPrefix, values, onChange, unit, loc }) {
 
       <div className="field-group">
         <label className="field-label" htmlFor={`${idPrefix}-contractRate`}>
-          Contract Rate ({unit}) <span className="optional-hint">— optional</span>
+          Contract Rate{loc ? ` — ${locServiceName(loc)}` : ''} ({unit}){' '}
+          <span className="optional-hint">— optional</span>
         </label>
         <CurrencyInput
           id={`${idPrefix}-contractRate`}
           value={values.contractRate}
           onChange={(v) => onChange('contractRate', v)}
         />
-        {rateDrivesCalculation && (
-          <div className="info-banner">
-            ℹ Used to calculate the actual per-visit amount — deductible-phase collection,
-            coinsurance (contract rate × coinsurance %), and capping a copay that is higher than
-            the rate, since we cannot collect more than the contracted rate.
-          </div>
-        )}
+        {/* The rate belongs to one service, not to the whole benefit. Saying so
+            here is what stops a group rate from being read as an OP-wide rate. */}
+        <div className="info-banner">
+          ℹ This is the contracted rate for {loc ? contractRateSubject(loc) : 'this service'} only.
+          Individual therapy, family therapy, assessment, and psychiatric visits bill under their
+          own codes at their own rates, so this number does not apply to them.
+          {rateDrivesCalculation && (
+            <>
+              {' '}
+              It calculates deductible-phase collection and coinsurance (rate × coinsurance %), and
+              caps {loc ? locServiceName(loc).toLowerCase() : 'this service'} when the copay is
+              higher than the rate — we cannot collect more than the contracted rate.
+            </>
+          )}
+        </div>
       </div>
     </>
   )
@@ -260,8 +271,12 @@ function BenefitRuleFields({ idPrefix, values, onChange, unit, loc }) {
 
 // One level of care's benefit. The verified LOC's card is marked primary, but
 // it behaves exactly like every other card.
-function BenefitCard({ benefit, isPrimary, takenLocs, onChange, onRemove, resolved }) {
+function BenefitCard({ benefit, isPrimary, takenLocs, onChange, onRemove, resolved, verifiedLoc }) {
   const unit = benefit.loc ? unitLabel(benefit.loc) : 'per visit'
+  // Psych bills under OP no matter which level of care the client sits in, so
+  // the OP card is where that consequence belongs — not in a general note
+  // somewhere else on the page.
+  const pricesPsychElsewhere = benefit.loc === 'OP' && Boolean(verifiedLoc) && verifiedLoc !== 'OP'
   return (
     <div className={`benefit-card${isPrimary ? ' benefit-card-primary' : ''}`}>
       <div className="activity-row-header">
@@ -287,6 +302,14 @@ function BenefitCard({ benefit, isPrimary, takenLocs, onChange, onRemove, resolv
             value={benefit.loc}
             onChange={(v) => onChange('loc', v)}
           />
+        </div>
+      )}
+
+      {pricesPsychElsewhere && (
+        <div className="info-banner">
+          ℹ Psychiatric visits during {verifiedLoc} bill under this OP benefit, not the{' '}
+          {verifiedLoc} benefit. Whatever copay is entered here is what the client pays for a psych
+          visit while they are still in {verifiedLoc} — even when {verifiedLoc} itself is $0.
         </div>
       )}
 
@@ -341,7 +364,14 @@ function ResolvedBenefitPreview({ title, resolved }) {
         <span className="calc-value">{responsibilityTypeLabel(resolved.responsibilityType)}</span>
       </div>
       <div className="calc-field-row">
-        <span className="calc-label">Patient Responsibility</span>
+        {/* Named where the level of care's own service has a name of its own,
+            so a group price is never read as the price of everything in OP. */}
+        <span className="calc-label">
+          Patient Responsibility
+          {locServiceName(resolved.contextLoc) !== resolved.contextLoc
+            ? ` — ${locServiceName(resolved.contextLoc)}`
+            : ''}
+        </span>
         <span className="calc-value">{amountText}</span>
       </div>
       <div className="calc-field-row">
@@ -863,6 +893,7 @@ export default function App() {
                 key={benefit.id}
                 benefit={benefit}
                 isPrimary={Boolean(form.verifiedLoc) && benefit.loc === form.verifiedLoc}
+                verifiedLoc={form.verifiedLoc}
                 takenLocs={form.locBenefits.map((b) => b.loc).filter(Boolean)}
                 onChange={(field, value) => updateLocBenefit(benefit.id, field, value)}
                 onRemove={() => removeLocBenefit(benefit.id)}

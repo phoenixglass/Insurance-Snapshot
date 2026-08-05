@@ -77,12 +77,23 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
    - **Staff Detail** — the full VOB breakdown, collection instructions, and accumulator behavior.
    - **Client Explanation** — long-form plain-language wording for when the client asks how their plan works.
 
-### What the Cost Note leaves out
+### What the Cost Note looks like
 
-The cost note answers one question per line — "what does this cost?" — and nothing else. Deductibles, accumulators, network, and episode history appear only where they change a number the client has to pay. Two rules keep it short:
+```
+IOP: no cost.
+Psych services during IOP: $50 copay.
+OP LOC: Groups $40 copay. All other services $50 copay.
+```
 
-- A service only gets its own line when its price differs from the level of care it happens in. `IOP: no cost.` already covers everything bundled into IOP.
-- Services that cost the same share a line.
+It answers one question per line — "what does this cost?" — and nothing else. Deductibles, accumulators, network, and episode history appear only where they change a number the client has to pay. Three rules keep it short:
+
+- A service is only named when its price differs from the level of care it happens in. `IOP: no cost.` already covers everything bundled into IOP.
+- Services that cost the same are named together, and when every remaining service costs the same they become "all other services" — but only when every service was actually priced, so an uncaptured psych benefit is never quoted by implication.
+- A level of care other than the verified one gets a single line with its services inline. It is reference information, not today's price.
 
 A price the plan has not established is never guessed at. It is listed under a "do not quote" warning instead.
+
+### Group rates
+
+A level of care's contracted rate is the rate for that level of care's own service, and it caps that service's copay alone. For OP that service is the routine **group** visit, so the form labels the field `Contract Rate — Groups`, the cost note writes `Groups $40 copay`, and individual therapy, family therapy, assessment, and psychiatric visits keep their own copay because they bill under their own codes at their own rates.
 
