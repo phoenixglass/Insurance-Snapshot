@@ -2,8 +2,10 @@ import { useState } from 'react'
 import './App.css'
 import {
   BUNDLING,
+  COPAY_BASIS,
   RESPONSIBILITY,
   computeCalc,
+  copayBasisApplies,
   deriveActivityBenefit,
   formatCurrency,
   money,
@@ -12,7 +14,7 @@ import {
   serviceLabel,
   unitLabel,
 } from './benefits.js'
-import { generateExplanation } from './summary.js'
+import { generateSnapshot } from './summary.js'
 
 const makeActivity = () => ({
   id: `${Date.now()}-${Math.random()}`,
@@ -40,6 +42,7 @@ const makeBenefit = (loc = '') => ({
   deductibleApplies: '',
   copayAmount: '',
   copayNa: false,
+  copayBasis: '',
   coinsurancePercent: '',
   coinsuranceNa: false,
   contractRate: '',
@@ -131,14 +134,20 @@ function CurrencyInput({ id, value, onChange, placeholder = '0.00', disabled = f
 // Cost-sharing rules for one benefit category. Copay and coinsurance are both
 // first-class: "deductible applies = No" says nothing about which of the two
 // the plan actually uses, so each has to be entered or explicitly marked N/A.
-function BenefitRuleFields({ idPrefix, values, onChange, unit }) {
+function BenefitRuleFields({ idPrefix, values, onChange, unit, loc }) {
   const coinsurancePct =
     !values.coinsuranceNa && values.coinsurancePercent !== ''
       ? parseFloat(values.coinsurancePercent)
       : 0
+  const hasCopay = !values.copayNa && values.copayAmount !== '' && parseFloat(values.copayAmount) > 0
   // The rate is always recordable — a LOC can have both a contracted rate and a
-  // copay — but it only drives a calculation in the deductible/coinsurance case.
-  const rateDrivesCalculation = values.deductibleApplies === 'Yes' || coinsurancePct > 0
+  // copay — but it only drives a calculation in the deductible/coinsurance case,
+  // or when it caps a copay we would otherwise over-collect.
+  const rateDrivesCalculation =
+    values.deductibleApplies === 'Yes' || coinsurancePct > 0 || hasCopay
+  // A per diem level of care is billed daily, but its copay is frequently a
+  // single charge for the admission. Which one it is has to be asked.
+  const showCopayBasis = copayBasisApplies(loc) && hasCopay
 
   return (
     <>
@@ -172,6 +181,29 @@ function BenefitRuleFields({ idPrefix, values, onChange, unit }) {
             N/A
           </label>
         </div>
+        {showCopayBasis && (
+          <div className="conditional-block">
+            <label className="field-label">
+              Is that copay charged per day or once per admission?{' '}
+              <span className="required-star">*</span>
+            </label>
+            <RadioGroup
+              name={`${idPrefix}-copayBasis`}
+              options={[
+                { value: COPAY_BASIS.PER_ADMISSION, label: 'Once per admission' },
+                { value: COPAY_BASIS.PER_UNIT, label: 'Per day' },
+              ]}
+              value={values.copayBasis}
+              onChange={(v) => onChange('copayBasis', v)}
+            />
+            {values.copayBasis === COPAY_BASIS.PER_UNIT && (
+              <div className="alert-banner">
+                ⚠ A daily copay is charged for every day of the stay. Most VOBs that say "copay per
+                admission" mean the other option — confirm before quoting.
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="field-group">
@@ -216,8 +248,9 @@ function BenefitRuleFields({ idPrefix, values, onChange, unit }) {
         />
         {rateDrivesCalculation && (
           <div className="info-banner">
-            ℹ Used to calculate the actual per-visit amount — deductible-phase collection and
-            coinsurance (contract rate × coinsurance %).
+            ℹ Used to calculate the actual per-visit amount — deductible-phase collection,
+            coinsurance (contract rate × coinsurance %), and capping a copay that is higher than
+            the rate, since we cannot collect more than the contracted rate.
           </div>
         )}
       </div>
@@ -262,6 +295,7 @@ function BenefitCard({ benefit, isPrimary, takenLocs, onChange, onRemove, resolv
         values={benefit}
         onChange={onChange}
         unit={unit}
+        loc={benefit.loc}
       />
 
       <label className="checkbox-label">
@@ -280,12 +314,21 @@ function BenefitCard({ benefit, isPrimary, takenLocs, onChange, onRemove, resolv
   )
 }
 
+// A copay-driven amount is quoted in the copay's own unit, which is not always
+// the unit the level of care is billed in.
+function resolvedAmountUnit(resolved) {
+  const copayDriven =
+    resolved.responsibilityType === RESPONSIBILITY.COPAY ||
+    resolved.responsibilityType === RESPONSIBILITY.COPAY_AND_COINSURANCE
+  return copayDriven ? resolved.copayUnit : resolved.unit
+}
+
 // Read-only view of what the engine resolved, so staff can see the benefit that
 // the generated output will actually describe.
 function ResolvedBenefitPreview({ title, resolved }) {
   if (!resolved) return null
   const amountText = resolved.amountKnown
-    ? `${money(resolved.amount)} ${resolved.unit}`
+    ? `${money(resolved.amount)} ${resolvedAmountUnit(resolved)}`
     : resolved.responsibilityType === RESPONSIBILITY.UNKNOWN
       ? 'Not established'
       : 'Contract rate not entered'
@@ -362,10 +405,112 @@ function ActivityDerivedBenefit({ form, calc, activity }) {
   )
 }
 
+// The three outputs, in the order staff need them: the price to read out, the
+// detail behind it, then the wording for the client.
+const OUTPUT_VIEWS = [
+  {
+    key: 'costNote',
+    tab: 'Cost Note',
+    title: 'Cost Note',
+    hint: 'What to tell the client. This is the only part that needs to be read out loud.',
+  },
+  {
+    key: 'staffSummary',
+    tab: 'Staff Detail',
+    title: 'Staff Detail',
+    hint: 'The full VOB breakdown behind those numbers — for the file and for questions.',
+  },
+  {
+    key: 'clientExplanation',
+    tab: 'Client Explanation',
+    title: 'Client Explanation',
+    hint: 'Long-form plain-language wording, for when the client asks how their plan works.',
+  },
+]
+
+// Rendered as lines rather than a <pre> so a long price that wraps stays lined
+// up under the one above it instead of falling back to the left margin. The
+// copied text keeps its original spacing either way.
+function CostNoteText({ text }) {
+  return (
+    <div className="cost-note-text">
+      {text.split('\n').map((line, i) =>
+        line.trim() === '' ? (
+          <div key={i} className="cost-note-gap" />
+        ) : (
+          <div
+            key={i}
+            className={`cost-note-line${line.startsWith('  ') ? ' cost-note-line-nested' : ''}`}
+          >
+            {line.trim()}
+          </div>
+        )
+      )}
+    </div>
+  )
+}
+
+function OutputPanel({ snapshot }) {
+  const [activeKey, setActiveKey] = useState(OUTPUT_VIEWS[0].key)
+  const [copied, setCopied] = useState(false)
+  const active = OUTPUT_VIEWS.find((v) => v.key === activeKey) || OUTPUT_VIEWS[0]
+  const text = snapshot[active.key] || ''
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  const selectView = (key) => {
+    setActiveKey(key)
+    setCopied(false)
+  }
+
+  return (
+    <>
+      <div className="output-tabs" role="tablist">
+        {OUTPUT_VIEWS.map((view) => (
+          <button
+            key={view.key}
+            type="button"
+            role="tab"
+            aria-selected={view.key === activeKey}
+            className={`output-tab${view.key === activeKey ? ' output-tab-active' : ''}`}
+            onClick={() => selectView(view.key)}
+          >
+            {view.tab}
+          </button>
+        ))}
+      </div>
+
+      <div className="output-header">
+        <div>
+          <h2>{active.title}</h2>
+          <p className="output-hint">{active.hint}</p>
+        </div>
+        <button type="button" className="btn-copy" onClick={handleCopy}>
+          {copied ? '✓ Copied' : '⧉ Copy'}
+        </button>
+      </div>
+
+      {active.key === 'costNote' ? (
+        <CostNoteText text={text} />
+      ) : (
+        <pre className="explanation-text">{text}</pre>
+      )}
+    </>
+  )
+}
+
 export default function App() {
   const [form, setForm] = useState(INITIAL_FORM_STATE)
   const [submitted, setSubmitted] = useState(false)
-  const [explanation, setExplanation] = useState('')
+  const [snapshot, setSnapshot] = useState(null)
 
   const set = (field) => (value) => setForm((prev) => ({ ...prev, [field]: value }))
   const setCheck = (field) => (e) => setForm((prev) => ({ ...prev, [field]: e.target.checked }))
@@ -399,7 +544,11 @@ export default function App() {
       locBenefits: prev.locBenefits.map((b) => {
         if (b.id !== id) return b
         const next = { ...b, [field]: value }
-        if (field === 'copayNa' && value) next.copayAmount = ''
+        if (field === 'copayNa' && value) {
+          next.copayAmount = ''
+          next.copayBasis = ''
+        }
+        if (field === 'loc' && !copayBasisApplies(value)) next.copayBasis = ''
         if (field === 'coinsuranceNa' && value) next.coinsurancePercent = ''
         return next
       }),
@@ -480,6 +629,16 @@ export default function App() {
     if (!b.copayNa && b.copayAmount === '') {
       submitBlockers.push(`${label}: Copay must be entered or marked N/A`)
     }
+    // Per day vs per admission is the difference between $500 and $500 × the
+    // length of stay, so it cannot be left to a default.
+    if (
+      copayBasisApplies(b.loc) &&
+      !b.copayNa &&
+      parseFloat(b.copayAmount) > 0 &&
+      !b.copayBasis
+    ) {
+      submitBlockers.push(`${label}: copay must be marked per day or once per admission`)
+    }
     if (!b.coinsuranceNa && b.coinsurancePercent === '') {
       submitBlockers.push(`${label}: Coinsurance % must be entered or marked N/A`)
     }
@@ -544,7 +703,7 @@ export default function App() {
   const handleSubmit = (e) => {
     e.preventDefault()
     if (submitBlockers.length > 0) return
-    setExplanation(generateExplanation(form))
+    setSnapshot(generateSnapshot(form))
     setSubmitted(true)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -552,7 +711,7 @@ export default function App() {
   const handleReset = () => {
     setForm(INITIAL_FORM_STATE)
     setSubmitted(false)
-    setExplanation('')
+    setSnapshot(null)
   }
 
   const handleEdit = () => {
@@ -566,10 +725,9 @@ export default function App() {
         <h1>INSURANCE SNAPSHOT</h1>
       </header>
 
-      {submitted ? (
+      {submitted && snapshot ? (
         <div className="explanation-card">
-          <h2>Client Explanation</h2>
-          <pre className="explanation-text">{explanation}</pre>
+          <OutputPanel snapshot={snapshot} />
           <div className="explanation-actions">
             <button className="btn-secondary" onClick={handleEdit}>← Edit</button>
             <button className="btn-secondary" onClick={handleReset}>↺ Start New Snapshot</button>
@@ -1095,7 +1253,7 @@ export default function App() {
               </div>
             )}
             <button type="submit" className="btn-submit" disabled={submitBlockers.length > 0}>
-              SUBMIT → SYSTEM GENERATES CLIENT EXPLANATION
+              SUBMIT → GENERATE COST NOTE
             </button>
           </div>
         </form>

@@ -618,9 +618,70 @@ body {
   font-size: 1.2rem;
   font-weight: 700;
   color: #1a3a5c;
-  margin-bottom: 20px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.output-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid #e2e8f0;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.output-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  padding: 10px 18px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.output-tab:hover {
+  color: #1a3a5c;
+}
+
+.output-tab-active {
+  color: #1a3a5c;
+  border-bottom-color: #1a3a5c;
+}
+
+.output-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.output-hint {
+  font-size: 0.85rem;
+  color: #64748b;
+  margin-top: 6px;
+  max-width: 62ch;
+}
+
+.btn-copy {
+  flex-shrink: 0;
+  background: #1a3a5c;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 9px 18px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-copy:hover {
+  background: #14304c;
 }
 
 .explanation-text {
@@ -634,6 +695,32 @@ body {
   line-height: 1.7;
   color: #2d3748;
   margin-bottom: 24px;
+}
+
+/* The cost note is read off a screen while talking to a client — it gets more
+   room to breathe than the reference outputs behind it. */
+.cost-note-text {
+  font-size: 1.05rem;
+  line-height: 1.65;
+  background: #fffdf5;
+  border: 1px solid #e6d9a8;
+  border-radius: 6px;
+  padding: 20px 24px;
+  color: #2d3748;
+  margin-bottom: 24px;
+}
+
+.cost-note-line + .cost-note-line {
+  margin-top: 10px;
+}
+
+/* Wrapped text hangs under the start of its own line, not the margin. */
+.cost-note-line-nested {
+  padding-left: 2ch;
+}
+
+.cost-note-gap {
+  height: 14px;
 }
 
 .explanation-actions {
