@@ -26,6 +26,12 @@
 //   4. A level of care other than the verified one gets one line, with its
 //      services inline — it is reference information, not today's price.
 //
+// A per diem level of care is quoted as one price and nothing else. Individual
+// therapy, family therapy, assessment and psychiatric visits delivered inside
+// detox or residential are part of the day that was already quoted, so naming
+// them would put a second number in front of a client who only owes the first.
+// Pricing services one at a time is an outpatient concern.
+//
 // Coverage limits ride along with the price they limit: telehealth is named
 // only where the plan does not cover it, because that is the only version of
 // the fact that changes what the client can do or owes — and it is named for
@@ -40,6 +46,7 @@
 import {
   RESPONSIBILITY,
   computeCalc,
+  coversWholeAdmission,
   formatCurrency,
   locServiceName,
   ownServiceNoun,
@@ -218,6 +225,11 @@ function ownServicePrefix(loc, pricedApart) {
   return ownName !== loc && pricedApart ? `${ownName} ` : ''
 }
 
+// "Per admission" is the phrase that raises the question, so the answer travels
+// with it: detox and residential were authorized as one admission, so stepping
+// down does not start a second one and does not trigger a second copay.
+const oneAdmissionLine = 'That copay covers the whole stay — moving from detox into residential is not a new admission.'
+
 // Said only when the plan does not cover the level of care's own service over
 // telehealth — "covered" changes nothing about what the client does or owes,
 // and an uncaptured benefit (null) has not established either.
@@ -283,6 +295,8 @@ export function generateCostNote(data) {
 
   context.skipped.forEach((noun) => unresolved.push(`${noun} during ${loc}`))
 
+  if (coversWholeAdmission(primary)) lines.push(oneAdmissionLine)
+
   context.groups.forEach(({ label, text }) => {
     lines.push(`${capitalize(label)} during ${loc}: ${sentence(text)}`)
   })
@@ -315,6 +329,8 @@ export function generateCostNote(data) {
     const otherContext = priceServices(contextResolved, calc, dedRem, locPrice, collectCapNote)
 
     const parts = [`${ownServicePrefix(other, otherContext.pricedApart)}${locPrice.text}`]
+
+    if (coversWholeAdmission(locResolved)) parts.push(oneAdmissionLine)
 
     otherContext.groups.forEach(({ label, text }) => parts.push(`${capitalize(label)} ${text}`))
 

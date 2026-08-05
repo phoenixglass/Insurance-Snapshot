@@ -161,6 +161,20 @@ body {
   opacity: 0.5;
 }
 
+/* An amount switched off by the N/A or "no deductible" checkbox beside it has
+   to look switched off — otherwise it reads as a field somebody forgot. */
+.currency-input:disabled,
+.percent-input:disabled {
+  color: #a0aec0;
+  cursor: not-allowed;
+}
+
+.currency-input-wrapper:has(input:disabled),
+.percent-input-wrapper:has(input:disabled) {
+  background: #edf2f7;
+  border-color: #e2e8f0;
+}
+
 /* ── Date Input ─────────────────────────────────────── */
 .date-input {
   border: 1px solid #cbd5e0;

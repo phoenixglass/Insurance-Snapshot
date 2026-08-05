@@ -49,7 +49,65 @@ export const SERVICES = [
 // Radio options for Section 4 — the LOC service label depends on the LOC.
 export const SERVICE_OPTIONS = ['LOC_SERVICE', 'IT', 'FT', 'ASSESSMENT', 'PSYCH', 'OTHER']
 
-const PER_DIEM_LOCS = ['Detox', 'Resi']
+// Detox and Resi are frequently authorized as one continuous admission: the
+// client steps down from detox into residential without being discharged and
+// re-admitted. When the plan wrote it that way the combined stay is the level
+// of care, which is what makes a per-admission copay a single charge for the
+// whole thing rather than one for each phase.
+export const COMBINED_DETOX_RESI = 'Detox/Resi'
+const DETOX_RESI_MEMBERS = ['Detox', 'Resi']
+
+export const LOC_OPTIONS = ['Detox', 'Resi', COMBINED_DETOX_RESI, 'PHP', 'IOP', 'OP']
+
+const PER_DIEM_LOCS = ['Detox', 'Resi', COMBINED_DETOX_RESI]
+
+export function isCombinedAdmission(loc) {
+  return loc === COMBINED_DETOX_RESI
+}
+
+// A per diem level of care is billed for the day, not for the individual
+// services delivered inside it. Everything that follows from that — the copay
+// basis question, what is quotable, what gets bundled — keys off this.
+export function isPerDiemLoc(loc) {
+  return PER_DIEM_LOCS.includes(loc)
+}
+
+// A combined Detox/Resi benefit and its two parts describe the same admission
+// two different ways, so storing both would price one stay twice.
+function locExcludedBy(loc) {
+  if (isCombinedAdmission(loc)) return DETOX_RESI_MEMBERS
+  return DETOX_RESI_MEMBERS.includes(loc) ? [COMBINED_DETOX_RESI] : []
+}
+
+// Levels of care that were stored despite describing the same admission as
+// something else already stored. The radio options prevent this on the way in,
+// but changing the verified LOC afterward can still produce it, and a combined
+// Detox/Resi benefit sitting next to a Detox one prices a single stay twice.
+export function conflictingLocs(storedLocs) {
+  const present = new Set(storedLocs.filter(Boolean))
+  return LOC_OPTIONS.filter((l) => present.has(l) && locExcludedBy(l).some((x) => present.has(x)))
+}
+
+// Which levels of care can still be chosen, given what is already stored.
+// `current` is always offered so a card can keep showing its own selection.
+export function selectableLocs(storedLocs, current = '') {
+  const blocked = new Set()
+  storedLocs.filter(Boolean).forEach((loc) => {
+    blocked.add(loc)
+    locExcludedBy(loc).forEach((l) => blocked.add(l))
+  })
+  return LOC_OPTIONS.filter((l) => l === current || !blocked.has(l))
+}
+
+// Whether a level of care is part of the one this VOB verified. A client
+// sitting in detox on a combined Detox/Resi verification is inside the verified
+// admission, not in a different level of care from it.
+export function locWithin(loc, verifiedLoc) {
+  if (!loc || !verifiedLoc) return false
+  return (
+    loc === verifiedLoc || (isCombinedAdmission(verifiedLoc) && DETOX_RESI_MEMBERS.includes(loc))
+  )
+}
 
 // A per diem level of care is billed by the day, but its copay is very often
 // charged once for the whole stay ("$500 copay per admission"). The two are not
@@ -61,7 +119,22 @@ export const COPAY_BASIS = {
 }
 
 export function copayBasisApplies(loc) {
-  return PER_DIEM_LOCS.includes(loc)
+  return isPerDiemLoc(loc)
+}
+
+// One copay covering a detox stay and the residential stay it steps down into.
+// Worth saying out loud wherever it is quoted, because "per admission" is
+// exactly the phrase that invites the question of whether moving into
+// residential starts a second admission — it does not.
+export function coversWholeAdmission(resolved) {
+  if (!resolved) return false
+  const copayDriven =
+    resolved.responsibilityType === RESPONSIBILITY.COPAY ||
+    resolved.responsibilityType === RESPONSIBILITY.COPAY_AND_COINSURANCE ||
+    resolved.responsibilityType === RESPONSIBILITY.DEDUCTIBLE_THEN_COPAY
+  return (
+    isCombinedAdmission(resolved.contextLoc) && resolved.copayUnit === 'per admission' && copayDriven
+  )
 }
 
 // What a level of care's own service actually is. For OP that is the routine
@@ -92,7 +165,8 @@ export function ownServiceVerb(loc) {
 // because the rate caps that service's copay and no other.
 export function contractRateSubject(loc) {
   if (loc === 'OP') return 'groups'
-  if (PER_DIEM_LOCS.includes(loc)) return `a day of ${loc}`
+  if (isCombinedAdmission(loc)) return 'a day of the detox/residential stay'
+  if (isPerDiemLoc(loc)) return `a day of ${loc}`
   return `an ${loc} visit`
 }
 
@@ -140,7 +214,7 @@ export function serviceLabel(key, loc) {
 }
 
 export function unitLabel(loc) {
-  return PER_DIEM_LOCS.includes(loc) ? 'per day' : 'per visit'
+  return isPerDiemLoc(loc) ? 'per day' : 'per visit'
 }
 
 // The unit a specific service is billed in. Therapy and assessments are billed
@@ -154,10 +228,16 @@ export function serviceUnitLabel(serviceKey, loc) {
 // ── Step 1–2: running plan-level calculations ────────────────────────────────
 
 export function computeCalc(data) {
-  const oopTotal = num(data.oopMaxTotal)
-  const oopMetVal = num(data.oopMet)
-  const dedTotal = num(data.deductibleTotal)
-  const dedMet = num(data.deductibleMet)
+  // Not every plan has a deductible or an out-of-pocket maximum. "The plan does
+  // not have one" and "nobody entered it yet" are different facts and are kept
+  // apart: an absent accumulator resolves to a known zero balance, an unentered
+  // one stays null so the output says it is unknown.
+  const noDeductible = Boolean(data.noDeductible)
+  const noOopMax = Boolean(data.noOopMax)
+  const oopTotal = noOopMax ? null : num(data.oopMaxTotal)
+  const oopMetVal = noOopMax ? null : num(data.oopMet)
+  const dedTotal = noDeductible ? null : num(data.deductibleTotal)
+  const dedMet = noDeductible ? null : num(data.deductibleMet)
 
   const activities = data.financialActivities || []
   const totalClientPaymentsToOop = activities
@@ -187,12 +267,15 @@ export function computeCalc(data) {
     (oopTotal !== null && oopMetVal !== null && oopMetVal >= oopTotal) ||
     calculatedOopRemaining === 0
 
-  const deductibleRemaining =
-    dedTotal !== null
+  const deductibleRemaining = noDeductible
+    ? 0
+    : dedTotal !== null
       ? Math.max(dedTotal - Math.max(dedMet || 0, totalEpisodeActivityToDeductible), 0)
       : null
 
   return {
+    noDeductible,
+    noOopMax,
     totalClientPaymentsToOop,
     totalAssistanceToOop,
     totalEpisodeActivityToOop,
@@ -228,7 +311,9 @@ export function readBenefitConfig(data, category) {
     category,
     loc: targetLoc,
     isPrimary: targetLoc === data.verifiedLoc,
-    deductibleApplies: entry.deductibleApplies,
+    // A plan with no deductible cannot have one apply to a benefit, so the
+    // per-LOC question is never asked and never has to be answered.
+    deductibleApplies: data.noDeductible ? 'No' : entry.deductibleApplies,
     copay: entry.copayNa ? null : num(entry.copayAmount),
     copayNa: Boolean(entry.copayNa),
     copayBasis: copayBasisApplies(targetLoc) ? entry.copayBasis || '' : '',
@@ -257,6 +342,10 @@ export function hasBenefitConfig(data, category) {
 export function isServiceBundled(data, serviceKey, contextLoc = data.verifiedLoc) {
   const service = getService(serviceKey)
   if (!service || !service.inStandardBundle) return false
+  // A per diem buys the day, not the services inside it: individual therapy
+  // during detox or residential is part of the stay, not a second charge. There
+  // is no bundling model to ask about, in or out of network.
+  if (isPerDiemLoc(contextLoc)) return true
   if (contextLoc !== data.verifiedLoc) return false
   // Bundling is a plan rule, not an automatic consequence of being in a LOC.
   return (
@@ -583,6 +672,13 @@ export function contextServiceKeys(data) {
   // so nothing has to be withheld.
   if (loc === 'OP') return ['LOC_SERVICE', 'IT', 'FT', 'ASSESSMENT', 'PSYCH']
 
+  // A per diem stay is quoted as one price. Individual therapy, family therapy,
+  // assessment and psychiatric visits delivered inside detox or residential are
+  // part of the day that was already quoted, so listing them would put a second
+  // number in front of a client who only owes the first. Naming services one at
+  // a time is an outpatient concern.
+  if (isPerDiemLoc(loc)) return ['LOC_SERVICE']
+
   const keys = ['LOC_SERVICE']
   // Ancillary services are only listed once the plan's bundling behavior is
   // known (INN) or when bundling does not apply at all (OON).
@@ -640,7 +736,14 @@ export function deriveActivityBenefit(data, calc, activity) {
   if (!activity.serviceType || activity.serviceType === 'OTHER') return null
   if (!data.verifiedLoc) return null
 
-  const contextLoc = activity.activityLoc || data.verifiedLoc
+  const recordedLoc = activity.activityLoc || data.verifiedLoc
+  // A day recorded as Detox against a combined Detox/Resi admission is a day of
+  // that admission, so it prices off the benefit that was actually verified
+  // rather than looking for a separate Detox benefit that will never exist.
+  const contextLoc =
+    !hasBenefitConfig(data, recordedLoc) && locWithin(recordedLoc, data.verifiedLoc)
+      ? data.verifiedLoc
+      : recordedLoc
   // A service delivered under another LOC can still be derived when that LOC's
   // benefit was captured — otherwise say so rather than applying the wrong rule.
   if (contextLoc !== data.verifiedLoc && !hasBenefitConfig(data, contextLoc)) {

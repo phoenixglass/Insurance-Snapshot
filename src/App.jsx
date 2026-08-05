@@ -3,17 +3,23 @@ import './App.css'
 import {
   BUNDLING,
   COPAY_BASIS,
+  LOC_OPTIONS,
   RESPONSIBILITY,
   computeCalc,
+  conflictingLocs,
   contractRateSubject,
   copayBasisApplies,
   deriveActivityBenefit,
+  isCombinedAdmission,
+  isPerDiemLoc,
   locServiceName,
+  locWithin,
   formatCurrency,
   money,
   ownServicePricedApart,
   resolveBenefit,
   responsibilityTypeLabel,
+  selectableLocs,
   serviceLabel,
   unitLabel,
 } from './benefits.js'
@@ -35,7 +41,15 @@ const makeActivity = () => ({
   notes: '',
 })
 
-const LOC_OPTIONS = ['Detox', 'Resi', 'PHP', 'IOP', 'OP']
+// Detox and Resi are frequently authorized as one continuous admission, so the
+// combined stay is offered as its own level of care rather than being assembled
+// out of two separate ones.
+const LOC_LABELS = {
+  'Detox/Resi': 'Detox + Resi (one admission)',
+}
+
+const locOptionsFrom = (locs) =>
+  locs.map((loc) => ({ value: loc, label: LOC_LABELS[loc] || loc }))
 
 // One independent benefit configuration per level of care. Every LOC — including
 // OP — uses this same shape; none of them is a special case.
@@ -65,8 +79,12 @@ const INITIAL_FORM_STATE = {
   network: '',
   deductibleTotal: '',
   deductibleMet: '',
+  // Some plans simply do not have one. That is a fact about the plan, not a
+  // blank field, so it is recorded rather than left for someone to enter $0.
+  noDeductible: false,
   oopMaxTotal: '',
   oopMet: '',
+  noOopMax: false,
   deductibleOopStructure: '',
 
   // Section 2 — Level of Care
@@ -138,7 +156,7 @@ function CurrencyInput({ id, value, onChange, placeholder = '0.00', disabled = f
 // Cost-sharing rules for one benefit category. Copay and coinsurance are both
 // first-class: "deductible applies = No" says nothing about which of the two
 // the plan actually uses, so each has to be entered or explicitly marked N/A.
-function BenefitRuleFields({ idPrefix, values, onChange, unit, loc }) {
+function BenefitRuleFields({ idPrefix, values, onChange, unit, loc, noDeductible }) {
   const coinsurancePct =
     !values.coinsuranceNa && values.coinsurancePercent !== ''
       ? parseFloat(values.coinsurancePercent)
@@ -152,22 +170,32 @@ function BenefitRuleFields({ idPrefix, values, onChange, unit, loc }) {
   // A per diem level of care is billed daily, but its copay is frequently a
   // single charge for the admission. Which one it is has to be asked.
   const showCopayBasis = copayBasisApplies(loc) && hasCopay
+  // The unit is stated in the label only where nothing else states it. Where
+  // the basis question below is asked, a "(per day)" in the label contradicts
+  // the per-admission answer sitting directly underneath it.
+  const copayUnitHint = copayBasisApplies(loc) ? '' : ` (${unit})`
 
   return (
     <>
-      <div className="field-group">
-        <label className="field-label">Does Deductible Apply?</label>
-        <RadioGroup
-          name={`${idPrefix}-deductibleApplies`}
-          options={['Yes', 'No', 'Unsure']}
-          value={values.deductibleApplies}
-          onChange={(v) => onChange('deductibleApplies', v)}
-        />
-      </div>
+      {noDeductible ? (
+        <div className="info-banner">
+          ℹ This plan has no deductible (Section 1), so no deductible applies to this benefit.
+        </div>
+      ) : (
+        <div className="field-group">
+          <label className="field-label">Does Deductible Apply?</label>
+          <RadioGroup
+            name={`${idPrefix}-deductibleApplies`}
+            options={['Yes', 'No', 'Unsure']}
+            value={values.deductibleApplies}
+            onChange={(v) => onChange('deductibleApplies', v)}
+          />
+        </div>
+      )}
 
       <div className="field-group">
         <label className="field-label" htmlFor={`${idPrefix}-copayAmount`}>
-          Copay ({unit})
+          Copay{copayUnitHint}
         </label>
         <div className="coinsurance-row">
           <CurrencyInput
@@ -204,6 +232,14 @@ function BenefitRuleFields({ idPrefix, values, onChange, unit, loc }) {
               <div className="alert-banner">
                 ⚠ A daily copay is charged for every day of the stay. Most VOBs that say "copay per
                 admission" mean the other option — confirm before quoting.
+              </div>
+            )}
+            {/* The step down from detox into residential is the moment this
+                answer gets tested, so it is answered where it is entered. */}
+            {values.copayBasis === COPAY_BASIS.PER_ADMISSION && isCombinedAdmission(loc) && (
+              <div className="info-banner">
+                ℹ One copay for the entire stay. Detox and Resi were authorized as a single
+                admission, so moving from detox into residential does not trigger a second copay.
               </div>
             )}
           </div>
@@ -256,10 +292,20 @@ function BenefitRuleFields({ idPrefix, values, onChange, unit, loc }) {
             and, just as importantly, stops the copay above from being read as a
             group-only price. */}
         <div className="info-banner">
-          ℹ The copay above applies to every service billing under this benefit. This is the
-          contracted rate for {loc ? contractRateSubject(loc) : 'this service'} only — individual
-          therapy, family therapy, assessment, and psychiatric visits bill under their own codes at
-          their own rates, so this number does not apply to them.
+          {isPerDiemLoc(loc) ? (
+            <>
+              ℹ This is the contracted rate for {contractRateSubject(loc)}. Individual therapy,
+              family therapy, and assessment delivered during the stay are part of the per diem —
+              they are not billed or quoted separately.
+            </>
+          ) : (
+            <>
+              ℹ The copay above applies to every service billing under this benefit. This is the
+              contracted rate for {loc ? contractRateSubject(loc) : 'this service'} only —
+              individual therapy, family therapy, assessment, and psychiatric visits bill under
+              their own codes at their own rates, so this number does not apply to them.
+            </>
+          )}
           {rateDrivesCalculation && (
             <>
               {' '}
@@ -294,9 +340,14 @@ function BenefitRuleFields({ idPrefix, values, onChange, unit, loc }) {
         <div className="info-banner">
           ℹ Unchecked means the plan does not cover{' '}
           {loc ? contractRateSubject(loc) : 'this service'} over telehealth, and the cost note says
-          so. It says nothing about individual therapy, family therapy, assessment, or psychiatric
-          visits — telehealth for those is not captured here. Check the box once the plan confirms
-          it.
+          so.{' '}
+          {!isPerDiemLoc(loc) && (
+            <>
+              It says nothing about individual therapy, family therapy, assessment, or psychiatric
+              visits — telehealth for those is not captured here.{' '}
+            </>
+          )}
+          Check the box once the plan confirms it.
         </div>
       )}
     </>
@@ -305,12 +356,26 @@ function BenefitRuleFields({ idPrefix, values, onChange, unit, loc }) {
 
 // One level of care's benefit. The verified LOC's card is marked primary, but
 // it behaves exactly like every other card.
-function BenefitCard({ benefit, isPrimary, takenLocs, onChange, onRemove, resolved, verifiedLoc }) {
+function BenefitCard({
+  benefit,
+  isPrimary,
+  takenLocs,
+  onChange,
+  onRemove,
+  resolved,
+  verifiedLoc,
+  noDeductible,
+}) {
   const unit = benefit.loc ? unitLabel(benefit.loc) : 'per visit'
   // Psych bills under OP no matter which level of care the client sits in, so
   // the OP card is where that consequence belongs — not in a general note
-  // somewhere else on the page.
-  const pricesPsychElsewhere = benefit.loc === 'OP' && Boolean(verifiedLoc) && verifiedLoc !== 'OP'
+  // somewhere else on the page. A per diem stay is the exception: the day is
+  // what is billed, and nothing inside it is quoted on its own.
+  const pricesPsychElsewhere =
+    benefit.loc === 'OP' &&
+    Boolean(verifiedLoc) &&
+    verifiedLoc !== 'OP' &&
+    !isPerDiemLoc(verifiedLoc)
   return (
     <div className={`benefit-card${isPrimary ? ' benefit-card-primary' : ''}`}>
       <div className="activity-row-header">
@@ -332,7 +397,7 @@ function BenefitCard({ benefit, isPrimary, takenLocs, onChange, onRemove, resolv
           </label>
           <RadioGroup
             name={`benefitLoc-${benefit.id}`}
-            options={LOC_OPTIONS.filter((l) => l === benefit.loc || !takenLocs.includes(l))}
+            options={locOptionsFrom(selectableLocs(takenLocs, benefit.loc))}
             value={benefit.loc}
             onChange={(v) => onChange('loc', v)}
           />
@@ -353,6 +418,7 @@ function BenefitCard({ benefit, isPrimary, takenLocs, onChange, onRemove, resolv
         onChange={onChange}
         unit={unit}
         loc={benefit.loc}
+        noDeductible={noDeductible}
       />
 
       <label className="checkbox-label">
@@ -630,25 +696,43 @@ export default function App() {
     }))
 
   // Choosing the verified LOC creates its benefit card if the call has not
-  // already produced one, and leaves every other stored benefit untouched.
+  // already produced one, and leaves every other stored benefit untouched. A
+  // bundling answer captured for an outpatient LOC is dropped on the way to a
+  // per diem one, where the question does not exist.
   const setVerifiedLoc = (loc) =>
     setForm((prev) => ({
       ...prev,
       verifiedLoc: loc,
       locBenefits: ensureBenefitFor(prev.locBenefits, loc),
+      ...(isPerDiemLoc(loc) ? { bundlingModel: '', separateServiceBenefit: '' } : {}),
     }))
+
+  // An accumulator the plan does not have takes no amounts with it, and the
+  // combined/separate question it feeds has nothing left to answer.
+  const setNoAccumulator = (field, amountFields) => (e) => {
+    const checked = e.target.checked
+    setForm((prev) => ({
+      ...prev,
+      [field]: checked,
+      ...(checked
+        ? { ...Object.fromEntries(amountFields.map((f) => [f, ''])), deductibleOopStructure: '' }
+        : {}),
+    }))
+  }
 
   // ── Derived state ──────────────────────────────────────
   const isNotYetAdmitted = form.currentStatus === 'Not yet admitted'
   const isActiveClient =
     form.currentStatus === 'Currently in treatment' || form.currentStatus === 'Discharged'
 
+  // Detox on a combined Detox/Resi verification is the same admission, not a
+  // different level of care from the one this VOB priced.
   const isCrossLoc =
     isActiveClient &&
     Boolean(form.currentLoc) &&
     form.currentLoc !== 'None' &&
     Boolean(form.verifiedLoc) &&
-    form.currentLoc !== form.verifiedLoc
+    !locWithin(form.currentLoc, form.verifiedLoc)
 
   const calc = computeCalc(form)
   const { totalClientPaymentsToOop, totalAssistanceToOop, totalEpisodeActivityToOop,
@@ -658,8 +742,14 @@ export default function App() {
   const hasActivities = form.financialActivities.length > 0
 
   // Section 3 visibility: bundling only exists as an INN program concept, and a
-  // secondary OP benefit is only relevant when the verified LOC is not OP.
-  const showBundlingModel = Boolean(form.verifiedLoc) && form.verifiedLoc !== 'OP' && form.network === 'INN'
+  // secondary OP benefit is only relevant when the verified LOC is not OP. A
+  // per diem stay has no bundling question either — the day is what is billed,
+  // so nothing delivered inside it is priced on its own.
+  const showBundlingModel =
+    Boolean(form.verifiedLoc) &&
+    form.verifiedLoc !== 'OP' &&
+    !isPerDiemLoc(form.verifiedLoc) &&
+    form.network === 'INN'
 
   // The verified LOC's card sorts first; the rest keep insertion order.
   const primaryBenefit = form.locBenefits.find((b) => b.loc && b.loc === form.verifiedLoc) || null
@@ -697,9 +787,12 @@ export default function App() {
     } else if (form.locBenefits.filter((o) => o.loc === b.loc).length > 1) {
       submitBlockers.push(`${b.loc}: only one benefit can be entered per level of care`)
     }
-    if (!b.deductibleApplies) submitBlockers.push(`${label}: Deductible Applies must be selected`)
-    if (b.deductibleApplies === 'Unsure') {
-      submitBlockers.push(`${label}: deductible applicability must be confirmed before generating summary.`)
+    // Nothing to answer when the plan has no deductible at all.
+    if (!form.noDeductible) {
+      if (!b.deductibleApplies) submitBlockers.push(`${label}: Deductible Applies must be selected`)
+      if (b.deductibleApplies === 'Unsure') {
+        submitBlockers.push(`${label}: deductible applicability must be confirmed before generating summary.`)
+      }
     }
     if (!b.copayNa && b.copayAmount === '') {
       submitBlockers.push(`${label}: Copay must be entered or marked N/A`)
@@ -718,6 +811,15 @@ export default function App() {
       submitBlockers.push(`${label}: Coinsurance % must be entered or marked N/A`)
     }
     if (!b.confirmed) submitBlockers.push(`${label}: rules must be confirmed from insurance`)
+  })
+
+  // Detox/Resi is the whole admission, so it cannot coexist with a benefit for
+  // one of its halves.
+  conflictingLocs(form.locBenefits.map((b) => b.loc)).forEach((loc) => {
+    if (!isCombinedAdmission(loc)) return
+    submitBlockers.push(
+      `${loc} covers the same admission as the Detox and Resi benefits entered — remove one or the other`
+    )
   })
 
   if (showBundlingModel && !form.bundlingModel) {
@@ -743,8 +845,13 @@ export default function App() {
     submitBlockers.push('Deductible/OOP structure must be confirmed before generating summary.')
   }
 
-  if (!form.deductibleTotal) submitBlockers.push('Deductible Total is required')
-  if (!form.oopMaxTotal) submitBlockers.push('OOP Max Total is required')
+  // Required unless the plan does not have one, which is a real answer.
+  if (!form.noDeductible && !form.deductibleTotal) {
+    submitBlockers.push('Deductible Total is required, or mark that the plan has no deductible')
+  }
+  if (!form.noOopMax && !form.oopMaxTotal) {
+    submitBlockers.push('OOP Max Total is required, or mark that the plan has no out-of-pocket max')
+  }
 
   // Rule 3 & 4 — episode activity validation
   form.financialActivities.forEach((act, i) => {
@@ -820,31 +927,81 @@ export default function App() {
               <RadioGroup name="network" options={['INN', 'OON']} value={form.network} onChange={set('network')} />
             </div>
 
+            {/* A plan without one of these is a real plan, not an unfinished
+                form. The checkbox records that, so nobody has to enter a $0
+                that would read downstream as an accumulator already met. */}
             <div className="field-row">
               <div className="field-group">
                 <label className="field-label" htmlFor="deductibleTotal">
-                  Deductible Total <span className="required-star">*</span>
+                  Deductible Total {!form.noDeductible && <span className="required-star">*</span>}
                 </label>
-                <CurrencyInput id="deductibleTotal" value={form.deductibleTotal} onChange={set('deductibleTotal')} />
+                <div className="coinsurance-row">
+                  <CurrencyInput
+                    id="deductibleTotal"
+                    value={form.deductibleTotal}
+                    onChange={set('deductibleTotal')}
+                    disabled={form.noDeductible}
+                  />
+                  <label className="checkbox-label na-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={form.noDeductible}
+                      onChange={setNoAccumulator('noDeductible', ['deductibleTotal', 'deductibleMet'])}
+                    />
+                    No deductible
+                  </label>
+                </div>
               </div>
               <div className="field-group">
                 <label className="field-label" htmlFor="deductibleMet">Deductible Met</label>
-                <CurrencyInput id="deductibleMet" value={form.deductibleMet} onChange={set('deductibleMet')} />
+                <CurrencyInput
+                  id="deductibleMet"
+                  value={form.deductibleMet}
+                  onChange={set('deductibleMet')}
+                  disabled={form.noDeductible}
+                />
               </div>
             </div>
 
             <div className="field-row">
               <div className="field-group">
                 <label className="field-label" htmlFor="oopMaxTotal">
-                  OOP Max Total <span className="required-star">*</span>
+                  OOP Max Total {!form.noOopMax && <span className="required-star">*</span>}
                 </label>
-                <CurrencyInput id="oopMaxTotal" value={form.oopMaxTotal} onChange={set('oopMaxTotal')} />
+                <div className="coinsurance-row">
+                  <CurrencyInput
+                    id="oopMaxTotal"
+                    value={form.oopMaxTotal}
+                    onChange={set('oopMaxTotal')}
+                    disabled={form.noOopMax}
+                  />
+                  <label className="checkbox-label na-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={form.noOopMax}
+                      onChange={setNoAccumulator('noOopMax', ['oopMaxTotal', 'oopMet'])}
+                    />
+                    No OOP max
+                  </label>
+                </div>
               </div>
               <div className="field-group">
                 <label className="field-label" htmlFor="oopMet">OOP Met</label>
-                <CurrencyInput id="oopMet" value={form.oopMet} onChange={set('oopMet')} />
+                <CurrencyInput
+                  id="oopMet"
+                  value={form.oopMet}
+                  onChange={set('oopMet')}
+                  disabled={form.noOopMax}
+                />
               </div>
             </div>
+
+            {form.noOopMax && (
+              <div className="alert-banner">
+                ⚠ No out-of-pocket maximum — cost sharing does not stop at a ceiling. The client
+                keeps paying copays and coinsurance for the rest of the plan year.
+              </div>
+            )}
 
             {oopSatisfied && (
               <div className="success-banner">
@@ -852,21 +1009,35 @@ export default function App() {
               </div>
             )}
 
-            <div className="field-group">
-              <label className="field-label">Deductible / OOP Structure</label>
-              <RadioGroup
-                name="deductibleOopStructure"
-                options={['Combined', 'Separate', 'Unsure']}
-                value={form.deductibleOopStructure}
-                onChange={set('deductibleOopStructure')}
-              />
-              {form.deductibleOopStructure === 'Combined' && (
-                <div className="info-banner">ℹ Combined: deductible payments count toward Out-of-Pocket Maximum</div>
-              )}
-              {form.deductibleOopStructure === 'Separate' && (
-                <div className="info-banner">ℹ Separate: deductible and OOP Maximum tracked independently</div>
-              )}
-            </div>
+            {/* Combined vs separate is a question about how two accumulators
+                interact. With only one of them, there is nothing to ask. */}
+            {form.noDeductible || form.noOopMax ? (
+              <div className="info-banner">
+                ℹ Deductible / OOP structure does not apply — this plan has{' '}
+                {form.noDeductible && form.noOopMax
+                  ? 'neither a deductible nor an out-of-pocket maximum'
+                  : form.noDeductible
+                    ? 'no deductible'
+                    : 'no out-of-pocket maximum'}
+                .
+              </div>
+            ) : (
+              <div className="field-group">
+                <label className="field-label">Deductible / OOP Structure</label>
+                <RadioGroup
+                  name="deductibleOopStructure"
+                  options={['Combined', 'Separate', 'Unsure']}
+                  value={form.deductibleOopStructure}
+                  onChange={set('deductibleOopStructure')}
+                />
+                {form.deductibleOopStructure === 'Combined' && (
+                  <div className="info-banner">ℹ Combined: deductible payments count toward Out-of-Pocket Maximum</div>
+                )}
+                {form.deductibleOopStructure === 'Separate' && (
+                  <div className="info-banner">ℹ Separate: deductible and OOP Maximum tracked independently</div>
+                )}
+              </div>
+            )}
           </section>
 
           {/* SECTION 2 — Level of Care */}
@@ -890,7 +1061,7 @@ export default function App() {
               </label>
               <RadioGroup
                 name="currentLoc"
-                options={['None', 'Detox', 'Resi', 'PHP', 'IOP', 'OP']}
+                options={locOptionsFrom(['None', ...LOC_OPTIONS])}
                 value={form.currentLoc}
                 onChange={set('currentLoc')}
               />
@@ -905,10 +1076,17 @@ export default function App() {
               </label>
               <RadioGroup
                 name="verifiedLoc"
-                options={['Detox', 'Resi', 'PHP', 'IOP', 'OP']}
+                options={locOptionsFrom(LOC_OPTIONS)}
                 value={form.verifiedLoc}
                 onChange={setVerifiedLoc}
               />
+              {isCombinedAdmission(form.verifiedLoc) && (
+                <div className="info-banner">
+                  ℹ One admission covering detox and residential. There is no separate admission to
+                  enter residential from detox, so a per-admission copay is charged once for the
+                  whole stay.
+                </div>
+              )}
             </div>
 
             {isCrossLoc && (
@@ -929,8 +1107,9 @@ export default function App() {
             <div className="info-banner">
               ℹ Each level of care carries its own independent benefit. Record every LOC the
               verification call covers — the Verified LOC is the one this VOB collects against,
-              but it does not limit what can be stored. Psychiatric services always bill under
-              the OP benefit, so add OP when psych visits are expected.
+              but it does not limit what can be stored. Psychiatric services bill under the OP
+              benefit during outpatient care, so add OP when psych visits are expected. Detox and
+              Resi verified as one admission are entered once, as the combined benefit.
             </div>
 
             {orderedBenefits.map((benefit) => (
@@ -940,6 +1119,7 @@ export default function App() {
                 isPrimary={Boolean(form.verifiedLoc) && benefit.loc === form.verifiedLoc}
                 verifiedLoc={form.verifiedLoc}
                 takenLocs={form.locBenefits.map((b) => b.loc).filter(Boolean)}
+                noDeductible={form.noDeductible}
                 onChange={(field, value) => updateLocBenefit(benefit.id, field, value)}
                 onRemove={() => removeLocBenefit(benefit.id)}
                 resolved={
@@ -948,7 +1128,7 @@ export default function App() {
               />
             ))}
 
-            {form.locBenefits.length < LOC_OPTIONS.length && (
+            {selectableLocs(form.locBenefits.map((b) => b.loc)).length > 0 && (
               <button type="button" className="btn-add-activity" onClick={addLocBenefit}>
                 + Add Another LOC Benefit
               </button>
@@ -1014,6 +1194,17 @@ export default function App() {
                 )}
               </div>
             )}
+
+            {/* The bundling question above does not exist for a per diem stay,
+                and there is no per-service quote to produce from it. */}
+            {isPerDiemLoc(form.verifiedLoc) && (
+              <div className="info-banner" style={{ marginTop: '18px' }}>
+                ℹ Services during {form.verifiedLoc} are part of the per diem. Individual therapy,
+                family therapy, and assessment delivered during the stay are covered by the daily
+                rate, so the cost note quotes one price and does not list them separately —
+                per-service pricing is an outpatient question.
+              </div>
+            )}
           </section>
 
 
@@ -1045,7 +1236,7 @@ export default function App() {
                     <label className="field-label">Activity LOC</label>
                     <RadioGroup
                       name={`activityLoc-${act.id}`}
-                      options={['Detox', 'Resi', 'PHP', 'IOP', 'OP', 'Other']}
+                      options={locOptionsFrom([...LOC_OPTIONS, 'Other'])}
                       value={act.activityLoc}
                       onChange={(v) => updateActivity(act.id, 'activityLoc', v)}
                     />
