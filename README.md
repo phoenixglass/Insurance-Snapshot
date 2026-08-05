@@ -8,14 +8,15 @@ A single-page React application that helps staff quickly capture and summarize a
 
 - **Plan Basics** — Record network, deductible totals, and out-of-pocket maximum amounts, plus whether they are tracked separately or combined.
 - **Level of Care (LOC)** — Track the client's current status (not yet admitted, in treatment, or discharged), their current/most recent LOC, and the verified LOC used for this agreement.
-- **Benefits by Level of Care** — A plan holds an independent benefit for each level of care (Detox, Resi, PHP, IOP, OP), and any number of them can be captured from a single verification call. Each records whether the deductible applies, the contracted rate, copay, coinsurance, and a confirmation flag — none of the fields gate each other, so a LOC can carry both a contracted rate and a copay. The Verified LOC selected in Section 2 marks which benefit is primary for this VOB; it does not limit what can be stored.
+- **Benefits by Level of Care** — A plan holds an independent benefit for each level of care (Detox, Resi, PHP, IOP, OP), and any number of them can be captured from a single verification call. Each records whether the deductible applies, the contracted rate, copay, coinsurance, whether telehealth is covered, and a confirmation flag — none of the fields gate each other, so a LOC can carry both a contracted rate and a copay. The Verified LOC selected in Section 2 marks which benefit is primary for this VOB; it does not limit what can be stored.
 - **Services During the LOC** — Choose how the plan cost-shares services delivered during the verified LOC: the standard INN bundle (individual therapy, family therapy, and assessment included at $0), separate patient responsibility for every service, or custom/unsure. This sits on top of the per-LOC benefits and decides which LOC benefit a given service uses. Psychiatric services always use the OP benefit, even while the client is enrolled in IOP.
 - **Resolved Benefit Engine** — Each service is resolved into a single benefit result (benefit category, responsibility type, patient responsibility, and accumulator behavior) before any output is written, so the staff summary and client explanation cannot contradict each other.
 - **Episode Financial Activity** — Log any prior financial activity (client payments, scholarships, hardship assistance) tied to a LOC, with flags for whether each entry counts toward the deductible or OOP max.
 - **Running Calculations** — Automatically computes deductible remaining, OOP remaining, and total episode activity applied to OOP.
 - **Cross-LOC Warning** — Flags when the verified LOC differs from the current/most recent LOC so staff know prior activity is being carried forward.
 - **Final Check** — Checklist confirming all key fields have been reviewed before submission.
-- **Copay Capped at the Contracted Rate** — A plan's stated copay is never collected above the level of care's contracted rate, because we cannot charge more than we contracted for. A $50 copay against a $40 contracted rate is collected as $40, and the note says why.
+- **Copay Capped at the Contracted Rate** — A benefit's copay applies to every service billing under it, and is never collected above the level of care's own contracted rate, because we cannot charge more than we contracted for. A $50 OP copay against a $40 group rate is collected as $40 for groups while every other OP service keeps the $50, and the note says why.
+- **Telehealth per LOC Benefit** — Each level of care records whether the plan covers its own service over telehealth — groups under OP, the program day elsewhere. The outputs stay quiet when it is covered and call it out when it is not, naming the service rather than the whole benefit.
 - **Per-Admission Copays** — A per diem level of care (Detox, Resi) can carry a single copay for the whole stay rather than one per day. Which one it is has to be stated, since the difference is one charge versus one charge per day.
 - **Three Outputs, One Engine** — Every submission produces a **Cost Note**, a **Staff Detail** breakdown, and a **Client Explanation**, all resolved from the same benefit objects so they cannot disagree. Each can be copied to the clipboard.
 
@@ -69,7 +70,7 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 1. **Fill in Plan Basics** — Enter the insurance network, deductible amounts, and out-of-pocket maximum.
 2. **Set Level of Care** — Select the client's current status, most recent LOC, and the verified LOC for this episode.
-3. **Enter Benefits by Level of Care** — The verified LOC's card appears automatically. Specify whether the deductible applies, enter copay and coinsurance (or mark them N/A), and record the contracted rate when known. Use **+ Add Another LOC Benefit** for any other level of care the verification call covered — add OP if the client may receive psychiatric visits. Then select how services during the verified LOC are bundled.
+3. **Enter Benefits by Level of Care** — The verified LOC's card appears automatically. Specify whether the deductible applies, enter copay and coinsurance (or mark them N/A), record the contracted rate when known, and check **Telehealth covered** once the plan confirms telehealth for that level of care's own service. Use **+ Add Another LOC Benefit** for any other level of care the verification call covered — add OP if the client may receive psychiatric visits. Then select how services during the verified LOC are bundled.
 4. **Add Episode Financial Activity** — Use the "+ Add Activity" button to log any prior financial activity for the episode.
 5. **Complete the Final Check** — Check off each item to confirm everything has been reviewed.
 6. **Generate the Snapshot** — Submitting produces three views of the same result:
@@ -89,11 +90,42 @@ It answers one question per line — "what does this cost?" — and nothing else
 
 - A service is only named when its price differs from the level of care it happens in. `IOP: no cost.` already covers everything bundled into IOP.
 - Services that cost the same are named together, and when every remaining service costs the same they become "all other services" — but only when every service was actually priced, so an uncaptured psych benefit is never quoted by implication.
+- The level of care's own service is named on the same terms. `OP: $50 copay.` is the whole OP benefit; `Groups` appears only once the contracted rate prices groups below the copay and leaves the rest of OP at a different number.
 - A level of care other than the verified one gets a single line with its services inline. It is reference information, not today's price.
 
 A price the plan has not established is never guessed at. It is listed under a "do not quote" warning instead.
 
 ### Group rates
 
-A level of care's contracted rate is the rate for that level of care's own service, and it caps that service's copay alone. For OP that service is the routine **group** visit, so the form labels the field `Contract Rate — Groups`, the cost note writes `Groups $40 copay`, and individual therapy, family therapy, assessment, and psychiatric visits keep their own copay because they bill under their own codes at their own rates.
+A benefit's copay applies to **every service billing under it**. An OP copay is charged on individual therapy, family therapy, assessment, and psychiatric visits exactly as it is on a group — it is not a group-only price, and the outputs do not describe it as one:
+
+```
+OP: $50 copay.
+```
+
+A level of care's contracted rate is the rate for that level of care's own service, and it caps that service's copay alone. For OP that service is the routine **group** visit, so the form labels the field `Contract Rate — Groups`. A rate coming in *under* the copay is the only thing that prices groups apart from the rest of the benefit, because we cannot collect more than we contracted for — and only then is the group named:
+
+```
+OP: Groups $40 copay.
+All other services during OP: $50 copay.
+
+Note: The plan lists a $50 OP copay, but our contracted rate for groups is $40. …
+```
+
+A rate at or above the copay changes nothing, since individual therapy, family therapy, assessment, and psychiatric visits bill under their own codes at their own rates and keep the copay either way.
+
+### Telehealth
+
+Each LOC benefit carries a **Telehealth covered** checkbox, scoped to that level of care's own service and labeled the same way the contract rate is — `Telehealth covered — Groups`. A telehealth exclusion lands on a code, not on a benefit: a plan that will not pay a group over telehealth still pays the individual therapy session billing under the same benefit, so the flag says nothing about individual therapy, family therapy, assessment, or psychiatric visits. Telehealth for those is not captured.
+
+Only the exclusion is ever said out loud. A covered service is the service already quoted, at the cost sharing already stated, so it adds no line; an uncaptured benefit claims neither. A plan with no group telehealth benefit at any level reads:
+
+```
+IOP: $75 copay.
+Individual therapy, family therapy, and assessment during IOP: no cost.
+Psych services during IOP: $50 copay.
+IOP is not covered over telehealth — IOP must be attended in person.
+PHP LOC: $100 copay. PHP is not covered over telehealth.
+OP LOC: Groups $40 copay. All other services $50 copay. Groups are not covered over telehealth.
+```
 

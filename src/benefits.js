@@ -73,12 +73,41 @@ export function locServiceName(loc) {
   return loc === 'OP' ? 'Groups' : loc
 }
 
+// The level of care's own service as it appears in a sentence. `lower` is
+// honored for a real word ("Groups" → "groups") and ignored for a level of care
+// that is its own service, because an acronym is not lowercased just because it
+// landed mid-sentence.
+export function ownServiceNoun(loc, { lower = false } = {}) {
+  const name = locServiceName(loc)
+  return lower && name !== loc ? name.toLowerCase() : name
+}
+
+// "Groups are", but "IOP is". Kept beside locServiceName so the two cannot
+// drift: the only own-service with a name of its own is a plural.
+export function ownServiceVerb(loc) {
+  return locServiceName(loc) === loc ? 'is' : 'are'
+}
+
 // What a benefit's stored contract rate is the rate *for*. Named explicitly
 // because the rate caps that service's copay and no other.
 export function contractRateSubject(loc) {
   if (loc === 'OP') return 'groups'
   if (PER_DIEM_LOCS.includes(loc)) return `a day of ${loc}`
   return `an ${loc} visit`
+}
+
+// Whether the level of care's own service is priced apart from everything else
+// billing under the same benefit.
+//
+// A benefit's copay applies to every service under it. An OP copay is charged
+// on individual therapy, family therapy, assessment, and psych visits too — it
+// is not a group-only price — so naming groups by default reads as a narrower
+// benefit than the plan actually has. The one thing that can separate the LOC's
+// own service is its contracted rate landing *below* that copay, because then
+// and only then is a group collected at a different number than everything
+// else. Until that happens there is nothing to name.
+export function ownServicePricedApart(resolved) {
+  return Boolean(resolved && resolved.cappedByContractRate)
 }
 
 export function formatCurrency(value) {
@@ -206,6 +235,13 @@ export function readBenefitConfig(data, category) {
     coinsurance: entry.coinsuranceNa ? null : num(entry.coinsurancePercent),
     coinsuranceNa: Boolean(entry.coinsuranceNa),
     contractRate: num(entry.contractRate),
+    // Whether the plan pays the level of care's OWN service delivered over
+    // telehealth — scoped exactly like contractRate above, and for the same
+    // reason. A telehealth exclusion lands on a code, not on a benefit: a plan
+    // that will not pay a group over telehealth still pays the individual
+    // therapy session billing under the same benefit. Nothing here says
+    // anything about those services.
+    telehealth: Boolean(entry.telehealthCovered),
     confirmed: Boolean(entry.confirmed),
   }
 }
@@ -324,6 +360,10 @@ export function resolveBenefit(data, calc, serviceKey, contextLoc = data.verifie
     copay: null,
     coinsurance: null,
     contractRate: null,
+    // null until a benefit is read *for the service the flag describes*.
+    // "nobody captured this" is not the same fact as "the plan does not cover
+    // telehealth", and only the second one is ever said out loud.
+    telehealth: null,
     amount: null,
     amountKnown: false,
     cappedByDeductible: false,
@@ -397,6 +437,10 @@ export function resolveBenefit(data, calc, serviceKey, contextLoc = data.verifie
     copay: config.copay,
     coinsurance: config.coinsurance,
     contractRate: config.contractRate,
+    // Read only for the service the flag was captured about. An individual
+    // therapy session under the OP benefit stays null — the plan may well cover
+    // it over telehealth while excluding the group, and this VOB never asked.
+    telehealth: serviceKey === 'LOC_SERVICE' ? config.telehealth : null,
     confirmed: config.confirmed,
   }
 
@@ -440,18 +484,25 @@ export function resolveBenefit(data, calc, serviceKey, contextLoc = data.verifie
     type = RESPONSIBILITY.NONE
   }
 
-  // A copay can never exceed what the service actually costs: we cannot collect
-  // more than the contracted rate, so a $50 copay against a $40 contracted rate
-  // is collected as $40. The plan's stated copay is kept on `copay`; what to
-  // actually collect is `amount`.
+  // The benefit's copay applies to every service billing under it. An OP copay
+  // is charged on individual therapy, family therapy, assessment, and psych
+  // visits exactly as it is on a group — `config.copay` is read for all of them
+  // above, and nothing here narrows that.
+  //
+  // What the contracted rate does is cap it. A copay can never exceed what the
+  // service actually costs: we cannot collect more than the contracted rate, so
+  // a $50 copay against a $40 contracted rate is collected as $40. The plan's
+  // stated copay is kept on `copay`; what to actually collect is `amount`.
   //
   // The cap only applies to the level of care's own service, because that is
   // the only service the stored rate describes. A therapy or psychiatric visit
   // billing under the same benefit is a different code at a different rate — an
   // OP benefit's rate is the routine/group visit rate, so capping an individual
-  // therapy copay with it would under-collect. A per-admission copay is exempt
-  // for the same reason in the other direction: a per-day rate is not a ceiling
-  // on a charge that covers the whole stay.
+  // therapy copay with it would under-collect. That makes a rate below the
+  // copay the *only* thing that prices groups apart from the rest of OP; at any
+  // higher rate every service under the benefit collects the same copay. A
+  // per-admission copay is exempt for the same reason in the other direction: a
+  // per-day rate is not a ceiling on a charge that covers the whole stay.
   const rateAppliesToService = serviceKey === 'LOC_SERVICE' && !perAdmission
   const collectibleCopay =
     config.copay !== null && config.contractRate !== null && rateAppliesToService
