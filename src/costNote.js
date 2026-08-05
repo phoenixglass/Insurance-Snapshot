@@ -12,14 +12,23 @@
 //   Psych services during IOP: $50 copay.
 //   OP LOC: Groups $40 copay. All other services $50 copay.
 //
-// Three compression rules produce it:
+// Four compression rules produce it:
 //   1. A service is only named when its price differs from the level of care
 //      it is delivered in. "IOP: no cost." already covers everything bundled
 //      into IOP, so nothing bundled is ever restated.
 //   2. Services that cost the same are named together, and when every
 //      remaining service costs the same they become "All other services".
-//   3. A level of care other than the verified one gets one line, with its
+//   3. The level of care's own service is named for the same reason and no
+//      other. An OP copay applies to every service under the OP benefit, so
+//      "OP: $50 copay." is the whole benefit and "Groups" would falsely narrow
+//      it; the name is earned only once the contracted rate prices groups below
+//      the copay and the rest of OP is left standing at a different number.
+//   4. A level of care other than the verified one gets one line, with its
 //      services inline — it is reference information, not today's price.
+//
+// Coverage limits ride along with the price they limit: telehealth is named
+// only where the plan does not cover it, because that is the only version of
+// the fact that changes what the client can do or owes.
 //
 // Like every other output, each line is built from a resolved benefit object,
 // never from a raw form field.
@@ -152,15 +161,23 @@ function mergeByPrice(items) {
 }
 
 // Resolve every service delivered in one level of care into priced groups.
-function priceServices(resolved, calc, dedRem, locPrice, onSkip, onResolved) {
+//
+// `skipped` is returned rather than reported, so the caller can order its own
+// "do not quote" list. `pricedApart` answers rule 3 for the level of care's own
+// service: it is true when something under this benefit did not fold into the
+// LOC's price — either because it costs something different, or because it
+// could not be priced at all and the LOC's number must not be read as covering
+// it.
+function priceServices(resolved, calc, dedRem, locPrice, onResolved) {
   const items = []
+  const skipped = []
   let priced = 0
   resolved.forEach((r) => {
     const noun = SERVICE_NOUN[r.service] || (r.serviceLabel || '').toLowerCase()
     const price = priceOf(r, calc, dedRem)
     onResolved(r)
     if (price === null) {
-      onSkip(noun)
+      skipped.push(noun)
       return
     }
     priced += 1
@@ -175,14 +192,31 @@ function priceServices(resolved, calc, dedRem, locPrice, onSkip, onResolved) {
   // services" there would quote a price for a visit nobody priced.
   const coversEverything = priced === CONTEXT_SERVICES.length
 
-  return mergeByPrice(items).map(({ nouns, text }) => ({
-    label:
-      nouns.length > 1 && nouns.length === priced && coversEverything
-        ? 'all other services'
-        : joinList(nouns),
-    text,
-  }))
+  return {
+    skipped,
+    pricedApart: items.length > 0 || skipped.length > 0,
+    groups: mergeByPrice(items).map(({ nouns, text }) => ({
+      label:
+        nouns.length > 1 && nouns.length === priced && coversEverything
+          ? 'all other services'
+          : joinList(nouns),
+      text,
+    })),
+  }
 }
+
+// Rule 3: the level of care's own service is named only where it is priced
+// apart from the rest of its benefit, and only where it has a name of its own
+// ("Groups" under OP; every other LOC's own service is just the LOC).
+function ownServicePrefix(loc, pricedApart) {
+  const ownName = locServiceName(loc)
+  return ownName !== loc && pricedApart ? `${ownName} ` : ''
+}
+
+// Said only when the plan does not cover the level of care over telehealth —
+// "covered" changes nothing about what the client does or owes, and an
+// uncaptured benefit (null) has not established either.
+const telehealthExcluded = (r) => r && r.telehealth === false
 
 export function generateCostNote(data) {
   const loc = data.verifiedLoc
@@ -217,26 +251,33 @@ export function generateCostNote(data) {
 
   if (primary) collectCapNote(primary)
 
+  // Priced before the level of care's own line is written, because whether that
+  // line names "Groups" depends on whether anything else under the benefit came
+  // out at a different number.
+  const context = priceServices(
+    benefits.filter((b) => b.service !== 'LOC_SERVICE'),
+    calc,
+    dedRem,
+    primaryPrice,
+    collectCapNote
+  )
+
   if (primaryPrice !== null) {
-    // Naming the LOC's own service matters wherever it is one service among
-    // several sharing a benefit: "OP: Groups $40 copay", not "OP: $40 copay".
-    const ownName = locServiceName(loc)
-    const prefix = ownName === loc ? '' : `${ownName} `
+    const prefix = ownServicePrefix(loc, context.pricedApart)
     lines.push(`${loc}: ${sentence(`${prefix}${primaryPrice.text}`)}`)
   } else {
     unresolved.push(loc)
   }
 
-  priceServices(
-    benefits.filter((b) => b.service !== 'LOC_SERVICE'),
-    calc,
-    dedRem,
-    primaryPrice,
-    (noun) => unresolved.push(`${noun} during ${loc}`),
-    collectCapNote
-  ).forEach(({ label, text }) => {
+  context.skipped.forEach((noun) => unresolved.push(`${noun} during ${loc}`))
+
+  context.groups.forEach(({ label, text }) => {
     lines.push(`${capitalize(label)} during ${loc}: ${sentence(text)}`)
   })
+
+  if (telehealthExcluded(primary)) {
+    lines.push(`Telehealth is not covered under the ${loc} benefit — visits must be in person.`)
+  }
 
   // ── Other levels of care priced on the same verification call ─────────────
   //
@@ -261,12 +302,13 @@ export function generateCostNote(data) {
     const contextResolved =
       other === 'OP' ? CONTEXT_SERVICES.map((key) => resolveBenefit(data, calc, key, other)) : []
 
-    const ownName = locServiceName(other)
-    const parts = [ownName === other ? locPrice.text : `${ownName} ${locPrice.text}`]
+    const otherContext = priceServices(contextResolved, calc, dedRem, locPrice, collectCapNote)
 
-    priceServices(contextResolved, calc, dedRem, locPrice, () => {}, collectCapNote).forEach(
-      ({ label, text }) => parts.push(`${capitalize(label)} ${text}`)
-    )
+    const parts = [`${ownServicePrefix(other, otherContext.pricedApart)}${locPrice.text}`]
+
+    otherContext.groups.forEach(({ label, text }) => parts.push(`${capitalize(label)} ${text}`))
+
+    if (telehealthExcluded(locResolved)) parts.push('Telehealth is not covered')
 
     lines.push(`${other} LOC: ${parts.map(sentence).join(' ')}`)
   })

@@ -12,9 +12,11 @@ import {
   RESPONSIBILITY,
   computeCalc,
   computeRemainingExposure,
+  contractRateSubject,
   formatCurrency,
   locServiceName,
   money,
+  ownServicePricedApart,
   readBenefitConfig,
   resolveContextBenefits,
   serviceUnitLabel,
@@ -41,7 +43,14 @@ function joinList(names) {
 }
 
 function displayName(r) {
-  if (r.service === 'LOC_SERVICE') return r.contextLoc
+  if (r.service === 'LOC_SERVICE') {
+    // The heading only names the LOC's own service where that service collects
+    // a different number than its siblings under the same benefit. Otherwise
+    // the benefit's copay is what every heading below it says too.
+    return ownServicePricedApart(r) && locServiceName(r.contextLoc) !== r.contextLoc
+      ? `${r.contextLoc} — ${locServiceName(r.contextLoc)}`
+      : r.contextLoc
+  }
   return DISPLAY_NAMES[r.service] || r.serviceLabel
 }
 
@@ -360,8 +369,13 @@ function benefitBlockLines(title, config, unit) {
       `  Contract Rate — ${locServiceName(config.loc)}: ${money(config.contractRate)} ${unit}`
     )
     lines.push(
-      `  (Other services billing under the ${config.loc} benefit have their own codes and rates.)`
+      `  (The copay above applies to every service billing under the ${config.loc} benefit. This rate is for ${contractRateSubject(config.loc)} only — it lowers the copay there when it comes in under it, and other services keep the copay because they bill under their own codes at their own rates.)`
     )
+  }
+  // Only the exclusion is worth a line: a benefit covered over telehealth is
+  // just the benefit, at the cost sharing already stated above it.
+  if (config.telehealth === false) {
+    lines.push(`  ⚠ Telehealth not covered — ${config.loc} must be delivered in person.`)
   }
   if (!config.confirmed) {
     lines.push('  ⚠ Not yet confirmed from insurance.')
@@ -693,6 +707,15 @@ export function generateSnapshot(data) {
       lines.push(l)
       blank()
     })
+
+    // Said only where the plan excludes it. "Telehealth is covered" would be
+    // describing the benefit the client was just quoted, at the same cost.
+    if (primary.telehealth === false) {
+      lines.push(
+        `Your plan does not cover ${loc} over telehealth, so these visits need to happen in person to be covered.`
+      )
+      blank()
+    }
   }
 
   // Bundled services — one sentence covering everything included in the bundle.

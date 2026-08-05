@@ -11,6 +11,7 @@ import {
   locServiceName,
   formatCurrency,
   money,
+  ownServicePricedApart,
   resolveBenefit,
   responsibilityTypeLabel,
   serviceLabel,
@@ -48,6 +49,7 @@ const makeBenefit = (loc = '') => ({
   coinsurancePercent: '',
   coinsuranceNa: false,
   contractRate: '',
+  telehealthCovered: false,
   confirmed: false,
 })
 
@@ -250,21 +252,48 @@ function BenefitRuleFields({ idPrefix, values, onChange, unit, loc }) {
           onChange={(v) => onChange('contractRate', v)}
         />
         {/* The rate belongs to one service, not to the whole benefit. Saying so
-            here is what stops a group rate from being read as an OP-wide rate. */}
+            here is what stops a group rate from being read as an OP-wide rate —
+            and, just as importantly, stops the copay above from being read as a
+            group-only price. */}
         <div className="info-banner">
-          ℹ This is the contracted rate for {loc ? contractRateSubject(loc) : 'this service'} only.
-          Individual therapy, family therapy, assessment, and psychiatric visits bill under their
-          own codes at their own rates, so this number does not apply to them.
+          ℹ The copay above applies to every service billing under this benefit. This is the
+          contracted rate for {loc ? contractRateSubject(loc) : 'this service'} only — individual
+          therapy, family therapy, assessment, and psychiatric visits bill under their own codes at
+          their own rates, so this number does not apply to them.
           {rateDrivesCalculation && (
             <>
               {' '}
               It calculates deductible-phase collection and coinsurance (rate × coinsurance %), and
               caps {loc ? locServiceName(loc).toLowerCase() : 'this service'} when the copay is
-              higher than the rate — we cannot collect more than the contracted rate.
+              higher than the rate — we cannot collect more than the contracted rate. That is the
+              only thing that prices{' '}
+              {loc ? locServiceName(loc).toLowerCase() : 'this service'} differently from the rest
+              of the benefit.
             </>
           )}
         </div>
       </div>
+
+      {/* Telehealth is a property of the benefit, not a service of its own: a
+          plan either pays this level of care delivered remotely or it does not.
+          Only the "does not" ever reaches the client-facing outputs. */}
+      <label className="checkbox-label">
+        <input
+          type="checkbox"
+          checked={values.telehealthCovered}
+          onChange={(e) => onChange('telehealthCovered', e.target.checked)}
+        />
+        Telehealth covered{loc ? ` at the ${loc} benefit` : ''}
+      </label>
+      {/* Shown only while the box is clear, which is the state that puts a
+          sentence in front of the client. A covered benefit needs no note: it
+          is the benefit above, at the cost sharing above. */}
+      {!values.telehealthCovered && (
+        <div className="info-banner">
+          ℹ Unchecked means the plan does not cover {loc || 'this level of care'} over telehealth,
+          and the cost note says so. Check the box once the plan confirms telehealth is covered.
+        </div>
+      )}
     </>
   )
 }
@@ -364,16 +393,27 @@ function ResolvedBenefitPreview({ title, resolved }) {
         <span className="calc-value">{responsibilityTypeLabel(resolved.responsibilityType)}</span>
       </div>
       <div className="calc-field-row">
-        {/* Named where the level of care's own service has a name of its own,
-            so a group price is never read as the price of everything in OP. */}
+        {/* Named only where the contracted rate has actually priced the LOC's
+            own service below the copay. Naming it any other time reads as a
+            group-only price, when the copay is what every service under the
+            benefit pays. */}
         <span className="calc-label">
           Patient Responsibility
-          {locServiceName(resolved.contextLoc) !== resolved.contextLoc
+          {ownServicePricedApart(resolved) &&
+          locServiceName(resolved.contextLoc) !== resolved.contextLoc
             ? ` — ${locServiceName(resolved.contextLoc)}`
             : ''}
         </span>
         <span className="calc-value">{amountText}</span>
       </div>
+      {ownServicePricedApart(resolved) && (
+        <div className="calc-field-row">
+          <span className="calc-label">
+            All Other {resolved.contextLoc} Services
+          </span>
+          <span className="calc-value">{money(resolved.copay)} copay</span>
+        </div>
+      )}
       <div className="calc-field-row">
         <span className="calc-label">Applies Toward Deductible</span>
         <span className="calc-value">{towardText(resolved.countsTowardDeductible)}</span>
