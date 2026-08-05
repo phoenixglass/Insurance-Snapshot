@@ -13,6 +13,7 @@ import {
   computeCalc,
   computeRemainingExposure,
   formatCurrency,
+  locServiceName,
   money,
   readBenefitConfig,
   resolveContextBenefits,
@@ -354,7 +355,13 @@ function benefitBlockLines(title, config, unit) {
     }`
   )
   if (config.contractRate !== null) {
-    lines.push(`  Contract Rate: ${money(config.contractRate)} ${unit}`)
+    // Named, because the rate is for one service and caps that service alone.
+    lines.push(
+      `  Contract Rate — ${locServiceName(config.loc)}: ${money(config.contractRate)} ${unit}`
+    )
+    lines.push(
+      `  (Other services billing under the ${config.loc} benefit have their own codes and rates.)`
+    )
   }
   if (!config.confirmed) {
     lines.push('  ⚠ Not yet confirmed from insurance.')
