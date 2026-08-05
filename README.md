@@ -16,7 +16,7 @@ A single-page React application that helps staff quickly capture and summarize a
 - **Cross-LOC Warning** — Flags when the verified LOC differs from the current/most recent LOC so staff know prior activity is being carried forward.
 - **Final Check** — Checklist confirming all key fields have been reviewed before submission.
 - **Copay Capped at the Contracted Rate** — A benefit's copay applies to every service billing under it, and is never collected above the level of care's own contracted rate, because we cannot charge more than we contracted for. A $50 OP copay against a $40 group rate is collected as $40 for groups while every other OP service keeps the $50, and the note says why.
-- **Telehealth per LOC Benefit** — Each level of care records whether the plan covers it over telehealth. The outputs stay quiet when it is covered and call it out when it is not.
+- **Telehealth per LOC Benefit** — Each level of care records whether the plan covers its own service over telehealth — groups under OP, the program day elsewhere. The outputs stay quiet when it is covered and call it out when it is not, naming the service rather than the whole benefit.
 - **Per-Admission Copays** — A per diem level of care (Detox, Resi) can carry a single copay for the whole stay rather than one per day. Which one it is has to be stated, since the difference is one charge versus one charge per day.
 - **Three Outputs, One Engine** — Every submission produces a **Cost Note**, a **Staff Detail** breakdown, and a **Client Explanation**, all resolved from the same benefit objects so they cannot disagree. Each can be copied to the clipboard.
 
@@ -70,7 +70,7 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 1. **Fill in Plan Basics** — Enter the insurance network, deductible amounts, and out-of-pocket maximum.
 2. **Set Level of Care** — Select the client's current status, most recent LOC, and the verified LOC for this episode.
-3. **Enter Benefits by Level of Care** — The verified LOC's card appears automatically. Specify whether the deductible applies, enter copay and coinsurance (or mark them N/A), record the contracted rate when known, and check **Telehealth covered** once the plan confirms it. Use **+ Add Another LOC Benefit** for any other level of care the verification call covered — add OP if the client may receive psychiatric visits. Then select how services during the verified LOC are bundled.
+3. **Enter Benefits by Level of Care** — The verified LOC's card appears automatically. Specify whether the deductible applies, enter copay and coinsurance (or mark them N/A), record the contracted rate when known, and check **Telehealth covered** once the plan confirms telehealth for that level of care's own service. Use **+ Add Another LOC Benefit** for any other level of care the verification call covered — add OP if the client may receive psychiatric visits. Then select how services during the verified LOC are bundled.
 4. **Add Episode Financial Activity** — Use the "+ Add Activity" button to log any prior financial activity for the episode.
 5. **Complete the Final Check** — Check off each item to confirm everything has been reviewed.
 6. **Generate the Snapshot** — Submitting produces three views of the same result:
@@ -116,5 +116,16 @@ A rate at or above the copay changes nothing, since individual therapy, family t
 
 ### Telehealth
 
-Each LOC benefit carries a **Telehealth covered** checkbox, because a plan does not price telehealth separately — it either pays that level of care delivered remotely or it does not. Only the exclusion reaches the client: an uncovered benefit adds `Telehealth is not covered under the OP benefit — visits must be in person.` to the cost note, while a covered one is never mentioned, since it is the same benefit at the same cost sharing already quoted.
+Each LOC benefit carries a **Telehealth covered** checkbox, scoped to that level of care's own service and labeled the same way the contract rate is — `Telehealth covered — Groups`. A telehealth exclusion lands on a code, not on a benefit: a plan that will not pay a group over telehealth still pays the individual therapy session billing under the same benefit, so the flag says nothing about individual therapy, family therapy, assessment, or psychiatric visits. Telehealth for those is not captured.
+
+Only the exclusion is ever said out loud. A covered service is the service already quoted, at the cost sharing already stated, so it adds no line; an uncaptured benefit claims neither. A plan with no group telehealth benefit at any level reads:
+
+```
+IOP: $75 copay.
+Individual therapy, family therapy, and assessment during IOP: no cost.
+Psych services during IOP: $50 copay.
+IOP is not covered over telehealth — IOP must be attended in person.
+PHP LOC: $100 copay. PHP is not covered over telehealth.
+OP LOC: Groups $40 copay. All other services $50 copay. Groups are not covered over telehealth.
+```
 

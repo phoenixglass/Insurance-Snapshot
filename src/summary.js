@@ -16,6 +16,7 @@ import {
   formatCurrency,
   locServiceName,
   money,
+  ownServiceNoun,
   ownServicePricedApart,
   readBenefitConfig,
   resolveContextBenefits,
@@ -372,10 +373,13 @@ function benefitBlockLines(title, config, unit) {
       `  (The copay above applies to every service billing under the ${config.loc} benefit. This rate is for ${contractRateSubject(config.loc)} only — it lowers the copay there when it comes in under it, and other services keep the copay because they bill under their own codes at their own rates.)`
     )
   }
-  // Only the exclusion is worth a line: a benefit covered over telehealth is
-  // just the benefit, at the cost sharing already stated above it.
+  // Only the exclusion is worth a line, and only for the service it was
+  // captured about: a service covered over telehealth is just that service, at
+  // the cost sharing already stated above it.
   if (config.telehealth === false) {
-    lines.push(`  ⚠ Telehealth not covered — ${config.loc} must be delivered in person.`)
+    lines.push(
+      `  ⚠ Telehealth not covered — ${ownServiceNoun(config.loc)} must be attended in person. Telehealth for other services billing under the ${config.loc} benefit was not captured.`
+    )
   }
   if (!config.confirmed) {
     lines.push('  ⚠ Not yet confirmed from insurance.')
@@ -708,11 +712,12 @@ export function generateSnapshot(data) {
       blank()
     })
 
-    // Said only where the plan excludes it. "Telehealth is covered" would be
-    // describing the benefit the client was just quoted, at the same cost.
+    // Said only where the plan excludes it, and only about the service it was
+    // captured for. "Telehealth is covered" would be describing the benefit the
+    // client was just quoted, at the same cost.
     if (primary.telehealth === false) {
       lines.push(
-        `Your plan does not cover ${loc} over telehealth, so these visits need to happen in person to be covered.`
+        `Your plan does not cover ${ownServiceNoun(loc, { lower: true })} over telehealth, so those need to be attended in person to be covered.`
       )
       blank()
     }

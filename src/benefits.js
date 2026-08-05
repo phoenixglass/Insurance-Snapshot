@@ -73,6 +73,21 @@ export function locServiceName(loc) {
   return loc === 'OP' ? 'Groups' : loc
 }
 
+// The level of care's own service as it appears in a sentence. `lower` is
+// honored for a real word ("Groups" → "groups") and ignored for a level of care
+// that is its own service, because an acronym is not lowercased just because it
+// landed mid-sentence.
+export function ownServiceNoun(loc, { lower = false } = {}) {
+  const name = locServiceName(loc)
+  return lower && name !== loc ? name.toLowerCase() : name
+}
+
+// "Groups are", but "IOP is". Kept beside locServiceName so the two cannot
+// drift: the only own-service with a name of its own is a plural.
+export function ownServiceVerb(loc) {
+  return locServiceName(loc) === loc ? 'is' : 'are'
+}
+
 // What a benefit's stored contract rate is the rate *for*. Named explicitly
 // because the rate caps that service's copay and no other.
 export function contractRateSubject(loc) {
@@ -220,9 +235,12 @@ export function readBenefitConfig(data, category) {
     coinsurance: entry.coinsuranceNa ? null : num(entry.coinsurancePercent),
     coinsuranceNa: Boolean(entry.coinsuranceNa),
     contractRate: num(entry.contractRate),
-    // Whether the plan pays this level of care delivered over telehealth. Kept
-    // as a benefit fact rather than a service, because a plan does not price
-    // telehealth separately — it either covers the LOC that way or it does not.
+    // Whether the plan pays the level of care's OWN service delivered over
+    // telehealth — scoped exactly like contractRate above, and for the same
+    // reason. A telehealth exclusion lands on a code, not on a benefit: a plan
+    // that will not pay a group over telehealth still pays the individual
+    // therapy session billing under the same benefit. Nothing here says
+    // anything about those services.
     telehealth: Boolean(entry.telehealthCovered),
     confirmed: Boolean(entry.confirmed),
   }
@@ -342,9 +360,9 @@ export function resolveBenefit(data, calc, serviceKey, contextLoc = data.verifie
     copay: null,
     coinsurance: null,
     contractRate: null,
-    // null until a benefit is actually read: "nobody captured this" is not the
-    // same fact as "the plan does not cover telehealth", and only the second
-    // one is ever said out loud.
+    // null until a benefit is read *for the service the flag describes*.
+    // "nobody captured this" is not the same fact as "the plan does not cover
+    // telehealth", and only the second one is ever said out loud.
     telehealth: null,
     amount: null,
     amountKnown: false,
@@ -419,7 +437,10 @@ export function resolveBenefit(data, calc, serviceKey, contextLoc = data.verifie
     copay: config.copay,
     coinsurance: config.coinsurance,
     contractRate: config.contractRate,
-    telehealth: config.telehealth,
+    // Read only for the service the flag was captured about. An individual
+    // therapy session under the OP benefit stays null — the plan may well cover
+    // it over telehealth while excluding the group, and this VOB never asked.
+    telehealth: serviceKey === 'LOC_SERVICE' ? config.telehealth : null,
     confirmed: config.confirmed,
   }
 

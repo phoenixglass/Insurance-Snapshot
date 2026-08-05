@@ -274,24 +274,29 @@ function BenefitRuleFields({ idPrefix, values, onChange, unit, loc }) {
         </div>
       </div>
 
-      {/* Telehealth is a property of the benefit, not a service of its own: a
-          plan either pays this level of care delivered remotely or it does not.
-          Only the "does not" ever reaches the client-facing outputs. */}
+      {/* Scoped to the level of care's own service, and labeled like the
+          contract rate above it for the same reason: a telehealth exclusion
+          lands on a code, not on a benefit. A plan can refuse to pay a group
+          over telehealth and still pay the individual therapy session billing
+          under the same benefit. */}
       <label className="checkbox-label">
         <input
           type="checkbox"
           checked={values.telehealthCovered}
           onChange={(e) => onChange('telehealthCovered', e.target.checked)}
         />
-        Telehealth covered{loc ? ` at the ${loc} benefit` : ''}
+        Telehealth covered{loc ? ` — ${locServiceName(loc)}` : ''}
       </label>
       {/* Shown only while the box is clear, which is the state that puts a
-          sentence in front of the client. A covered benefit needs no note: it
-          is the benefit above, at the cost sharing above. */}
+          sentence in front of the client. A covered service needs no note: it
+          is the service above, at the cost sharing above. */}
       {!values.telehealthCovered && (
         <div className="info-banner">
-          ℹ Unchecked means the plan does not cover {loc || 'this level of care'} over telehealth,
-          and the cost note says so. Check the box once the plan confirms telehealth is covered.
+          ℹ Unchecked means the plan does not cover{' '}
+          {loc ? contractRateSubject(loc) : 'this service'} over telehealth, and the cost note says
+          so. It says nothing about individual therapy, family therapy, assessment, or psychiatric
+          visits — telehealth for those is not captured here. Check the box once the plan confirms
+          it.
         </div>
       )}
     </>

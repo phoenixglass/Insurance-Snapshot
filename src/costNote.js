@@ -28,7 +28,10 @@
 //
 // Coverage limits ride along with the price they limit: telehealth is named
 // only where the plan does not cover it, because that is the only version of
-// the fact that changes what the client can do or owes.
+// the fact that changes what the client can do or owes — and it is named for
+// the service it was captured about, never for the whole benefit. A plan that
+// will not pay a group over telehealth still pays the individual therapy
+// session billing under the same benefit.
 //
 // Like every other output, each line is built from a resolved benefit object,
 // never from a raw form field.
@@ -39,6 +42,8 @@ import {
   computeCalc,
   formatCurrency,
   locServiceName,
+  ownServiceNoun,
+  ownServiceVerb,
   resolveBenefit,
   resolveContextBenefits,
   serviceUnitLabel,
@@ -213,10 +218,16 @@ function ownServicePrefix(loc, pricedApart) {
   return ownName !== loc && pricedApart ? `${ownName} ` : ''
 }
 
-// Said only when the plan does not cover the level of care over telehealth —
-// "covered" changes nothing about what the client does or owes, and an
-// uncaptured benefit (null) has not established either.
+// Said only when the plan does not cover the level of care's own service over
+// telehealth — "covered" changes nothing about what the client does or owes,
+// and an uncaptured benefit (null) has not established either.
 const telehealthExcluded = (r) => r && r.telehealth === false
+
+// Scoped to the service it was captured about, so the sentence names that
+// service rather than the benefit it bills under.
+function telehealthLine(loc) {
+  return `${ownServiceNoun(loc)} ${ownServiceVerb(loc)} not covered over telehealth — ${ownServiceNoun(loc, { lower: true })} must be attended in person.`
+}
 
 export function generateCostNote(data) {
   const loc = data.verifiedLoc
@@ -237,7 +248,8 @@ export function generateCostNote(data) {
   // in the note rather than making them go find it in the detail view.
   const collectCapNote = (r) => {
     if (!r.cappedByContractRate) return
-    const note = `the plan lists a ${dollars(r.copay)} ${r.contextLoc} copay, but our contracted rate for ${locServiceName(r.contextLoc).toLowerCase()} is ${dollars(r.contractRate)}. We cannot charge more than the contracted rate, so ${locServiceName(r.contextLoc).toLowerCase()} are ${dollars(r.amount)}. Every other service under the ${r.contextLoc} benefit bills under its own code and keeps the ${dollars(r.copay)} copay.`
+    const own = ownServiceNoun(r.contextLoc, { lower: true })
+    const note = `the plan lists a ${dollars(r.copay)} ${r.contextLoc} copay, but our contracted rate for ${own} is ${dollars(r.contractRate)}. We cannot charge more than the contracted rate, so ${own} ${ownServiceVerb(r.contextLoc)} ${dollars(r.amount)}. Every other service under the ${r.contextLoc} benefit bills under its own code and keeps the ${dollars(r.copay)} copay.`
     if (!capNotes.includes(note)) capNotes.push(note)
   }
 
@@ -275,9 +287,7 @@ export function generateCostNote(data) {
     lines.push(`${capitalize(label)} during ${loc}: ${sentence(text)}`)
   })
 
-  if (telehealthExcluded(primary)) {
-    lines.push(`Telehealth is not covered under the ${loc} benefit — visits must be in person.`)
-  }
+  if (telehealthExcluded(primary)) lines.push(telehealthLine(loc))
 
   // ── Other levels of care priced on the same verification call ─────────────
   //
@@ -308,7 +318,9 @@ export function generateCostNote(data) {
 
     otherContext.groups.forEach(({ label, text }) => parts.push(`${capitalize(label)} ${text}`))
 
-    if (telehealthExcluded(locResolved)) parts.push('Telehealth is not covered')
+    if (telehealthExcluded(locResolved)) {
+      parts.push(`${ownServiceNoun(other)} ${ownServiceVerb(other)} not covered over telehealth`)
+    }
 
     lines.push(`${other} LOC: ${parts.map(sentence).join(' ')}`)
   })
