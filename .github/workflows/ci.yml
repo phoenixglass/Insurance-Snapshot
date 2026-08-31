@@ -1,0 +1,30 @@
+name: CI
+
+# Runs on every pull request, so the suite gates the merge rather than the
+# deploy. `deploy.yml` keeps its own lint and test steps as the last check
+# before anything is published, which means each path is verified exactly once:
+# this workflow covers pull requests, that one covers main.
+on:
+  pull_request:
+  workflow_dispatch:
+
+# A new push supersedes the run in flight for the same branch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      # Building here catches what lint and tests cannot: an import that
+      # resolves in the test runner but not in a production bundle.
+      - run: npm run build
