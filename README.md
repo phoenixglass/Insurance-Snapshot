@@ -1,10 +1,102 @@
 # Insurance Snapshot
 
-A single-page React application that helps staff quickly capture and summarize a client's insurance details for a behavioral health or treatment episode — then generates the short cost note that the person relaying costs actually reads to the client, plus the full detail behind it.
+A single-page React application for the money side of a behavioral health admission. It holds four tools over one shared rate sheet:
+
+| Tool | What it answers |
+|------|-----------------|
+| **Snapshot** | "What do I tell this client their care costs?" — captures a verification and writes the cost note read out loud. |
+| **Deposit Estimator** | "What deposit do we collect up front?" — prices a whole treatment sequence against the plan. |
+| **Self-Pay & Scholarship** | "What does this cost without insurance, and how big is the scholarship?" |
+| **Rate Sheet** | "What does this carrier pay for this code?" |
+
+Each tool keeps its own state for the session, so switching tabs to check a rate never costs a half-filled form.
 
 ---
 
-## Features
+## Reference data
+
+`src/data/rates.js` is generated from the 2026 Deposit Calculator workbook's `Vlookup` sheet: **63 carriers** with their INN / OON / self-pay status, **122 CPT and HCPCS codes** with descriptions, the **carrier × code rate matrix**, the cross-carrier benchmark average per code, and the **47 treatment sequences**.
+
+`rates.js` is generated and is overwritten whenever the workbook is re-exported, so a rate the workbook has **wrong** is corrected in `src/data/rateCorrections.js` instead — an overlay applied at lookup time, where a hand edit cannot be silently reverted. Each entry records the old value, the date and the reason. A rate the workbook is merely *missing* is not corrected there; it is left missing so the app can say so.
+
+A carrier that has no rate for a code is *absent* from that carrier's row rather than stored as `0`. The workbook marks those cells amber and tells you to estimate from a similar plan; the app does the same thing out loud — it names every priced service whose rate is missing, shows the cross-carrier average and the nearest comparable plans, and warns that the total is understated until a rate is entered. Nothing is silently priced at zero.
+
+### Observed reimbursement — the fallback of last resort
+
+`src/data/reimbursement.js` holds the average amount actually reimbursed per code for **13 payer groups**, drawn from past claims, alongside the average charge amount.
+
+This is the weakest source and the last one consulted. A contracted schedule is a signed number and the carrier table is a plan's stated allowed amount; this is neither. Measured against the carrier table where both exist, it tracks closely in the middle (median ratio **0.96**) but ranges from roughly half to two-thirds above — an estimate, not a quote. Every line drawn from it is tagged `payer avg` on its row, and the result panel names those lines and says the total is an estimate.
+
+**`Misc` is not a fallback.** It is the bucket a plan the app does not carry reports under, so a listed carrier never silently inherits it — a named plan with no rate of its own gets no rate, not somebody else's average. Two things reach it, both deliberately:
+
+- The carrier list ends with **"Other — not listed"**, for a plan the app does not carry. It prices entirely off Misc, states plainly that nothing is specific to the client, and asks for the network status, since an unlisted carrier has none on file.
+- A missing rate on a listed carrier shows a one-click **`misc`** button beside its field, alongside the option to type the number the verification call established. Either way the choice is the user's and the source is visible.
+
+With Misc held back this way, **16 of the 176** carrier-table gaps fill automatically from the carrier's own payer group; the other 160 offer the quick-fill. 23 carriers map to no payer group at all and rely on a typed rate or the Misc button.
+
+### In-network contracted rate schedules
+
+`src/data/contractRates.js` holds the signed rate sheets by facility location — **Connecticut** (effective 7/24/2026), **New Jersey — Ramsey** (7/6/2024), and **New York** (12/06/2024) — with both the contracted and billed rate for every code.
+
+These are a different axis from the carrier table. That table answers *"what does this payer allow?"*; a schedule answers *"what have we contracted to be paid here?"* Which schedule applies is a fact about the **site the client is admitting to**, so the estimator asks for a **Location** — Canaan, Wilton, Ramsey, New York City, Chappaqua, Huntington, Mass Virtual — and derives the schedule from it. Mass Virtual has no schedule on file (there is no MA rate sheet), which the app says rather than leaving blank. Rates then resolve in three tiers, and every row shows which tier its number came from:
+
+1. **Override** — a rate typed in by hand, because the user is looking at the contract
+2. **Contracted schedule** — a signed rate for this site
+3. **Carrier table** — this plan's stated allowed amount
+4. **The carrier's own payer-group average** — what claims like this were actually paid
+
+A code none of the four covers stays missing rather than becoming zero. Only Connecticut carries facility per diems; the NJ and NY sheets are professional rates only, so detox, residential, PHP and OPWM fall back to the carrier table there. Codes a schedule lists as *billed but not contracted* (Utox, Case Management, Medical Team Conference, telephone codes) are flagged as **not contracted** rather than merely unpriced — the plan may not pay them at all.
+
+Connecticut contracts **H0018 at two rates** against two revenue codes — $1,186.00 under rev 1000 (Residential 3.7 / Residential Eval) and $1,045.00 under rev 1002 (Residential 3.5 / Residential). The residential line prices at the 1002 rate, matching how the workbook's own table labels H0018, and the app surfaces the other rate on screen so it can be entered when a stay bills that way.
+
+---
+
+## Deposit Estimator
+
+A port of the workbook's `Insurance Calculator_v2` sheet. It runs two cost-share waterfalls, and the inpatient one runs first because it consumes the deductible and out-of-pocket room the outpatient one then works against:
+
+```
+allowed cost → deductible → coinsurance → copay → OOP cap → deposit
+```
+
+- **Treatment sequence gating** — a level of care is priced only when the selected sequence names it.
+- **Sequenced deductible** — detox takes what it can, residential takes what detox left, and the outpatient block starts from the remainder.
+- **The three copay questions**, each of which moves money on its own: how it is counted (per unit, professional visits only, or a manual total), whether it displaces coinsurance, and which accumulators it feeds.
+- **Accumulator routing** — whether the deductible and the admission fee sit inside or outside the out-of-pocket cap changes what is still collected after the maximum is reached.
+- **Admission fees per level of care**, charged only for the levels in the sequence.
+- **Sequence-aware unit defaults** — a typical episode is not one schedule:
+
+  | | Intake | IOP | Groups | IT | Psych eval | Psych F/U | FT |
+  |---|---|---|---|---|---|---|---|
+  | **IOP** | 1 | 30 | — | 9 | 1 | 2 | — |
+  | **OP** | 1 | — | 20 | 10 | 1 | 2 | 3 |
+
+  A sequence covering both sums the therapy and group counts — `IOP > OP` gives 19 individual sessions — but the **psychiatric services are one course for the admission**, so intake, the evaluation and the follow-ups take the larger of the two rather than starting a second course. Every count is editable, changing the sequence re-bases anything not typed over, and a **Reset counts** action restores the defaults.
+- **Editable nights and rates** — a rate entered by hand outranks both the contracted schedule and the carrier table, and is tagged as an override.
+
+The result panel carries the deposit as a hero figure, its inpatient / outpatient / prior-balance split, a part-to-whole breakdown of what created each dollar of the client's responsibility, and both waterfalls line by line so any number can be checked rather than trusted.
+
+### Where this deliberately differs from the workbook
+
+The workbook is internally inconsistent in three places. Each is implemented the coherent way, matching the workbook's own written notes (E42/E43, B24) and its `Self Pay Calc` sheet:
+
+1. **Shared professional services activate on IOP *or* OP.** The workbook gates assessment, individual therapy, psychiatry, family therapy and MATs on IOP alone in the cost cells. An OP-only sequence therefore priced a client's assessment and psychiatry at nothing.
+2. **Copay units follow the lines that were actually costed.** The workbook's copay-unit formula counts OP groups under the IOP branch and individual therapy under the OP branch — the two are swapped relative to the cost formulas.
+3. **A bundled INN IOP agreement charges for IOP and excludes individual and family therapy** — what the workbook's own note in B24 says, since confirmed. Its copay-unit formula excludes IOP services instead.
+
+Everything else matches the workbook cell for cell: **600 randomized scenarios × 21 cells** reproduce it exactly, and the inpatient block matches in all 800 scenarios including the divergent ones.
+
+---
+
+## Self-Pay & Scholarship
+
+A port of the `Self Pay Calc` sheet. The client's payment is applied to each line first; the scholarship is whatever the payment did not reach. The point of the sheet is the *shape* of that gap, so the scholarship is restated three ways — as a percentage of the program, as units of care covered, and as a blended daily rate — because those are the units a scholarship gets approved in.
+
+---
+
+## Snapshot
+
+The original tool, unchanged. Its features:
 
 - **Plan Basics** — Record network, deductible totals, and out-of-pocket maximum amounts, plus whether they are tracked separately or combined.
 - **Level of Care (LOC)** — Track the client's current status (not yet admitted, in treatment, or discharged), their current/most recent LOC, and the verified LOC used for this agreement.
@@ -29,6 +121,9 @@ A single-page React application that helps staff quickly capture and summarize a
 | UI | React 19 |
 | Build | Vite 8 |
 | Linting | ESLint 9 |
+| Styling | Hand-written CSS on a token system — light and dark, no framework |
+
+The visual system lives in `src/App.css`. Colors are defined once as roles on `:root`, and only the roles are redefined for dark mode. The four `--series-*` slots used by part-to-whole breakdowns are a colorblind-validated categorical palette; every segment that wears one is also labeled with its own value, so hue is never the only thing telling two of them apart.
 
 ---
 
@@ -62,11 +157,29 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 | `npm run dev` | Start the local development server with hot module replacement |
 | `npm run build` | Build the app for production (output in `dist/`) |
 | `npm run preview` | Preview the production build locally |
+| `npm test` | Run the test suite (110 tests, Node's built-in runner — no extra dependencies) |
 | `npm run lint` | Run ESLint across all source files |
 
 ---
 
-## How to Use
+## Tests
+
+`npm test`. Deploys run lint and the suite before building, so a wrong quote cannot ship.
+
+The suite is built around one question — **does the output say what was entered?** — and answers it three ways:
+
+- **Against the workbook.** 60 scenarios captured from a literal transcription of the original cell formulas, each carrying all 21 intermediate cells, so a regression is located rather than merely detected. The self-pay sheet's own saved scenario is asserted to the cent.
+- **At named points.** The contracted-rate cap, per-admission versus per-day copays, the deductible phase, accumulator arithmetic, telehealth exclusions, and every state the app must refuse to quote.
+- **Across the whole form space.** Roughly 500 combinations of level of care, network, bundling model and cost-sharing shape, asserting on every one that no output invents a dollar figure, that the verified level of care's price always reaches the note, and that the cost note and staff detail cannot quote different numbers.
+
+Two defects the sweeps found, both since fixed:
+
+- An **out-of-pocket maximum typed as `$0`** read as "already met" and quoted the entire episode at no cost. A $0 maximum is not a plan anyone sells, so it is now a submit blocker pointing at the "No OOP max" checkbox.
+- A plan listing **both a copay and coinsurance** has not said which one it charges. The cost note correctly refused to quote it — but the on-screen benefit preview showed a settled dollar amount, so staff could read a number off the screen that the note would not print. The preview now reports it as unestablished and surfaces the engine's own explanation, as it does for every other unresolved benefit.
+
+---
+
+## How to Use the Snapshot
 
 1. **Fill in Plan Basics** — Enter the insurance network, deductible amounts, and out-of-pocket maximum.
 2. **Set Level of Care** — Select the client's current status, most recent LOC, and the verified LOC for this episode.
