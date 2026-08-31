@@ -9,13 +9,14 @@
 
 import { Fragment, useMemo, useState } from 'react'
 import {
+  CARRIER_OPTIONS,
   carrierNetwork,
   carriersWithRate,
   formatMoney,
+  isOtherCarrier,
   searchCodes,
   toNumber,
 } from './estimate.js'
-import { CARRIERS } from './data/rates.js'
 import { CONTRACT_SCHEDULES, getSchedule, scheduleBilledRate, scheduleRate } from './data/contractRates.js'
 import { reimbursementDetail } from './data/reimbursement.js'
 import { Banner, Field, PercentInput, Section, Select } from './ui.jsx'
@@ -27,7 +28,7 @@ export default function RateLookupTool() {
   const [scheduleId, setScheduleId] = useState('')
   const [expanded, setExpanded] = useState(null)
 
-  const network = carrierNetwork(carrier)
+  const network = isOtherCarrier(carrier) ? 'Misc' : carrierNetwork(carrier)
   const coins = toNumber(coinsurance) / 100
   const schedule = getSchedule(scheduleId)
   const results = useMemo(() => searchCodes(query, carrier, { limit: 60 }), [query, carrier])
@@ -47,7 +48,7 @@ export default function RateLookupTool() {
               id="lookupCarrier"
               value={carrier}
               onChange={setCarrier}
-              options={CARRIERS.map((c) => ({ value: c.name, label: `${c.name} — ${c.network}` }))}
+              options={CARRIER_OPTIONS}
               placeholder="Select a carrier…"
             />
           </Field>

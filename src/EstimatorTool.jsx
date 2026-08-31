@@ -9,18 +9,21 @@ import {
   COPAY_BASIS,
   COPAY_TREATMENT,
   INITIAL_ESTIMATE_STATE,
+  CARRIER_OPTIONS,
   SERVICE_LINES,
   carriersWithRate,
   computeEstimate,
   defaultUnitsFor,
   estimateBlockers,
   formatMoney,
+  isOtherCarrier,
   resolveRate,
   sequenceIncludes,
   sequenceLocs,
 } from './estimate.js'
-import { CARRIERS, TREATMENT_SEQUENCES } from './data/rates.js'
+import { TREATMENT_SEQUENCES } from './data/rates.js'
 import { LOCATIONS, getLocation } from './data/contractRates.js'
+import { miscRate } from './data/reimbursement.js'
 import {
   Banner,
   BlockerList,
@@ -40,8 +43,6 @@ import {
   Waterfall,
 } from './ui.jsx'
 
-const CARRIER_OPTIONS = CARRIERS.map((c) => ({ name: c.name, network: c.network }))
-
 // Where the number in this cell came from. Worth showing on every row: a
 // contracted rate and a carrier-table estimate are not the same kind of fact,
 // and a quote built on the second one deserves to look different.
@@ -49,7 +50,6 @@ const RATE_TAGS = {
   override: { className: 'rate-tag-override', label: 'override' },
   contract: { className: 'rate-tag-contract', label: 'contracted' },
   'payer-average': { className: 'rate-tag-estimate', label: 'payer avg' },
-  'misc-average': { className: 'rate-tag-estimate', label: 'misc avg' },
   uncontracted: { className: 'rate-tag-missing', label: 'not contracted' },
   missing: { className: 'rate-tag-missing', label: 'not on file' },
 }
@@ -57,6 +57,7 @@ const RATE_TAGS = {
 function RateCell({ form, code, onOverride }) {
   const { rate, source } = resolveRate(form, code)
   const tag = RATE_TAGS[source]
+  const misc = source === 'missing' ? miscRate(code) : null
   return (
     <div className="rate-cell">
       <CurrencyInput
@@ -66,6 +67,16 @@ function RateCell({ form, code, onOverride }) {
         size="sm"
       />
       {tag && <span className={`rate-tag ${tag.className}`}>{tag.label}</span>}
+      {misc !== null && (
+        <button
+          type="button"
+          className="rate-fill"
+          onClick={() => onOverride(code, misc.toFixed(2))}
+          title={`Fill with the Misc claims average, ${misc.toFixed(2)}`}
+        >
+          misc {misc.toFixed(0)}
+        </button>
+      )}
     </div>
   )
 }
@@ -153,14 +164,31 @@ export default function EstimatorTool() {
                 id="carrier"
                 value={form.carrier}
                 onChange={set('carrier')}
-                options={CARRIER_OPTIONS.map((c) => ({ value: c.name, label: `${c.name} — ${c.network}` }))}
+                options={CARRIER_OPTIONS}
                 placeholder="Select a carrier…"
               />
             </Field>
-            <Field label="Network Status">
-              <div className={`network-pill network-${(result.network || 'none').toLowerCase().replace(/\s+/g, '-')}`}>
-                {result.network || 'Select a carrier'}
-              </div>
+            <Field
+              label="Network Status"
+              required={isOtherCarrier(form.carrier)}
+              hint={
+                isOtherCarrier(form.carrier)
+                  ? 'An unlisted carrier has no network on file, so it has to be stated.'
+                  : undefined
+              }
+            >
+              {isOtherCarrier(form.carrier) ? (
+                <SegmentedControl
+                  name="networkOverride"
+                  options={['INN', 'OON']}
+                  value={form.networkOverride}
+                  onChange={set('networkOverride')}
+                />
+              ) : (
+                <div className={`network-pill network-${(result.network || 'none').toLowerCase().replace(/\s+/g, '-')}`}>
+                  {result.network || 'Select a carrier'}
+                </div>
+              )}
             </Field>
           </div>
 
@@ -234,6 +262,13 @@ export default function EstimatorTool() {
                 </Banner>
               )}
             </Field>
+          )}
+          {isOtherCarrier(form.carrier) && (
+            <Banner tone="info">
+              Rates come from the Misc claims bucket — the average across every plan the app does
+              not carry. Nothing here is specific to this client's plan, so treat the whole estimate
+              as provisional and overwrite any rate the verification call establishes.
+            </Banner>
           )}
           {result.network === 'Self Pay' && (
             <Banner tone="warn">
@@ -525,13 +560,6 @@ export default function EstimatorTool() {
               {[...new Set(result.estimatedRates.map((r) => r.group))].join(' and ')} claims were
               actually paid on average. That is an estimate, not a quote — verify before committing
               a client to this deposit.
-              {result.estimatedRates.some((r) => r.misc) && (
-                <>
-                  {' '}
-                  Lines marked <em>misc avg</em> come from the catch-all reporting bucket rather
-                  than this payer, so they are looser still.
-                </>
-              )}
             </Banner>
           )}
 
@@ -542,8 +570,9 @@ export default function EstimatorTool() {
                 {result.missingRates.length === 1 ? ' has' : 's have'} no rate
               </strong>{' '}
               — {result.missingRates.map((r) => `${r.label} (${r.code})`).join(', ')}. Each is
-              costing $0 in the total above, which understates the deposit. Enter a rate in the
-              Rate column before quoting.
+              costing $0 in the total above, which understates the deposit. Enter the rate from the
+              verification call in the Rate column, or use the <em>misc</em> button beside it to
+              fill the Misc claims average.
               {result.missingRates.some((r) => r.uncontracted) && (
                 <>
                   {' '}

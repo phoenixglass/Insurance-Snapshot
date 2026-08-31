@@ -23,11 +23,14 @@ A carrier that has no rate for a code is *absent* from that carrier's row rather
 
 `src/data/reimbursement.js` holds the average amount actually reimbursed per code for **13 payer groups**, drawn from past claims, alongside the average charge amount.
 
-This is the weakest source and the last one consulted. A contracted schedule is a signed number and the carrier table is a plan's stated allowed amount; this is neither. Measured against the carrier table where both exist, it tracks closely in the middle (median ratio **0.96**) but ranges from roughly half to two-thirds above — an estimate, not a quote.
+This is the weakest source and the last one consulted. A contracted schedule is a signed number and the carrier table is a plan's stated allowed amount; this is neither. Measured against the carrier table where both exist, it tracks closely in the middle (median ratio **0.96**) but ranges from roughly half to two-thirds above — an estimate, not a quote. Every line drawn from it is tagged `payer avg` on its row, and the result panel names those lines and says the total is an estimate.
 
-It earns its place because the alternative is worse. Without it, **174 of the 176** priced-code gaps in the carrier table cost **$0** in an estimate, silently understating the deposit. With it, a Priority Health detox stay prices at $1,360/night instead of nothing.
+**`Misc` is not a fallback.** It is the bucket a plan the app does not carry reports under, so a listed carrier never silently inherits it — a named plan with no rate of its own gets no rate, not somebody else's average. Two things reach it, both deliberately:
 
-Every line drawn from it is tagged `payer avg` on its row, and the result panel names those lines and says the total is an estimate. A carrier that only reaches a group through the `Misc` reporting bucket is tagged `misc avg` and called out separately, because it is looser still.
+- The carrier list ends with **"Other — not listed"**, for a plan the app does not carry. It prices entirely off Misc, states plainly that nothing is specific to the client, and asks for the network status, since an unlisted carrier has none on file.
+- A missing rate on a listed carrier shows a one-click **`misc`** button beside its field, alongside the option to type the number the verification call established. Either way the choice is the user's and the source is visible.
+
+With Misc held back this way, **16 of the 176** carrier-table gaps fill automatically from the carrier's own payer group; the other 160 offer the quick-fill. 23 carriers map to no payer group at all and rely on a typed rate or the Misc button.
 
 ### In-network contracted rate schedules
 
@@ -38,7 +41,7 @@ These are a different axis from the carrier table. That table answers *"what doe
 1. **Override** — a rate typed in by hand, because the user is looking at the contract
 2. **Contracted schedule** — a signed rate for this site
 3. **Carrier table** — this plan's stated allowed amount
-4. **Payer-group average reimbursement** — what claims like this were actually paid
+4. **The carrier's own payer-group average** — what claims like this were actually paid
 
 A code none of the four covers stays missing rather than becoming zero. Only Connecticut carries facility per diems; the NJ and NY sheets are professional rates only, so detox, residential, PHP and OPWM fall back to the carrier table there. Codes a schedule lists as *billed but not contracted* (Utox, Case Management, Medical Team Conference, telephone codes) are flagged as **not contracted** rather than merely unpriced — the plan may not pay them at all.
 

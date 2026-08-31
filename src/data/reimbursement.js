@@ -51,14 +51,25 @@ export const PAYER_CHARGES = {
   "UMR": { "80305": 260.0, "90791": 875.0, "90792": 1050.0, "90832": 375.0, "90837": 750.0, "90846": 600.0, "90847": 750.0, "90853": 525.0, "93000": 195.0, "96372": 695.0, "97802": 600.0, "99211": 475.0, "99212": 500.0, "99214": 750.0, "H0010": 5450.0, "H0015": 1550.0, "H0018": 4950.0 },
 }
 
-// Which group a carrier's claims were reported under. Most groups are a carrier
-// name verbatim; the rest are families. `Misc` is the reporting catch-all, so a
-// rate reaching a carrier through it is the loosest estimate the app will make
-// and is labeled separately from an exact-payer one.
+// `Misc` is the bucket a carrier that is not listed in the app reports under.
+// It is therefore never a fallback for a carrier that IS listed: a named plan
+// with no rate of its own gets no rate, not somebody else's average. The only
+// thing that reaches Misc is the explicit "not listed" carrier below.
+export const MISC_GROUP = 'Misc'
+
+// The carrier option for a plan the app does not carry. Its rates come from the
+// Misc claims bucket, which is exactly what that bucket is.
+export const OTHER_CARRIER = 'Other — not listed'
+
 const EXACT_GROUPS = new Set(Object.keys(PAYER_REIMBURSEMENT))
 
+// Which group a carrier's claims were reported under. Most groups are a carrier
+// name verbatim; the rest are families. A carrier matching none of them returns
+// null rather than falling through to Misc.
 export function payerGroupFor(carrier) {
   if (!carrier) return null
+  if (carrier === OTHER_CARRIER) return { group: MISC_GROUP, exact: true }
+  if (carrier === MISC_GROUP) return null
   if (EXACT_GROUPS.has(carrier)) return { group: carrier, exact: true }
   // The BCBS plans split two ways in the claims data: the Anthem-administered
   // ones report under Anthem, the rest under BCBS.
@@ -70,7 +81,14 @@ export function payerGroupFor(carrier) {
       if (EXACT_GROUPS.has(group)) return { group, exact: false }
     }
   }
-  return EXACT_GROUPS.has('Misc') ? { group: 'Misc', exact: false } : null
+  return null
+}
+
+// The Misc average for a code, offered as a one-click fill beside a rate the
+// app cannot supply — chosen deliberately rather than applied behind the back.
+export function miscRate(code) {
+  const rate = PAYER_REIMBURSEMENT[MISC_GROUP]?.[String(code)]
+  return typeof rate === 'number' ? rate : null
 }
 
 // The average this carrier's payer group was reimbursed for a code, or null.

@@ -23,7 +23,7 @@ import {
   scheduleForLocation,
   scheduleRate,
 } from './data/contractRates.js'
-import { payerGroupFor, reimbursementRate } from './data/reimbursement.js'
+import { OTHER_CARRIER, payerGroupFor, reimbursementRate } from './data/reimbursement.js'
 
 // ── Copay handling ───────────────────────────────────────────────────────────
 // The workbook asks three separate questions about a copay, and each one moves
@@ -82,6 +82,17 @@ const CODE_BY_ID = new Map(CODES.map((c) => [c.code, c]))
 export function carrierNetwork(carrier) {
   const found = CARRIER_BY_NAME.get(carrier)
   return found ? found.network : ''
+}
+
+// The carrier list plus the explicit "not listed" option, which is the only
+// thing that draws on the Misc claims bucket.
+export const CARRIER_OPTIONS = [
+  ...CARRIERS.map((c) => ({ value: c.name, label: `${c.name} — ${c.network}` })),
+  { value: OTHER_CARRIER, label: `${OTHER_CARRIER} — Misc claims average` },
+]
+
+export function isOtherCarrier(carrier) {
+  return carrier === OTHER_CARRIER
 }
 
 export function codeDescription(code) {
@@ -212,6 +223,7 @@ export const INITIAL_ESTIMATE_STATE = {
   deductibleInOopm: 'Yes',
   coinsurancePercent: '',
   copayAmount: '',
+  networkOverride: '',
   copayBasis: COPAY_BASIS.NA,
   copayTreatment: COPAY_TREATMENT.NA,
   copayAppliesToDeductible: 'Not Applicable',
@@ -262,12 +274,7 @@ export function resolveRate(form, code) {
   // reporting bucket.
   const observed = reimbursementRate(form.carrier, code)
   if (observed !== null) {
-    const match = payerGroupFor(form.carrier)
-    return {
-      rate: observed,
-      source: match?.group === 'Misc' ? 'misc-average' : 'payer-average',
-      group: match?.group,
-    }
+    return { rate: observed, source: 'payer-average', group: payerGroupFor(form.carrier)?.group }
   }
 
   // A code the schedule lists with no contracted rate is uncontracted at this
@@ -540,7 +547,9 @@ function computeOutpatient(form, ctx, inpatient) {
 // ── Public entry point ───────────────────────────────────────────────────────
 
 export function computeEstimate(form) {
-  const network = carrierNetwork(form.carrier)
+  const network = isOtherCarrier(form.carrier)
+    ? form.networkOverride || ''
+    : carrierNetwork(form.carrier)
   const sequence = form.treatmentSequence
   const coins = toNumber(form.coinsurancePercent) / 100
 
@@ -578,13 +587,12 @@ export function computeEstimate(form) {
   // and the result panel says so rather than letting the total look settled.
   const estimatedRates = scheduled
     .map((l) => ({ line: l, resolved: resolveRate(form, l.code) }))
-    .filter((x) => x.resolved.source === 'payer-average' || x.resolved.source === 'misc-average')
+    .filter((x) => x.resolved.source === 'payer-average')
     .map((x) => ({
       key: x.line.key,
       label: x.line.label,
       code: x.line.code,
       group: x.resolved.group,
-      misc: x.resolved.source === 'misc-average',
     }))
 
   const missingRates = [...inpatient.lines, ...outpatient.lines]
@@ -619,6 +627,9 @@ export function computeEstimate(form) {
 export function estimateBlockers(form) {
   const blockers = []
   if (!form.carrier) blockers.push('Select an insurance carrier')
+  if (isOtherCarrier(form.carrier) && !form.networkOverride) {
+    blockers.push('Select the network status — an unlisted carrier has none on file')
+  }
   if (!form.treatmentSequence) blockers.push('Select a treatment sequence')
   if (form.coinsurancePercent === '') {
     blockers.push('Enter the coinsurance percentage (enter 0 if the plan has none)')

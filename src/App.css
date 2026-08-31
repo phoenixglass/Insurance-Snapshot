@@ -1020,6 +1020,27 @@ textarea {
   color: var(--accent);
 }
 
+/* One click to take the Misc average for a rate the app cannot supply. Sits
+   beside the field rather than filling it, so the number is always a choice. */
+.rate-fill {
+  font-size: 0.68rem;
+  font-weight: 640;
+  letter-spacing: 0.02em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px dashed var(--accent-line);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  transition: background 0.15s;
+}
+
+.rate-fill:hover {
+  background: var(--accent-soft);
+}
+
 /* ── Tables ───────────────────────────────────────────────────────────── */
 
 .line-table-scroll {
