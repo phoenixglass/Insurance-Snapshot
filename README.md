@@ -23,7 +23,7 @@ A carrier that has no rate for a code is *absent* from that carrier's row rather
 
 `src/data/contractRates.js` holds the signed rate sheets by facility location — **Connecticut** (effective 7/24/2026), **New Jersey — Ramsey** (7/6/2024), and **New York** (12/06/2024) — with both the contracted and billed rate for every code.
 
-These are a different axis from the carrier table. That table answers *"what does this payer allow?"*; a schedule answers *"what have we contracted to be paid here?"* Rates resolve in three tiers, and every row shows which tier its number came from:
+These are a different axis from the carrier table. That table answers *"what does this payer allow?"*; a schedule answers *"what have we contracted to be paid here?"* Which schedule applies is a fact about the **site the client is admitting to**, so the estimator asks for a **Location** — Canaan, Wilton, Ramsey, New York City, Chappaqua, Huntington — and derives the schedule from it. Rates then resolve in three tiers, and every row shows which tier its number came from:
 
 1. **Override** — a rate typed in by hand, because the user is looking at the contract
 2. **Contracted schedule** — a signed rate for this site
@@ -48,7 +48,14 @@ allowed cost → deductible → coinsurance → copay → OOP cap → deposit
 - **The three copay questions**, each of which moves money on its own: how it is counted (per unit, professional visits only, or a manual total), whether it displaces coinsurance, and which accumulators it feeds.
 - **Accumulator routing** — whether the deductible and the admission fee sit inside or outside the out-of-pocket cap changes what is still collected after the maximum is reached.
 - **Admission fees per level of care**, charged only for the levels in the sequence.
-- **Sequence-aware unit defaults** — a typical episode is not one schedule. IOP starts at 1 intake, 30 IOP, 9 individual, 1 psych eval and 2 follow-ups; OP starts at 10 groups and 10 individual. A sequence covering both gets the sum, which is what stepping down from IOP into OP looks like. Every count is editable, and a **Reset counts** action restores the defaults.
+- **Sequence-aware unit defaults** — a typical episode is not one schedule:
+
+  | | Intake | IOP | Groups | IT | Psych eval | Psych F/U | FT |
+  |---|---|---|---|---|---|---|---|
+  | **IOP** | 1 | 30 | — | 9 | 1 | 2 | — |
+  | **OP** | 1 | — | 20 | 10 | 1 | 2 | 3 |
+
+  A sequence covering both sums the recurring services — `IOP > OP` gives 19 individual sessions — but **intake and the psychiatric evaluation are once per admission**, so a step-down takes the larger of the two rather than billing a second one. Every count is editable, changing the sequence re-bases anything not typed over, and a **Reset counts** action restores the defaults.
 - **Editable nights and rates** — a rate entered by hand outranks both the contracted schedule and the carrier table, and is tagged as an override.
 
 The result panel carries the deposit as a hero figure, its inpatient / outpatient / prior-balance split, a part-to-whole breakdown of what created each dollar of the client's responsibility, and both waterfalls line by line so any number can be checked rather than trusted.

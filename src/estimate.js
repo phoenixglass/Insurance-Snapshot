@@ -17,7 +17,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { BENCHMARK_RATES, CARRIERS, CODES, RATES } from './data/rates.js'
-import { UNCONTRACTED_CODES, getSchedule, scheduleRate } from './data/contractRates.js'
+import {
+  UNCONTRACTED_CODES,
+  getSchedule,
+  scheduleForLocation,
+  scheduleRate,
+} from './data/contractRates.js'
 
 // ── Copay handling ───────────────────────────────────────────────────────────
 // The workbook asks three separate questions about a copay, and each one moves
@@ -112,9 +117,9 @@ export function benchmarkRate(code) {
 //
 // `defaultUnits` is keyed by level of care, because a typical episode is not
 // one schedule — an IOP course and an OP course carry different numbers of the
-// same service. A sequence covering both gets the sum, which is what stepping
-// down from IOP into OP actually looks like. Every count is editable; these are
-// only the starting point.
+// same service. `oncePerEpisode` marks the ones a step-down does not repeat;
+// see defaultUnitsFor below. Every count is editable, and these are only the
+// starting point.
 //
 // `professional` marks the lines the "Professional Visit Only" copay basis
 // counts: the individually billed visits, not the program day.
@@ -126,23 +131,30 @@ export function benchmarkRate(code) {
 export const SERVICE_LINES = [
   { key: 'opwm', label: 'OPWM', code: 'H0014', defaultUnits: { OPWM: 5 }, activatedBy: [SEQ_LOC.OPWM], professional: false, bundledOutInnIop: false },
   { key: 'php', label: 'PHP', code: 'H0035', defaultUnits: { PHP: 20 }, activatedBy: [SEQ_LOC.PHP], professional: false, bundledOutInnIop: false },
-  { key: 'assessment', label: 'Initial Assessment', code: '90791', defaultUnits: { IOP: 1, OP: 0 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
+  { key: 'assessment', label: 'Initial Assessment', code: '90791', defaultUnits: { IOP: 1, OP: 1 }, oncePerEpisode: true, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
   { key: 'iop', label: 'IOP Services', code: 'H0015', defaultUnits: { IOP: 30 }, activatedBy: [SEQ_LOC.IOP], professional: false, bundledOutInnIop: false },
-  { key: 'opGroups', label: 'OP Groups', code: '90853', defaultUnits: { OP: 10 }, activatedBy: [SEQ_LOC.OP], professional: false, bundledOutInnIop: false },
+  { key: 'opGroups', label: 'OP Groups', code: '90853', defaultUnits: { OP: 20 }, activatedBy: [SEQ_LOC.OP], professional: false, bundledOutInnIop: false },
   { key: 'individual', label: 'Individual Therapy', code: '90837', defaultUnits: { IOP: 9, OP: 10 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: true },
-  { key: 'psychEval', label: 'Psychiatric Evaluation', code: '90792', defaultUnits: { IOP: 1, OP: 0 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
-  { key: 'psychFollowUp', label: 'Psychiatric Follow Up', code: '99214', defaultUnits: { IOP: 2, OP: 0 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
-  { key: 'family', label: 'Family Therapy', code: '90847', defaultUnits: { IOP: 0, OP: 0 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: true },
+  { key: 'psychEval', label: 'Psychiatric Evaluation', code: '90792', defaultUnits: { IOP: 1, OP: 1 }, oncePerEpisode: true, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
+  { key: 'psychFollowUp', label: 'Psychiatric Follow Up', code: '99214', defaultUnits: { IOP: 2, OP: 2 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
+  { key: 'family', label: 'Family Therapy', code: '90847', defaultUnits: { IOP: 0, OP: 3 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: true },
   { key: 'mats', label: 'MATs Injection', code: '96372', defaultUnits: { IOP: 0, OP: 0 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
 ]
 
-// The starting unit count for a line under a given sequence: the sum of the
-// per-level defaults for every level the sequence actually names.
+// The starting unit count for a line under a given sequence.
+//
+// Most services accumulate across the levels of care in a pathway — an IOP
+// course and the OP course a client steps down into each carry their own
+// therapy sessions. Intake and the psychiatric evaluation do not: they are
+// once-per-admission services, required when admitting to a new location and
+// not at a transfer within one, so a step-down takes the larger of the two
+// rather than billing a second one.
 export function defaultUnitsFor(line, sequence) {
-  return line.activatedBy.reduce(
-    (total, loc) => total + (sequenceIncludes(sequence, loc) ? (line.defaultUnits[loc] || 0) : 0),
-    0
-  )
+  const counts = line.activatedBy
+    .filter((loc) => sequenceIncludes(sequence, loc))
+    .map((loc) => line.defaultUnits[loc] || 0)
+  if (counts.length === 0) return 0
+  return line.oncePerEpisode ? Math.max(...counts) : counts.reduce((a, b) => a + b, 0)
 }
 
 // What a line will be costed at: the user's entry when they made one, the
@@ -210,7 +222,7 @@ export const INITIAL_ESTIMATE_STATE = {
   nights: { detox: String(INPATIENT_LINES[0].nights), residential: String(INPATIENT_LINES[1].nights) },
   // Only what the user typed. A blank falls back to the sequence's own default,
   // so changing the pathway re-bases every count that was never overridden.
-  contractSchedule: '',
+  location: '',
   units: {},
   // Rates are looked up from the carrier table, but a verification call can
   // establish a number the table does not have. An override here is the user's
@@ -234,7 +246,7 @@ export function resolveRate(form, code) {
     const n = parseFloat(override)
     if (Number.isFinite(n)) return { rate: n, source: 'override' }
   }
-  const contracted = scheduleRate(form.contractSchedule, code)
+  const contracted = scheduleRate(scheduleForLocation(form.location), code)
   if (contracted !== null) return { rate: contracted, source: 'contract' }
 
   const carrier = lookupRate(form.carrier, code)
@@ -244,7 +256,7 @@ export function resolveRate(form, code) {
   // location, which is a different problem from one nobody has priced.
   return {
     rate: null,
-    source: getSchedule(form.contractSchedule) && UNCONTRACTED_CODES.includes(String(code))
+    source: getSchedule(scheduleForLocation(form.location)) && UNCONTRACTED_CODES.includes(String(code))
       ? 'uncontracted'
       : 'missing',
   }
@@ -557,7 +569,7 @@ export function computeEstimate(form) {
     outpatient,
     previousBalance,
     missingRates,
-    schedule: getSchedule(form.contractSchedule),
+    schedule: getSchedule(scheduleForLocation(form.location)),
     totalAllowed: inpatient.totalAllowed + outpatient.totalAllowed,
     totalRevenue: inpatient.revenue + outpatient.revenue,
     // I1 — the number the client is quoted.

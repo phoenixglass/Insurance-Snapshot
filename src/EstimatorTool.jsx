@@ -20,7 +20,7 @@ import {
   sequenceLocs,
 } from './estimate.js'
 import { CARRIERS, TREATMENT_SEQUENCES } from './data/rates.js'
-import { CONTRACT_SCHEDULES } from './data/contractRates.js'
+import { LOCATIONS, getLocation } from './data/contractRates.js'
 import {
   Banner,
   BlockerList,
@@ -163,23 +163,23 @@ export default function EstimatorTool() {
           </div>
 
           <Field
-            label="Contracted Rate Schedule"
-            htmlFor="contractSchedule"
+            label="Location"
+            htmlFor="location"
             hint={
               result.schedule
-                ? `Signed ${result.schedule.region} rates effective ${result.schedule.effective}. These outrank the carrier table; a code this schedule does not cover falls back to it.`
-                : 'Optional. Without one, every rate comes from the carrier table, which is observed and estimated rather than contracted.'
+                ? `${getLocation(form.location)?.label} bills on the ${result.schedule.label} schedule, effective ${result.schedule.effective}. Those signed rates outrank the carrier table; a code the schedule does not cover falls back to it.`
+                : 'Which site the client is admitting to. It sets the contracted rates. Without it every rate comes from the carrier table, which is observed and estimated rather than signed.'
             }
           >
             <Select
-              id="contractSchedule"
-              value={form.contractSchedule}
-              onChange={set('contractSchedule')}
-              options={CONTRACT_SCHEDULES.map((sch) => ({
-                value: sch.id,
-                label: `${sch.label} — effective ${sch.effective}`,
+              id="location"
+              value={form.location}
+              onChange={set('location')}
+              options={LOCATIONS.map((loc) => ({
+                value: loc.id,
+                label: `${loc.label}, ${loc.state}`,
               }))}
-              placeholder="Carrier table only"
+              placeholder="No location — carrier table only"
             />
           </Field>
 

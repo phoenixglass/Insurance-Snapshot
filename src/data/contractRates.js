@@ -115,6 +115,36 @@ export const CONTRACT_SCHEDULES = [
 // genuinely uncontracted at this location.
 export const UNCONTRACTED_CODES = ['80305', 'H0006', '99368', '98966', '98967', '98968']
 
+// ── Locations ────────────────────────────────────────────────────────────────
+// Which rate schedule applies is a fact about the site the client is admitting
+// to, not about the payer, so the estimator asks for the location and derives
+// the schedule from it. Connecticut and New York are state-wide schedules;
+// Ramsey is its own sheet.
+//
+// This list is inferred from the location-specific carriers in the rate table
+// (Optum Canaan, Wilton, Chappaqua, NYC, Huntington, Ramsey). Add or correct a
+// site here and every tool follows.
+
+export const LOCATIONS = [
+  { id: 'canaan', label: 'Canaan', state: 'CT', schedule: 'ct' },
+  { id: 'wilton', label: 'Wilton', state: 'CT', schedule: 'ct' },
+  { id: 'ramsey', label: 'Ramsey', state: 'NJ', schedule: 'nj-ramsey' },
+  { id: 'nyc', label: 'New York City', state: 'NY', schedule: 'ny' },
+  { id: 'chappaqua', label: 'Chappaqua', state: 'NY', schedule: 'ny' },
+  { id: 'huntington', label: 'Huntington', state: 'NY', schedule: 'ny' },
+]
+
+const LOCATION_BY_ID = new Map(LOCATIONS.map((l) => [l.id, l]))
+
+export function getLocation(id) {
+  return LOCATION_BY_ID.get(id) || null
+}
+
+export function scheduleForLocation(id) {
+  const location = LOCATION_BY_ID.get(id)
+  return location ? location.schedule : ''
+}
+
 const SCHEDULE_BY_ID = new Map(CONTRACT_SCHEDULES.map((s) => [s.id, s]))
 
 export function getSchedule(id) {
