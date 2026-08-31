@@ -21,6 +21,12 @@ export const SELF_PAY_CARRIER = 'Self Pay'
 
 // The sheet's thirteen lines, with its default unit counts.
 //
+// Individual therapy starts at the OP course — 10 sessions, the same count the
+// insurance estimator carries for an OP level of care. The workbook's own 18
+// belonged to no single level of care, and it quoted an OP episode nearly two
+// courses of therapy. Like every other count here it is editable, so a longer
+// course is typed in rather than assumed.
+//
 // `fixedRate` is the one line that does not come from the rate table: the
 // workbook hard-codes the OP specialty group at $100 against CPT 90853, which
 // already carries a different self-pay rate as the routine group. Two prices
@@ -31,7 +37,7 @@ export const SELF_PAY_LINES = [
   { key: 'opwm', label: 'OPWM', code: 'H0014', units: 5, unitNoun: 'units', activatedBy: [SEQ_LOC.OPWM], group: 'outpatient' },
   { key: 'php', label: 'PHP', code: 'H0035', units: 20, unitNoun: 'units', activatedBy: [SEQ_LOC.PHP], group: 'outpatient' },
   { key: 'assessment', label: 'Initial Assessment', code: '90791', units: 1, unitNoun: 'visits', activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], group: 'outpatient' },
-  { key: 'individual', label: 'Individual Therapy', code: '90837', units: 18, unitNoun: 'sessions', activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], group: 'outpatient' },
+  { key: 'individual', label: 'Individual Therapy', code: '90837', units: 10, unitNoun: 'sessions', activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], group: 'outpatient' },
   { key: 'iop', label: 'IOP Services', code: 'H0015', units: 30, unitNoun: 'units', activatedBy: [SEQ_LOC.IOP], group: 'outpatient' },
   { key: 'opGroups', label: 'OP Groups', code: '90853', units: 10, unitNoun: 'groups', activatedBy: [SEQ_LOC.OP], group: 'outpatient' },
   { key: 'opSpecialtyGroup', label: 'OP Specialty Group', code: '90853', units: 0, unitNoun: 'groups', activatedBy: [SEQ_LOC.OP], group: 'outpatient', fixedRate: 100 },

@@ -150,7 +150,7 @@ export function benchmarkRate(code) {
 }
 
 // ── Service lines ────────────────────────────────────────────────────────────
-// The outpatient block's ten rows.
+// The outpatient block's eleven rows.
 //
 // `activatedBy` lists the levels of care that put the line in the estimate.
 // The workbook gates the shared professional services (assessment, individual
@@ -171,6 +171,15 @@ export function benchmarkRate(code) {
 // `bundledOutInnIop` marks what an INN bundled IOP agreement folds into the
 // program rate. A bundled agreement charges for IOP and not for individual or
 // family therapy, so those two are the lines it zeroes.
+//
+// The OP specialty group bills the same code as the routine OP group, 90853,
+// and against insurance that is the whole story: the plan allows one amount per
+// group and does not distinguish the curriculum, so the two lines resolve to
+// one rate and editing either rate cell moves both. It is a separate row only
+// because the counts differ — a specialty track is scheduled on top of the
+// routine groups, not instead of them. (Self-pay is the one place the two
+// prices part company; see `fixedRate` in selfPay.js.) It starts at zero units
+// so an episode without a specialty track prices exactly as it did before.
 
 export const SERVICE_LINES = [
   { key: 'opwm', label: 'OPWM', code: 'H0014', defaultUnits: { OPWM: 5 }, activatedBy: [SEQ_LOC.OPWM], professional: false, bundledOutInnIop: false },
@@ -178,6 +187,7 @@ export const SERVICE_LINES = [
   { key: 'assessment', label: 'Initial Assessment', code: '90791', defaultUnits: { IOP: 1, OP: 1 }, oncePerEpisode: true, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
   { key: 'iop', label: 'IOP Services', code: 'H0015', defaultUnits: { IOP: 30 }, activatedBy: [SEQ_LOC.IOP], professional: false, bundledOutInnIop: false },
   { key: 'opGroups', label: 'OP Groups', code: '90853', defaultUnits: { OP: 20 }, activatedBy: [SEQ_LOC.OP], professional: false, bundledOutInnIop: false },
+  { key: 'opSpecialtyGroup', label: 'OP Specialty Group', code: '90853', defaultUnits: { OP: 0 }, activatedBy: [SEQ_LOC.OP], professional: false, bundledOutInnIop: false },
   { key: 'individual', label: 'Individual Therapy', code: '90837', defaultUnits: { IOP: 9, OP: 10 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: true },
   { key: 'psychEval', label: 'Psychiatric Evaluation', code: '90792', defaultUnits: { IOP: 1, OP: 1 }, oncePerEpisode: true, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
   { key: 'psychFollowUp', label: 'Psychiatric Follow Up', code: '99214', defaultUnits: { IOP: 2, OP: 2 }, oncePerEpisode: true, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
@@ -460,6 +470,12 @@ function computeInpatient(form, ctx) {
     deductibleApplied,
     coinsurance,
     copay,
+    // What the waterfall actually charged, as against what it was handed: a
+    // copay credited to the deductible is not collected twice, and a copay that
+    // replaces coinsurance leaves no coinsurance behind it. The outputs quote
+    // these, because they are what the client is asked for.
+    netDeductible: share.netDeductible,
+    coinsuranceDue: share.coinsuranceDue,
     beforeCap: share.beforeCap,
     afterCap: share.afterCap,
     // J32 / J33 read these to know what the outpatient block inherits.
@@ -569,11 +585,26 @@ function computeOutpatient(form, ctx, inpatient) {
     coinsurance,
     copay,
     copayUnits,
+    netDeductible: share.netDeductible,
+    coinsuranceDue: share.coinsuranceDue,
     beforeCap: share.beforeCap,
     afterCap: share.afterCap,
     revenue: clampAtZero(totalAllowed - share.afterCap),
     deposit: withFee,
   }
+}
+
+// A rate warning is about a code, not a row. Two lines can bill the same code —
+// the routine and specialty OP groups both bill 90853 — and one unpriced code
+// is one problem to fix, so it is named once however many lines carry it. The
+// first line's label names it, which is the routine group in that pair.
+function byCode(entries) {
+  const seen = new Set()
+  return entries.filter((e) => {
+    if (seen.has(e.code)) return false
+    seen.add(e.code)
+    return true
+  })
 }
 
 // ── Public entry point ───────────────────────────────────────────────────────
@@ -615,27 +646,31 @@ export function computeEstimate(form) {
   // Lines whose number came from observed claims rather than a stated rate.
   // Not an error — but the deposit built on them is an estimate of an estimate,
   // and the result panel says so rather than letting the total look settled.
-  const estimatedRates = scheduled
-    .map((l) => ({ line: l, resolved: resolveRate(form, l.code) }))
-    .filter((x) => x.resolved.source === 'payer-average')
-    .map((x) => ({
-      key: x.line.key,
-      label: x.line.label,
-      code: x.line.code,
-      group: x.resolved.group,
-    }))
+  const estimatedRates = byCode(
+    scheduled
+      .map((l) => ({ line: l, resolved: resolveRate(form, l.code) }))
+      .filter((x) => x.resolved.source === 'payer-average')
+      .map((x) => ({
+        key: x.line.key,
+        label: x.line.label,
+        code: x.line.code,
+        group: x.resolved.group,
+      }))
+  )
 
-  const missingRates = [...inpatient.lines, ...outpatient.lines]
-    .filter((l) => l.rateMissing && (l.units ?? l.nights) > 0)
-    .map((l) => ({
-      key: l.key,
-      label: l.label,
-      code: l.code,
-      benchmark: benchmarkRate(l.code),
-      // "Uncontracted here" and "nobody has priced this" need different
-      // answers, so the warning does not merge them.
-      uncontracted: resolveRate(form, l.code).source === 'uncontracted',
-    }))
+  const missingRates = byCode(
+    [...inpatient.lines, ...outpatient.lines]
+      .filter((l) => l.rateMissing && (l.units ?? l.nights) > 0)
+      .map((l) => ({
+        key: l.key,
+        label: l.label,
+        code: l.code,
+        benchmark: benchmarkRate(l.code),
+        // "Uncontracted here" and "nobody has priced this" need different
+        // answers, so the warning does not merge them.
+        uncontracted: resolveRate(form, l.code).source === 'uncontracted',
+      }))
+  )
 
   return {
     network,

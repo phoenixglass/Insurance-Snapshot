@@ -3,29 +3,9 @@
 
 import { formatMoney } from './estimate.js'
 
-export function RadioGroup({ name, options, value, onChange, columns = false }) {
-  const items = options.map((opt) => (typeof opt === 'string' ? { value: opt, label: opt } : opt))
-  return (
-    <div className={`radio-group${columns ? ' radio-group-columns' : ''}`}>
-      {items.map((opt) => (
-        <label key={opt.value} className="radio-label">
-          <input
-            type="radio"
-            name={name}
-            value={opt.value}
-            checked={value === opt.value}
-            onChange={() => onChange(opt.value)}
-          />
-          <span>{opt.label}</span>
-        </label>
-      ))}
-    </div>
-  )
-}
-
-// A segmented control for short, mutually exclusive answers. Same semantics as
-// RadioGroup — it is still a radio group underneath — but it reads as one
-// control rather than a row of loose dots, which is what a Yes/No question is.
+// A segmented control for short, mutually exclusive answers. A radio group
+// underneath, but it reads as one control rather than a row of loose dots,
+// which is what a Yes/No question is.
 export function SegmentedControl({ name, options, value, onChange }) {
   const items = options.map((opt) => (typeof opt === 'string' ? { value: opt, label: opt } : opt))
   return (

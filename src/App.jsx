@@ -1,7 +1,7 @@
-// The shell. Four tools that share one rate sheet and one visual system:
+// The shell. Three tools that share one rate sheet and one visual system:
 //
-//   Snapshot   — captures a VOB and writes the cost note read to the client
-//   Estimator  — prices an episode into a deposit
+//   Estimator  — prices an episode against the plan into a deposit, and writes
+//                the cost note read to the client
 //   Self-Pay   — prices the same episode without insurance, against a scholarship
 //   Rates      — the carrier rate sheet, searchable
 //
@@ -13,21 +13,13 @@ import './App.css'
 import EstimatorTool from './EstimatorTool.jsx'
 import RateLookupTool from './RateLookupTool.jsx'
 import SelfPayTool from './SelfPayTool.jsx'
-import SnapshotTool from './SnapshotTool.jsx'
 
 const TOOLS = [
-  {
-    key: 'snapshot',
-    label: 'Snapshot',
-    title: 'Insurance Snapshot',
-    blurb: 'Capture the verification and generate the cost note.',
-    width: 'narrow',
-  },
   {
     key: 'estimator',
     label: 'Deposit Estimator',
     title: 'Deposit Estimator',
-    blurb: 'Price a treatment sequence against the plan into a deposit.',
+    blurb: 'Price a treatment sequence against the plan into a deposit, and generate the cost note.',
     width: 'wide',
   },
   {
@@ -72,14 +64,13 @@ function useTheme() {
 }
 
 export default function App() {
-  const [active, setActive] = useState('snapshot')
+  const [active, setActive] = useState('estimator')
   const [theme, setTheme] = useTheme()
   const tool = TOOLS.find((t) => t.key === active) || TOOLS[0]
 
   // Every tool stays mounted so its form state survives a tab switch. Only the
   // active one is visible.
   const panels = {
-    snapshot: <SnapshotTool />,
     estimator: <EstimatorTool />,
     selfpay: <SelfPayTool />,
     rates: <RateLookupTool />,
