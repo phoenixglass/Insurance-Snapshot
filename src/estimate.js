@@ -23,6 +23,7 @@ import {
   scheduleForLocation,
   scheduleRate,
 } from './data/contractRates.js'
+import { payerGroupFor, reimbursementRate } from './data/reimbursement.js'
 
 // ── Copay handling ───────────────────────────────────────────────────────────
 // The workbook asks three separate questions about a copay, and each one moves
@@ -231,14 +232,16 @@ export const INITIAL_ESTIMATE_STATE = {
 }
 
 // ── Rate resolution ──────────────────────────────────────────────────────────
-// Three sources, in descending authority:
+// Four sources, in descending authority:
 //
 //   1. an override the user typed — they are looking at the contract
 //   2. the selected in-network contract schedule — a signed rate for this site
-//   3. the carrier table — what this payer has been observed to allow
+//   3. the carrier table — this plan's stated allowed amount
+//   4. the payer group's average reimbursement — what claims like this got paid
 //
-// A code none of them covers stays null rather than becoming zero, and the
-// caller has to say so.
+// The last one is an estimate rather than a rate, so it is reported with its
+// own source and never presented as a contracted number. A code none of the
+// four covers stays null rather than becoming zero.
 
 export function resolveRate(form, code) {
   const override = form.rateOverrides?.[code]
@@ -251,6 +254,21 @@ export function resolveRate(form, code) {
 
   const carrier = lookupRate(form.carrier, code)
   if (carrier !== null) return { rate: carrier, source: 'carrier' }
+
+  // Nothing has this code priced for the plan itself. An average over the
+  // payer group's own paid claims beats leaving the service at $0, as long as
+  // it is never mistaken for the real thing — hence a source of its own, and a
+  // weaker one still when the carrier only reaches a group through the `Misc`
+  // reporting bucket.
+  const observed = reimbursementRate(form.carrier, code)
+  if (observed !== null) {
+    const match = payerGroupFor(form.carrier)
+    return {
+      rate: observed,
+      source: match?.group === 'Misc' ? 'misc-average' : 'payer-average',
+      group: match?.group,
+    }
+  }
 
   // A code the schedule lists with no contracted rate is uncontracted at this
   // location, which is a different problem from one nobody has priced.
@@ -551,6 +569,24 @@ export function computeEstimate(form) {
   // Every active line whose carrier rate is missing. The workbook leaves those
   // cells amber; here they are named, because a total assembled over a missing
   // rate is understating the cost by a number nobody can see.
+  const scheduled = [...inpatient.lines, ...outpatient.lines].filter(
+    (l) => l.active && (l.units ?? l.nights) > 0
+  )
+
+  // Lines whose number came from observed claims rather than a stated rate.
+  // Not an error — but the deposit built on them is an estimate of an estimate,
+  // and the result panel says so rather than letting the total look settled.
+  const estimatedRates = scheduled
+    .map((l) => ({ line: l, resolved: resolveRate(form, l.code) }))
+    .filter((x) => x.resolved.source === 'payer-average' || x.resolved.source === 'misc-average')
+    .map((x) => ({
+      key: x.line.key,
+      label: x.line.label,
+      code: x.line.code,
+      group: x.resolved.group,
+      misc: x.resolved.source === 'misc-average',
+    }))
+
   const missingRates = [...inpatient.lines, ...outpatient.lines]
     .filter((l) => l.rateMissing && (l.units ?? l.nights) > 0)
     .map((l) => ({
@@ -569,6 +605,7 @@ export function computeEstimate(form) {
     outpatient,
     previousBalance,
     missingRates,
+    estimatedRates,
     schedule: getSchedule(scheduleForLocation(form.location)),
     totalAllowed: inpatient.totalAllowed + outpatient.totalAllowed,
     totalRevenue: inpatient.revenue + outpatient.revenue,

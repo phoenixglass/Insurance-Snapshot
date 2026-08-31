@@ -48,6 +48,8 @@ const CARRIER_OPTIONS = CARRIERS.map((c) => ({ name: c.name, network: c.network 
 const RATE_TAGS = {
   override: { className: 'rate-tag-override', label: 'override' },
   contract: { className: 'rate-tag-contract', label: 'contracted' },
+  'payer-average': { className: 'rate-tag-estimate', label: 'payer avg' },
+  'misc-average': { className: 'rate-tag-estimate', label: 'misc avg' },
   uncontracted: { className: 'rate-tag-missing', label: 'not contracted' },
   missing: { className: 'rate-tag-missing', label: 'not on file' },
 }
@@ -509,6 +511,29 @@ export default function EstimatorTool() {
               <CopyButton text={quoteText} label="Copy estimate" />
             </div>
           </div>
+
+          {result.estimatedRates.length > 0 && (
+            <Banner tone="info">
+              <strong>
+                {result.estimatedRates.length} line
+                {result.estimatedRates.length === 1 ? ' is' : 's are'} priced from average
+                reimbursement
+              </strong>{' '}
+              — {result.estimatedRates.map((r) => `${r.label} (${r.code})`).join(', ')}. Neither the
+              plan nor a contract has a rate for{' '}
+              {result.estimatedRates.length === 1 ? 'it' : 'them'}, so the estimate uses what the{' '}
+              {[...new Set(result.estimatedRates.map((r) => r.group))].join(' and ')} claims were
+              actually paid on average. That is an estimate, not a quote — verify before committing
+              a client to this deposit.
+              {result.estimatedRates.some((r) => r.misc) && (
+                <>
+                  {' '}
+                  Lines marked <em>misc avg</em> come from the catch-all reporting bucket rather
+                  than this payer, so they are looser still.
+                </>
+              )}
+            </Banner>
+          )}
 
           {result.missingRates.length > 0 && (
             <Banner tone="warn">

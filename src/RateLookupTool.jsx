@@ -17,6 +17,7 @@ import {
 } from './estimate.js'
 import { CARRIERS } from './data/rates.js'
 import { CONTRACT_SCHEDULES, getSchedule, scheduleBilledRate, scheduleRate } from './data/contractRates.js'
+import { reimbursementDetail } from './data/reimbursement.js'
 import { Banner, Field, PercentInput, Section, Select } from './ui.jsx'
 
 export default function RateLookupTool() {
@@ -154,6 +155,22 @@ export default function RateLookupTool() {
                     <tr className="lookup-detail-row">
                       <td colSpan={schedule ? 6 : 4}>
                         <div className="lookup-detail">
+                          {(() => {
+                            const observed = reimbursementDetail(carrier, r.code)
+                            if (!observed) return null
+                            return (
+                              <div>
+                                <span className="lookup-detail-label">
+                                  Average actually reimbursed — {observed.group} claims
+                                  {observed.exact ? '' : ' (grouped)'}
+                                </span>
+                                <span className="strong">{formatMoney(observed.rate)}</span>
+                                {observed.charge !== null && (
+                                  <span className="muted"> on {formatMoney(observed.charge)} billed</span>
+                                )}
+                              </div>
+                            )
+                          })()}
                           {r.benchmark !== null && (
                             <div>
                               <span className="lookup-detail-label">Average across all carriers</span>

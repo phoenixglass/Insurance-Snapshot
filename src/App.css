@@ -1012,6 +1012,14 @@ textarea {
   color: var(--ok);
 }
 
+/* A number derived from past claims rather than stated by anyone. Distinct
+   from both a contracted rate and a missing one — it prices the line, but the
+   total it feeds is an estimate. */
+.rate-tag-estimate {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 /* ── Tables ───────────────────────────────────────────────────────────── */
 
 .line-table-scroll {

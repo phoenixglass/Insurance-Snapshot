@@ -19,6 +19,16 @@ Each tool keeps its own state for the session, so switching tabs to check a rate
 
 A carrier that has no rate for a code is *absent* from that carrier's row rather than stored as `0`. The workbook marks those cells amber and tells you to estimate from a similar plan; the app does the same thing out loud — it names every priced service whose rate is missing, shows the cross-carrier average and the nearest comparable plans, and warns that the total is understated until a rate is entered. Nothing is silently priced at zero.
 
+### Observed reimbursement — the fallback of last resort
+
+`src/data/reimbursement.js` holds the average amount actually reimbursed per code for **13 payer groups**, drawn from past claims, alongside the average charge amount.
+
+This is the weakest source and the last one consulted. A contracted schedule is a signed number and the carrier table is a plan's stated allowed amount; this is neither. Measured against the carrier table where both exist, it tracks closely in the middle (median ratio **0.96**) but ranges from roughly half to two-thirds above — an estimate, not a quote.
+
+It earns its place because the alternative is worse. Without it, **174 of the 176** priced-code gaps in the carrier table cost **$0** in an estimate, silently understating the deposit. With it, a Priority Health detox stay prices at $1,360/night instead of nothing.
+
+Every line drawn from it is tagged `payer avg` on its row, and the result panel names those lines and says the total is an estimate. A carrier that only reaches a group through the `Misc` reporting bucket is tagged `misc avg` and called out separately, because it is looser still.
+
 ### In-network contracted rate schedules
 
 `src/data/contractRates.js` holds the signed rate sheets by facility location — **Connecticut** (effective 7/24/2026), **New Jersey — Ramsey** (7/6/2024), and **New York** (12/06/2024) — with both the contracted and billed rate for every code.
@@ -27,9 +37,10 @@ These are a different axis from the carrier table. That table answers *"what doe
 
 1. **Override** — a rate typed in by hand, because the user is looking at the contract
 2. **Contracted schedule** — a signed rate for this site
-3. **Carrier table** — what this payer has been observed to allow
+3. **Carrier table** — this plan's stated allowed amount
+4. **Payer-group average reimbursement** — what claims like this were actually paid
 
-Only Connecticut carries facility per diems; the NJ and NY sheets are professional rates only, so detox, residential, PHP and OPWM fall back to the carrier table there. Codes a schedule lists as *billed but not contracted* (Utox, Case Management, Medical Team Conference, telephone codes) are flagged as **not contracted** rather than merely unpriced — the plan may not pay them at all.
+A code none of the four covers stays missing rather than becoming zero. Only Connecticut carries facility per diems; the NJ and NY sheets are professional rates only, so detox, residential, PHP and OPWM fall back to the carrier table there. Codes a schedule lists as *billed but not contracted* (Utox, Case Management, Medical Team Conference, telephone codes) are flagged as **not contracted** rather than merely unpriced — the plan may not pay them at all.
 
 Connecticut contracts **H0018 at two rates** against two revenue codes — $1,186.00 under rev 1000 (Residential 3.7 / Residential Eval) and $1,045.00 under rev 1002 (Residential 3.5 / Residential). The residential line prices at the 1002 rate, matching how the workbook's own table labels H0018, and the app surfaces the other rate on screen so it can be entered when a stay bills that way.
 
