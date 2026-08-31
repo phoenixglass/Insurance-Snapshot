@@ -61,6 +61,11 @@ export const MISC_GROUP = 'Misc'
 // Misc claims bucket, which is exactly what that bucket is.
 export const OTHER_CARRIER = 'Other — not listed'
 
+// Payers the claims data prices but the workbook's rate table never carried.
+// They are selectable so their claims history is reachable, but nothing states
+// their network status, so the estimator asks for it rather than assuming.
+export const SUPPLEMENTAL_CARRIERS = ['Harvard Pilgrim']
+
 const EXACT_GROUPS = new Set(Object.keys(PAYER_REIMBURSEMENT))
 
 // Which group a carrier's claims were reported under. Most groups are a carrier

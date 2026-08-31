@@ -23,7 +23,12 @@ import {
   scheduleForLocation,
   scheduleRate,
 } from './data/contractRates.js'
-import { OTHER_CARRIER, payerGroupFor, reimbursementRate } from './data/reimbursement.js'
+import {
+  OTHER_CARRIER,
+  SUPPLEMENTAL_CARRIERS,
+  payerGroupFor,
+  reimbursementRate,
+} from './data/reimbursement.js'
 
 // ── Copay handling ───────────────────────────────────────────────────────────
 // The workbook asks three separate questions about a copay, and each one moves
@@ -84,15 +89,24 @@ export function carrierNetwork(carrier) {
   return found ? found.network : ''
 }
 
-// The carrier list plus the explicit "not listed" option, which is the only
-// thing that draws on the Misc claims bucket.
+// The rate table's carriers, the payers only the claims data knows about, and
+// the explicit "not listed" option — which is the only thing that draws on the
+// Misc claims bucket.
 export const CARRIER_OPTIONS = [
   ...CARRIERS.map((c) => ({ value: c.name, label: `${c.name} — ${c.network}` })),
+  ...SUPPLEMENTAL_CARRIERS.map((name) => ({ value: name, label: `${name} — network not on file` })),
   { value: OTHER_CARRIER, label: `${OTHER_CARRIER} — Misc claims average` },
 ]
 
 export function isOtherCarrier(carrier) {
   return carrier === OTHER_CARRIER
+}
+
+// A carrier with no network recorded anywhere. The estimator asks rather than
+// defaulting, because INN and OON are not interchangeable in any downstream
+// question — bundling, contracted rates, or what the client is told.
+export function needsNetworkChoice(carrier) {
+  return Boolean(carrier) && !carrierNetwork(carrier)
 }
 
 export function codeDescription(code) {
@@ -148,19 +162,18 @@ export const SERVICE_LINES = [
   { key: 'opGroups', label: 'OP Groups', code: '90853', defaultUnits: { OP: 20 }, activatedBy: [SEQ_LOC.OP], professional: false, bundledOutInnIop: false },
   { key: 'individual', label: 'Individual Therapy', code: '90837', defaultUnits: { IOP: 9, OP: 10 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: true },
   { key: 'psychEval', label: 'Psychiatric Evaluation', code: '90792', defaultUnits: { IOP: 1, OP: 1 }, oncePerEpisode: true, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
-  { key: 'psychFollowUp', label: 'Psychiatric Follow Up', code: '99214', defaultUnits: { IOP: 2, OP: 2 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
+  { key: 'psychFollowUp', label: 'Psychiatric Follow Up', code: '99214', defaultUnits: { IOP: 2, OP: 2 }, oncePerEpisode: true, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
   { key: 'family', label: 'Family Therapy', code: '90847', defaultUnits: { IOP: 0, OP: 3 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: true },
   { key: 'mats', label: 'MATs Injection', code: '96372', defaultUnits: { IOP: 0, OP: 0 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
 ]
 
 // The starting unit count for a line under a given sequence.
 //
-// Most services accumulate across the levels of care in a pathway — an IOP
-// course and the OP course a client steps down into each carry their own
-// therapy sessions. Intake and the psychiatric evaluation do not: they are
-// once-per-admission services, required when admitting to a new location and
-// not at a transfer within one, so a step-down takes the larger of the two
-// rather than billing a second one.
+// Therapy and group counts accumulate across the levels of care in a pathway —
+// an IOP course and the OP course a client steps down into each carry their
+// own sessions. The psychiatric services do not: the intake, the evaluation
+// and the follow-ups are one course for the admission, so a step-down takes
+// the larger of the two rather than starting a second course.
 export function defaultUnitsFor(line, sequence) {
   const counts = line.activatedBy
     .filter((loc) => sequenceIncludes(sequence, loc))
@@ -547,7 +560,7 @@ function computeOutpatient(form, ctx, inpatient) {
 // ── Public entry point ───────────────────────────────────────────────────────
 
 export function computeEstimate(form) {
-  const network = isOtherCarrier(form.carrier)
+  const network = needsNetworkChoice(form.carrier)
     ? form.networkOverride || ''
     : carrierNetwork(form.carrier)
   const sequence = form.treatmentSequence
@@ -627,8 +640,8 @@ export function computeEstimate(form) {
 export function estimateBlockers(form) {
   const blockers = []
   if (!form.carrier) blockers.push('Select an insurance carrier')
-  if (isOtherCarrier(form.carrier) && !form.networkOverride) {
-    blockers.push('Select the network status — an unlisted carrier has none on file')
+  if (needsNetworkChoice(form.carrier) && !form.networkOverride) {
+    blockers.push('Select the network status — this carrier has none on file')
   }
   if (!form.treatmentSequence) blockers.push('Select a treatment sequence')
   if (form.coinsurancePercent === '') {

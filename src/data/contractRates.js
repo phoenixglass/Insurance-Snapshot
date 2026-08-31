@@ -121,9 +121,12 @@ export const UNCONTRACTED_CODES = ['80305', 'H0006', '99368', '98966', '98967', 
 // the schedule from it. Connecticut and New York are state-wide schedules;
 // Ramsey is its own sheet.
 //
-// This list is inferred from the location-specific carriers in the rate table
-// (Optum Canaan, Wilton, Chappaqua, NYC, Huntington, Ramsey). Add or correct a
-// site here and every tool follows.
+// Add or correct a site here and every tool follows.
+//
+// Mass Virtual has no contracted schedule on file — there is no Massachusetts
+// rate sheet — so it prices off the carrier table like a site with no location
+// selected. It is listed anyway, because recording where a client is admitting
+// is worth doing whether or not a schedule exists to attach to it.
 
 export const LOCATIONS = [
   { id: 'canaan', label: 'Canaan', state: 'CT', schedule: 'ct' },
@@ -132,6 +135,7 @@ export const LOCATIONS = [
   { id: 'nyc', label: 'New York City', state: 'NY', schedule: 'ny' },
   { id: 'chappaqua', label: 'Chappaqua', state: 'NY', schedule: 'ny' },
   { id: 'huntington', label: 'Huntington', state: 'NY', schedule: 'ny' },
+  { id: 'mass-virtual', label: 'Mass Virtual', state: 'MA', schedule: null },
 ]
 
 const LOCATION_BY_ID = new Map(LOCATIONS.map((l) => [l.id, l]))
@@ -142,7 +146,7 @@ export function getLocation(id) {
 
 export function scheduleForLocation(id) {
   const location = LOCATION_BY_ID.get(id)
-  return location ? location.schedule : ''
+  return location?.schedule || ''
 }
 
 const SCHEDULE_BY_ID = new Map(CONTRACT_SCHEDULES.map((s) => [s.id, s]))

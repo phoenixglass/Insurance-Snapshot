@@ -13,7 +13,7 @@ import {
   carrierNetwork,
   carriersWithRate,
   formatMoney,
-  isOtherCarrier,
+  needsNetworkChoice,
   searchCodes,
   toNumber,
 } from './estimate.js'
@@ -28,7 +28,7 @@ export default function RateLookupTool() {
   const [scheduleId, setScheduleId] = useState('')
   const [expanded, setExpanded] = useState(null)
 
-  const network = isOtherCarrier(carrier) ? 'Misc' : carrierNetwork(carrier)
+  const network = needsNetworkChoice(carrier) ? 'Not on file' : carrierNetwork(carrier)
   const coins = toNumber(coinsurance) / 100
   const schedule = getSchedule(scheduleId)
   const results = useMemo(() => searchCodes(query, carrier, { limit: 60 }), [query, carrier])

@@ -17,6 +17,7 @@ import {
   estimateBlockers,
   formatMoney,
   isOtherCarrier,
+  needsNetworkChoice,
   resolveRate,
   sequenceIncludes,
   sequenceLocs,
@@ -170,14 +171,14 @@ export default function EstimatorTool() {
             </Field>
             <Field
               label="Network Status"
-              required={isOtherCarrier(form.carrier)}
+              required={needsNetworkChoice(form.carrier)}
               hint={
-                isOtherCarrier(form.carrier)
-                  ? 'An unlisted carrier has no network on file, so it has to be stated.'
+                needsNetworkChoice(form.carrier)
+                  ? 'This carrier has no network on file, so it has to be stated.'
                   : undefined
               }
             >
-              {isOtherCarrier(form.carrier) ? (
+              {needsNetworkChoice(form.carrier) ? (
                 <SegmentedControl
                   name="networkOverride"
                   options={['INN', 'OON']}
@@ -195,11 +196,16 @@ export default function EstimatorTool() {
           <Field
             label="Location"
             htmlFor="location"
-            hint={
-              result.schedule
-                ? `${getLocation(form.location)?.label} bills on the ${result.schedule.label} schedule, effective ${result.schedule.effective}. Those signed rates outrank the carrier table; a code the schedule does not cover falls back to it.`
-                : 'Which site the client is admitting to. It sets the contracted rates. Without it every rate comes from the carrier table, which is observed and estimated rather than signed.'
-            }
+            hint={(() => {
+              const loc = getLocation(form.location)
+              if (result.schedule) {
+                return `${loc?.label} bills on the ${result.schedule.label} schedule, effective ${result.schedule.effective}. Those signed rates outrank the carrier table; a code the schedule does not cover falls back to it.`
+              }
+              if (loc) {
+                return `No contracted rate schedule on file for ${loc.label} — there is no ${loc.state} rate sheet — so every rate here comes from the carrier table.`
+              }
+              return 'Which site the client is admitting to. It sets the contracted rates. Without it every rate comes from the carrier table, which is observed and estimated rather than signed.'
+            })()}
           >
             <Select
               id="location"

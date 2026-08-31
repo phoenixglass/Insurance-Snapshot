@@ -32,11 +32,13 @@ This is the weakest source and the last one consulted. A contracted schedule is 
 
 With Misc held back this way, **16 of the 176** carrier-table gaps fill automatically from the carrier's own payer group; the other 160 offer the quick-fill. 23 carriers map to no payer group at all and rely on a typed rate or the Misc button.
 
+**Harvard Pilgrim** is priced by the claims data but was never in the rate table, so it is selectable from the claims side alone. Nothing states its network, and the estimator asks rather than assuming — INN and OON are not interchangeable for bundling, contracted rates, or what the client is told.
+
 ### In-network contracted rate schedules
 
 `src/data/contractRates.js` holds the signed rate sheets by facility location — **Connecticut** (effective 7/24/2026), **New Jersey — Ramsey** (7/6/2024), and **New York** (12/06/2024) — with both the contracted and billed rate for every code.
 
-These are a different axis from the carrier table. That table answers *"what does this payer allow?"*; a schedule answers *"what have we contracted to be paid here?"* Which schedule applies is a fact about the **site the client is admitting to**, so the estimator asks for a **Location** — Canaan, Wilton, Ramsey, New York City, Chappaqua, Huntington — and derives the schedule from it. Rates then resolve in three tiers, and every row shows which tier its number came from:
+These are a different axis from the carrier table. That table answers *"what does this payer allow?"*; a schedule answers *"what have we contracted to be paid here?"* Which schedule applies is a fact about the **site the client is admitting to**, so the estimator asks for a **Location** — Canaan, Wilton, Ramsey, New York City, Chappaqua, Huntington, Mass Virtual — and derives the schedule from it. Mass Virtual has no schedule on file (there is no MA rate sheet), which the app says rather than leaving blank. Rates then resolve in three tiers, and every row shows which tier its number came from:
 
 1. **Override** — a rate typed in by hand, because the user is looking at the contract
 2. **Contracted schedule** — a signed rate for this site
@@ -69,7 +71,7 @@ allowed cost → deductible → coinsurance → copay → OOP cap → deposit
   | **IOP** | 1 | 30 | — | 9 | 1 | 2 | — |
   | **OP** | 1 | — | 20 | 10 | 1 | 2 | 3 |
 
-  A sequence covering both sums the recurring services — `IOP > OP` gives 19 individual sessions — but **intake and the psychiatric evaluation are once per admission**, so a step-down takes the larger of the two rather than billing a second one. Every count is editable, changing the sequence re-bases anything not typed over, and a **Reset counts** action restores the defaults.
+  A sequence covering both sums the therapy and group counts — `IOP > OP` gives 19 individual sessions — but the **psychiatric services are one course for the admission**, so intake, the evaluation and the follow-ups take the larger of the two rather than starting a second course. Every count is editable, changing the sequence re-bases anything not typed over, and a **Reset counts** action restores the defaults.
 - **Editable nights and rates** — a rate entered by hand outranks both the contracted schedule and the carrier table, and is tagged as an override.
 
 The result panel carries the deposit as a hero figure, its inpatient / outpatient / prior-balance split, a part-to-whole breakdown of what created each dollar of the client's responsibility, and both waterfalls line by line so any number can be checked rather than trusted.
