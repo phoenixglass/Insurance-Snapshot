@@ -32,8 +32,6 @@ This is the weakest source and the last one consulted. A contracted schedule is 
 
 With Misc held back this way, **16 of the 176** carrier-table gaps fill automatically from the carrier's own payer group; the other 160 offer the quick-fill. 23 carriers map to no payer group at all and rely on a typed rate or the Misc button.
 
-**Harvard Pilgrim** is priced by the claims data but was never in the rate table, so it is selectable from the claims side alone. Nothing states its network, and the estimator asks rather than assuming — INN and OON are not interchangeable for bundling, contracted rates, or what the client is told.
-
 ### In-network contracted rate schedules
 
 `src/data/contractRates.js` holds the signed rate sheets by facility location — **Connecticut** (effective 7/24/2026), **New Jersey — Ramsey** (7/6/2024), and **New York** (12/06/2024) — with both the contracted and billed rate for every code.
@@ -157,7 +155,25 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 | `npm run dev` | Start the local development server with hot module replacement |
 | `npm run build` | Build the app for production (output in `dist/`) |
 | `npm run preview` | Preview the production build locally |
+| `npm test` | Run the test suite (110 tests, Node's built-in runner — no extra dependencies) |
 | `npm run lint` | Run ESLint across all source files |
+
+---
+
+## Tests
+
+`npm test`. Deploys run lint and the suite before building, so a wrong quote cannot ship.
+
+The suite is built around one question — **does the output say what was entered?** — and answers it three ways:
+
+- **Against the workbook.** 60 scenarios captured from a literal transcription of the original cell formulas, each carrying all 21 intermediate cells, so a regression is located rather than merely detected. The self-pay sheet's own saved scenario is asserted to the cent.
+- **At named points.** The contracted-rate cap, per-admission versus per-day copays, the deductible phase, accumulator arithmetic, telehealth exclusions, and every state the app must refuse to quote.
+- **Across the whole form space.** Roughly 500 combinations of level of care, network, bundling model and cost-sharing shape, asserting on every one that no output invents a dollar figure, that the verified level of care's price always reaches the note, and that the cost note and staff detail cannot quote different numbers.
+
+Two defects the sweeps found, both since fixed:
+
+- An **out-of-pocket maximum typed as `$0`** read as "already met" and quoted the entire episode at no cost. A $0 maximum is not a plan anyone sells, so it is now a submit blocker pointing at the "No OOP max" checkbox.
+- A plan listing **both a copay and coinsurance** has not said which one it charges. The cost note correctly refused to quote it — but the on-screen benefit preview showed a settled dollar amount, so staff could read a number off the screen that the note would not print. The preview now reports it as unestablished and surfaces the engine's own explanation, as it does for every other unresolved benefit.
 
 ---
 

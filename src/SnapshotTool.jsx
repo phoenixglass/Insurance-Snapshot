@@ -409,13 +409,29 @@ function resolvedAmountUnit(resolved) {
 
 // Read-only view of what the engine resolved, so staff can see the benefit that
 // the generated output will actually describe.
+// A plan that lists both a copay and coinsurance has not said which one it
+// charges. The engine still records the copay it would collect, but that is
+// working state, not a price — the cost note refuses to quote it, and this
+// preview has to refuse in the same breath or staff will read the number off
+// the screen and say it out loud.
+function amountIsSettled(resolved) {
+  return resolved.amountKnown && resolved.responsibilityType !== RESPONSIBILITY.COPAY_AND_COINSURANCE
+}
+
+function unsettledAmountText(resolved) {
+  if (resolved.responsibilityType === RESPONSIBILITY.COPAY_AND_COINSURANCE) {
+    return 'Not established — confirm which applies'
+  }
+  return resolved.responsibilityType === RESPONSIBILITY.UNKNOWN
+    ? 'Not established'
+    : 'Contract rate not entered'
+}
+
 function ResolvedBenefitPreview({ title, resolved }) {
   if (!resolved) return null
-  const amountText = resolved.amountKnown
+  const amountText = amountIsSettled(resolved)
     ? `${money(resolved.amount)} ${resolvedAmountUnit(resolved)}`
-    : resolved.responsibilityType === RESPONSIBILITY.UNKNOWN
-      ? 'Not established'
-      : 'Contract rate not entered'
+    : unsettledAmountText(resolved)
   const towardText = (value) => (value === null ? 'Confirm with plan' : value ? 'Yes' : 'No')
 
   return (
@@ -454,6 +470,11 @@ function ResolvedBenefitPreview({ title, resolved }) {
         <span className="calc-label">Applies Toward OOP Max</span>
         <span className="calc-value">{towardText(resolved.countsTowardOOP)}</span>
       </div>
+      {resolved.notes.map((note) => (
+        <div key={note} className="alert-banner">
+          ⚠ {note}
+        </div>
+      ))}
     </div>
   )
 }
@@ -468,11 +489,9 @@ function ActivityDerivedBenefit({ form, calc, activity }) {
     return <div className="info-banner">ℹ {derived.note}</div>
   }
 
-  const amountText = derived.amountKnown
+  const amountText = amountIsSettled(derived)
     ? `${money(derived.amount)} ${derived.unit}`
-    : derived.responsibilityType === RESPONSIBILITY.UNKNOWN
-      ? 'Not established'
-      : 'Contract rate not entered'
+    : unsettledAmountText(derived)
   const towardText = (value) => (value === null ? 'Confirm with plan' : value ? 'Yes' : 'No')
 
   return (
@@ -812,6 +831,15 @@ export default function SnapshotTool() {
   }
   if (!form.noOopMax && !form.oopMaxTotal) {
     submitBlockers.push('OOP Max Total is required, or mark that the plan has no out-of-pocket max')
+  }
+  // A $0 out-of-pocket maximum is not a plan anyone sells — it is a number
+  // somebody typed to get past the field. Left alone it reads as "the maximum
+  // is already met" and quotes the entire episode at no cost, which is the one
+  // direction a wrong quote must never fail in.
+  if (!form.noOopMax && form.oopMaxTotal !== '' && parseFloat(form.oopMaxTotal) === 0) {
+    submitBlockers.push(
+      'OOP Max Total is $0 — enter the real maximum, or check "No OOP max" if the plan has none'
+    )
   }
 
   // Rule 3 & 4 — episode activity validation

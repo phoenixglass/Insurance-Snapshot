@@ -62,9 +62,11 @@ export const MISC_GROUP = 'Misc'
 export const OTHER_CARRIER = 'Other — not listed'
 
 // Payers the claims data prices but the workbook's rate table never carried.
-// They are selectable so their claims history is reachable, but nothing states
-// their network status, so the estimator asks for it rather than assuming.
-export const SUPPLEMENTAL_CARRIERS = ['Harvard Pilgrim']
+// Selectable so their claims history is reachable; nothing states their network
+// status, so the estimator asks for it rather than assuming. Empty for now —
+// Harvard Pilgrim is in the claims data but its averages look unreliable, so it
+// stays out until someone confirms them.
+export const SUPPLEMENTAL_CARRIERS = []
 
 const EXACT_GROUPS = new Set(Object.keys(PAYER_REIMBURSEMENT))
 
