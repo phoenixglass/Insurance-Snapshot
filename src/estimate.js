@@ -110,6 +110,20 @@ export function needsNetworkChoice(carrier) {
   return Boolean(carrier) && !carrierNetwork(carrier)
 }
 
+// The plan's network: the carrier's own status, or the one stated by hand for a
+// carrier that has none on file.
+export function effectiveNetwork(form) {
+  return needsNetworkChoice(form.carrier) ? form.networkOverride || '' : carrierNetwork(form.carrier)
+}
+
+// A contracted rate schedule is an in-network agreement. Out of network there
+// is no contract with the payer, so the allowed amount is whatever that plan
+// allows — the schedule must not price anything, however the location is set.
+export function scheduleInEffect(form) {
+  if (effectiveNetwork(form) !== 'INN') return null
+  return getSchedule(scheduleForLocation(form.location))
+}
+
 export function codeDescription(code) {
   const found = CODE_BY_ID.get(String(code))
   return found ? found.description : ''
@@ -264,7 +278,7 @@ export const INITIAL_ESTIMATE_STATE = {
 // Four sources, in descending authority:
 //
 //   1. an override the user typed — they are looking at the contract
-//   2. the selected in-network contract schedule — a signed rate for this site
+//   2. the location's contract schedule, in network only — a signed rate
 //   3. the carrier table — this plan's stated allowed amount
 //   4. the payer group's average reimbursement — what claims like this got paid
 //
@@ -278,8 +292,11 @@ export function resolveRate(form, code) {
     const n = parseFloat(override)
     if (Number.isFinite(n)) return { rate: n, source: 'override' }
   }
-  const contracted = scheduleRate(scheduleForLocation(form.location), code)
-  if (contracted !== null) return { rate: contracted, source: 'contract' }
+  const schedule = scheduleInEffect(form)
+  if (schedule) {
+    const contracted = scheduleRate(schedule.id, code)
+    if (contracted !== null) return { rate: contracted, source: 'contract' }
+  }
 
   const carrier = lookupRate(form.carrier, code)
   if (carrier !== null) return { rate: carrier, source: 'carrier' }
@@ -298,9 +315,7 @@ export function resolveRate(form, code) {
   // location, which is a different problem from one nobody has priced.
   return {
     rate: null,
-    source: getSchedule(scheduleForLocation(form.location)) && UNCONTRACTED_CODES.includes(String(code))
-      ? 'uncontracted'
-      : 'missing',
+    source: schedule && UNCONTRACTED_CODES.includes(String(code)) ? 'uncontracted' : 'missing',
   }
 }
 
@@ -564,9 +579,7 @@ function computeOutpatient(form, ctx, inpatient) {
 // ── Public entry point ───────────────────────────────────────────────────────
 
 export function computeEstimate(form) {
-  const network = needsNetworkChoice(form.carrier)
-    ? form.networkOverride || ''
-    : carrierNetwork(form.carrier)
+  const network = effectiveNetwork(form)
   const sequence = form.treatmentSequence
   const coins = toNumber(form.coinsurancePercent) / 100
 
@@ -631,7 +644,11 @@ export function computeEstimate(form) {
     previousBalance,
     missingRates,
     estimatedRates,
-    schedule: getSchedule(scheduleForLocation(form.location)),
+    schedule: scheduleInEffect(form),
+    // A schedule the location names but the network rules out. The estimator
+    // says why rather than leaving the field looking ignored.
+    scheduleSuppressed:
+      network !== 'INN' ? getSchedule(scheduleForLocation(form.location)) : null,
     totalAllowed: inpatient.totalAllowed + outpatient.totalAllowed,
     totalRevenue: inpatient.revenue + outpatient.revenue,
     // I1 — the number the client is quoted.

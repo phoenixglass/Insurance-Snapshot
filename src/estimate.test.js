@@ -21,8 +21,10 @@ import {
   SERVICE_LINES,
   computeEstimate,
   defaultUnitsFor,
+  effectiveNetwork,
   estimateBlockers,
   lookupRate,
+  scheduleInEffect,
   resolveRate,
   sequenceIncludes,
 } from './estimate.js'
@@ -150,9 +152,44 @@ describe('unit defaults', () => {
 describe('rate resolution', () => {
   const form = (over) => ({ ...INITIAL_ESTIMATE_STATE, carrier: 'UHC', ...over })
 
-  test('a contracted schedule outranks the carrier table', () => {
+  test('a contracted schedule outranks the carrier table in network', () => {
+    // UHC is INN, so the Connecticut contract applies.
     assert.equal(resolveRate(form({ location: 'canaan' }), 'H0015').source, 'contract')
     assert.equal(resolveRate(form({ location: 'canaan' }), 'H0015').rate, 328)
+  })
+
+  test('a contracted schedule never prices an out-of-network plan', () => {
+    // There is no agreement with a payer we are out of network with, whatever
+    // site the client walks into — the allowed amount is the carrier's own.
+    const oon = form({ carrier: 'BCBS - Anthem NY', location: 'canaan' })
+    assert.equal(effectiveNetwork(oon), 'OON')
+    assert.equal(scheduleInEffect(oon), null)
+    const r = resolveRate(oon, 'H0015')
+    assert.equal(r.source, 'carrier')
+    assert.equal(r.rate, lookupRate('BCBS - Anthem NY', 'H0015'))
+    assert.notEqual(r.rate, 328, 'the Connecticut contracted rate must not leak into an OON quote')
+  })
+
+  test('an unlisted carrier follows the network that was stated for it', () => {
+    const inn = form({ carrier: 'Other — not listed', networkOverride: 'INN', location: 'canaan' })
+    assert.equal(resolveRate(inn, 'H0015').source, 'contract')
+    const oon = form({ carrier: 'Other — not listed', networkOverride: 'OON', location: 'canaan' })
+    assert.equal(resolveRate(oon, 'H0015').source, 'payer-average')
+  })
+
+  test('the estimate reports a schedule the network ruled out', () => {
+    const r = computeEstimate(
+      form({
+        carrier: 'BCBS - Anthem NY',
+        location: 'canaan',
+        treatmentSequence: 'IOP',
+        coinsurancePercent: '20',
+        deductibleRemaining: '0',
+        oopmRemaining: '99999',
+      })
+    )
+    assert.equal(r.schedule, null, 'nothing is contracted for this plan')
+    assert.equal(r.scheduleSuppressed?.id, 'ct', 'but the location does have one, and the UI says so')
   })
 
   test('an override outranks everything', () => {
