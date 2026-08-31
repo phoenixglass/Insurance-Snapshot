@@ -9,15 +9,18 @@ import {
   COPAY_BASIS,
   COPAY_TREATMENT,
   INITIAL_ESTIMATE_STATE,
+  SERVICE_LINES,
   carriersWithRate,
   computeEstimate,
+  defaultUnitsFor,
   estimateBlockers,
   formatMoney,
-  lookupRate,
+  resolveRate,
   sequenceIncludes,
   sequenceLocs,
 } from './estimate.js'
 import { CARRIERS, TREATMENT_SEQUENCES } from './data/rates.js'
+import { CONTRACT_SCHEDULES } from './data/contractRates.js'
 import {
   Banner,
   BlockerList,
@@ -39,30 +42,28 @@ import {
 
 const CARRIER_OPTIONS = CARRIERS.map((c) => ({ name: c.name, network: c.network }))
 
-// The rate a line will actually price at, and where that number came from. A
-// user override outranks the carrier table; the table outranks nothing, because
-// a missing rate stays missing rather than falling back to an average.
-function rateSource(carrier, code, overrides) {
-  const override = overrides?.[code]
-  if (override !== undefined && override !== '' && Number.isFinite(parseFloat(override))) {
-    return { rate: parseFloat(override), source: 'override' }
-  }
-  const rate = lookupRate(carrier, code)
-  return rate === null ? { rate: null, source: 'missing' } : { rate, source: 'table' }
+// Where the number in this cell came from. Worth showing on every row: a
+// contracted rate and a carrier-table estimate are not the same kind of fact,
+// and a quote built on the second one deserves to look different.
+const RATE_TAGS = {
+  override: { className: 'rate-tag-override', label: 'override' },
+  contract: { className: 'rate-tag-contract', label: 'contracted' },
+  uncontracted: { className: 'rate-tag-missing', label: 'not contracted' },
+  missing: { className: 'rate-tag-missing', label: 'not on file' },
 }
 
-function RateCell({ carrier, code, overrides, onOverride }) {
-  const { rate, source } = rateSource(carrier, code, overrides)
+function RateCell({ form, code, onOverride }) {
+  const { rate, source } = resolveRate(form, code)
+  const tag = RATE_TAGS[source]
   return (
     <div className="rate-cell">
       <CurrencyInput
-        value={overrides?.[code] ?? ''}
+        value={form.rateOverrides?.[code] ?? ''}
         onChange={(v) => onOverride(code, v)}
         placeholder={rate === null ? 'no rate' : rate.toFixed(2)}
         size="sm"
       />
-      {source === 'override' && <span className="rate-tag rate-tag-override">override</span>}
-      {source === 'missing' && <span className="rate-tag rate-tag-missing">not on file</span>}
+      {tag && <span className={`rate-tag ${tag.className}`}>{tag.label}</span>}
     </div>
   )
 }
@@ -99,6 +100,11 @@ export default function EstimatorTool() {
       else next[code] = value
       return { ...prev, rateOverrides: next }
     })
+
+  const resetUnits = () => setForm((prev) => ({ ...prev, units: {} }))
+  const unitsEdited = SERVICE_LINES.some(
+    (l) => form.units[l.key] !== undefined && form.units[l.key] !== ''
+  )
 
   const result = useMemo(() => computeEstimate(form), [form])
   const blockers = estimateBlockers(form)
@@ -155,6 +161,36 @@ export default function EstimatorTool() {
               </div>
             </Field>
           </div>
+
+          <Field
+            label="Contracted Rate Schedule"
+            htmlFor="contractSchedule"
+            hint={
+              result.schedule
+                ? `Signed ${result.schedule.region} rates effective ${result.schedule.effective}. These outrank the carrier table; a code this schedule does not cover falls back to it.`
+                : 'Optional. Without one, every rate comes from the carrier table, which is observed and estimated rather than contracted.'
+            }
+          >
+            <Select
+              id="contractSchedule"
+              value={form.contractSchedule}
+              onChange={set('contractSchedule')}
+              options={CONTRACT_SCHEDULES.map((sch) => ({
+                value: sch.id,
+                label: `${sch.label} — effective ${sch.effective}`,
+              }))}
+              placeholder="Carrier table only"
+            />
+          </Field>
+
+          {result.schedule?.alternates.map((alt) => (
+            <Banner key={`${alt.code}-${alt.contracted}`} tone="info">
+              <strong>{alt.code}</strong> is contracted at a second rate here —{' '}
+              {formatMoney(alt.contracted)} for {alt.note}. The residential line prices at the
+              other one; enter {formatMoney(alt.contracted)} in its Rate column when the stay bills
+              under that revenue code.
+            </Banner>
+          ))}
 
           <Field
             label="Treatment Sequence"
@@ -388,12 +424,7 @@ export default function EstimatorTool() {
                   />
                 </td>
                 <td className="num">
-                  <RateCell
-                    carrier={form.carrier}
-                    code={line.code}
-                    overrides={form.rateOverrides}
-                    onOverride={setOverride}
-                  />
+                  <RateCell form={form} code={line.code} onOverride={setOverride} />
                 </td>
                 <td className="num strong">{formatMoney(line.allowed)}</td>
               </tr>
@@ -404,7 +435,14 @@ export default function EstimatorTool() {
         <Section
           title="Outpatient Services"
           eyebrow="Step 6"
-          description="Units are editable — these are the workbook's typical episode, not a fixed schedule."
+          description="Counts start from the typical episode for the levels of care in this sequence, and every one of them is editable."
+          actions={
+            unitsEdited && (
+              <button type="button" className="btn-secondary" onClick={resetUnits}>
+                ↺ Reset counts
+              </button>
+            )
+          }
         >
           <LineTable
             columns={[
@@ -425,15 +463,13 @@ export default function EstimatorTool() {
                 </td>
                 <td className="mono">{line.code}</td>
                 <td className="num">
-                  <NumberInput value={form.units[line.key]} onChange={setNested('units', line.key)} />
+                  <NumberInput
+                    value={form.units[line.key] ?? String(defaultUnitsFor(line, form.treatmentSequence))}
+                    onChange={setNested('units', line.key)}
+                  />
                 </td>
                 <td className="num">
-                  <RateCell
-                    carrier={form.carrier}
-                    code={line.code}
-                    overrides={form.rateOverrides}
-                    onOverride={setOverride}
-                  />
+                  <RateCell form={form} code={line.code} onOverride={setOverride} />
                 </td>
                 <td className="num muted">
                   {line.afterDeductibleRate === null ? '—' : formatMoney(line.afterDeductibleRate)}
@@ -477,13 +513,24 @@ export default function EstimatorTool() {
           {result.missingRates.length > 0 && (
             <Banner tone="warn">
               <strong>
-                {result.missingRates.length} priced service
-                {result.missingRates.length === 1 ? ' has' : 's have'} no rate on file for this
-                carrier
+                {result.missingRates.length} scheduled service
+                {result.missingRates.length === 1 ? ' has' : 's have'} no rate
               </strong>{' '}
               — {result.missingRates.map((r) => `${r.label} (${r.code})`).join(', ')}. Each is
-              costing $0 in the total above, which understates the deposit. Enter a rate from a
-              comparable plan in the Allowed rate column.
+              costing $0 in the total above, which understates the deposit. Enter a rate in the
+              Rate column before quoting.
+              {result.missingRates.some((r) => r.uncontracted) && (
+                <>
+                  {' '}
+                  {result.missingRates
+                    .filter((r) => r.uncontracted)
+                    .map((r) => r.label)
+                    .join(', ')}{' '}
+                  {result.missingRates.filter((r) => r.uncontracted).length === 1 ? 'is' : 'are'}{' '}
+                  billed but not contracted on the {result.schedule?.label} schedule — that is a
+                  different problem from an unpriced code, and the plan may not pay it at all.
+                </>
+              )}
               <ul className="benchmark-list">
                 {result.missingRates.map((r) => {
                   const comparable = carriersWithRate(r.code, { limit: 3 })

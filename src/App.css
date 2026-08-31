@@ -1005,6 +1005,13 @@ textarea {
   color: var(--warn);
 }
 
+/* A signed rate and an observed one are not the same kind of fact, so the row
+   says which one it is rather than showing a bare number either way. */
+.rate-tag-contract {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
 /* ── Tables ───────────────────────────────────────────────────────────── */
 
 .line-table-scroll {

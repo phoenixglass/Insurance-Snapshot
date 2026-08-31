@@ -16,16 +16,19 @@ import {
   toNumber,
 } from './estimate.js'
 import { CARRIERS } from './data/rates.js'
+import { CONTRACT_SCHEDULES, getSchedule, scheduleBilledRate, scheduleRate } from './data/contractRates.js'
 import { Banner, Field, PercentInput, Section, Select } from './ui.jsx'
 
 export default function RateLookupTool() {
   const [carrier, setCarrier] = useState('')
   const [query, setQuery] = useState('')
   const [coinsurance, setCoinsurance] = useState('20')
+  const [scheduleId, setScheduleId] = useState('')
   const [expanded, setExpanded] = useState(null)
 
   const network = carrierNetwork(carrier)
   const coins = toNumber(coinsurance) / 100
+  const schedule = getSchedule(scheduleId)
   const results = useMemo(() => searchCodes(query, carrier, { limit: 60 }), [query, carrier])
 
   const onFileCount = results.filter((r) => r.onFile).length
@@ -51,6 +54,24 @@ export default function RateLookupTool() {
             <PercentInput id="lookupCoins" value={coinsurance} onChange={setCoinsurance} />
           </Field>
         </div>
+
+        <Field
+          label="Compare against a contracted schedule"
+          htmlFor="lookupSchedule"
+          hint={
+            schedule
+              ? `Signed ${schedule.region} rates effective ${schedule.effective}, beside the carrier's allowed amount.`
+              : 'Optional. Adds our own contracted and billed rates beside the carrier column.'
+          }
+        >
+          <Select
+            id="lookupSchedule"
+            value={scheduleId}
+            onChange={setScheduleId}
+            options={CONTRACT_SCHEDULES.map((sch) => ({ value: sch.id, label: `${sch.label} — ${sch.effective}` }))}
+            placeholder="None"
+          />
+        </Field>
 
         <Field label="Search" htmlFor="lookupQuery">
           <div className="search-input-wrapper">
@@ -91,6 +112,8 @@ export default function RateLookupTool() {
                 <th>Service description</th>
                 <th className="num">Allowed / before deductible</th>
                 <th className="num">After deductible</th>
+                {schedule && <th className="num">Contracted ({schedule.region})</th>}
+                {schedule && <th className="num">Billed</th>}
               </tr>
             </thead>
             <tbody>
@@ -110,10 +133,26 @@ export default function RateLookupTool() {
                       )}
                     </td>
                     <td className="num muted">{r.onFile ? formatMoney(r.rate * coins) : '—'}</td>
+                    {schedule && (
+                      <td className="num strong">
+                        {scheduleRate(scheduleId, r.code) === null ? (
+                          <span className="rate-tag">not contracted</span>
+                        ) : (
+                          formatMoney(scheduleRate(scheduleId, r.code))
+                        )}
+                      </td>
+                    )}
+                    {schedule && (
+                      <td className="num muted">
+                        {scheduleBilledRate(scheduleId, r.code) === null
+                          ? '—'
+                          : formatMoney(scheduleBilledRate(scheduleId, r.code))}
+                      </td>
+                    )}
                   </tr>
                   {expanded === r.code && (
                     <tr className="lookup-detail-row">
-                      <td colSpan={4}>
+                      <td colSpan={schedule ? 6 : 4}>
                         <div className="lookup-detail">
                           {r.benchmark !== null && (
                             <div>
@@ -143,7 +182,7 @@ export default function RateLookupTool() {
               ))}
               {results.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="empty-cell">
+                  <td colSpan={schedule ? 6 : 4} className="empty-cell">
                     No code or description matches “{query}”.
                   </td>
                 </tr>

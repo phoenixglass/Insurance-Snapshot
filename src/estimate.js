@@ -17,6 +17,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { BENCHMARK_RATES, CARRIERS, CODES, RATES } from './data/rates.js'
+import { UNCONTRACTED_CODES, getSchedule, scheduleRate } from './data/contractRates.js'
 
 // ── Copay handling ───────────────────────────────────────────────────────────
 // The workbook asks three separate questions about a copay, and each one moves
@@ -100,7 +101,7 @@ export function benchmarkRate(code) {
 }
 
 // ── Service lines ────────────────────────────────────────────────────────────
-// The outpatient block's ten rows, with the workbook's default unit counts.
+// The outpatient block's ten rows.
 //
 // `activatedBy` lists the levels of care that put the line in the estimate.
 // The workbook gates the shared professional services (assessment, individual
@@ -109,24 +110,48 @@ export function benchmarkRate(code) {
 // IOP-or-OP, so that is what this implements — otherwise an OP-only sequence
 // silently prices a client's assessment and psychiatry at nothing.
 //
+// `defaultUnits` is keyed by level of care, because a typical episode is not
+// one schedule — an IOP course and an OP course carry different numbers of the
+// same service. A sequence covering both gets the sum, which is what stepping
+// down from IOP into OP actually looks like. Every count is editable; these are
+// only the starting point.
+//
 // `professional` marks the lines the "Professional Visit Only" copay basis
 // counts: the individually billed visits, not the program day.
 //
 // `bundledOutInnIop` marks what an INN bundled IOP agreement folds into the
-// program rate — individual and family therapy, per the workbook's note in B24.
+// program rate. A bundled agreement charges for IOP and not for individual or
+// family therapy, so those two are the lines it zeroes.
 
 export const SERVICE_LINES = [
-  { key: 'opwm', label: 'OPWM', code: 'H0014', units: 5, activatedBy: [SEQ_LOC.OPWM], professional: false, bundledOutInnIop: false },
-  { key: 'php', label: 'PHP', code: 'H0035', units: 20, activatedBy: [SEQ_LOC.PHP], professional: false, bundledOutInnIop: false },
-  { key: 'assessment', label: 'Initial Assessment', code: '90791', units: 1, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
-  { key: 'iop', label: 'IOP Services', code: 'H0015', units: 30, activatedBy: [SEQ_LOC.IOP], professional: false, bundledOutInnIop: false },
-  { key: 'opGroups', label: 'OP Groups', code: '90853', units: 20, activatedBy: [SEQ_LOC.OP], professional: false, bundledOutInnIop: false },
-  { key: 'individual', label: 'Individual Therapy', code: '90837', units: 18, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: true },
-  { key: 'psychEval', label: 'Psychiatric Evaluation', code: '90792', units: 1, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
-  { key: 'psychFollowUp', label: 'Psychiatric Follow Up', code: '99214', units: 4, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
-  { key: 'family', label: 'Family Therapy', code: '90847', units: 3, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: true },
-  { key: 'mats', label: 'MATs Injection', code: '96372', units: 0, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
+  { key: 'opwm', label: 'OPWM', code: 'H0014', defaultUnits: { OPWM: 5 }, activatedBy: [SEQ_LOC.OPWM], professional: false, bundledOutInnIop: false },
+  { key: 'php', label: 'PHP', code: 'H0035', defaultUnits: { PHP: 20 }, activatedBy: [SEQ_LOC.PHP], professional: false, bundledOutInnIop: false },
+  { key: 'assessment', label: 'Initial Assessment', code: '90791', defaultUnits: { IOP: 1, OP: 0 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
+  { key: 'iop', label: 'IOP Services', code: 'H0015', defaultUnits: { IOP: 30 }, activatedBy: [SEQ_LOC.IOP], professional: false, bundledOutInnIop: false },
+  { key: 'opGroups', label: 'OP Groups', code: '90853', defaultUnits: { OP: 10 }, activatedBy: [SEQ_LOC.OP], professional: false, bundledOutInnIop: false },
+  { key: 'individual', label: 'Individual Therapy', code: '90837', defaultUnits: { IOP: 9, OP: 10 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: true },
+  { key: 'psychEval', label: 'Psychiatric Evaluation', code: '90792', defaultUnits: { IOP: 1, OP: 0 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
+  { key: 'psychFollowUp', label: 'Psychiatric Follow Up', code: '99214', defaultUnits: { IOP: 2, OP: 0 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
+  { key: 'family', label: 'Family Therapy', code: '90847', defaultUnits: { IOP: 0, OP: 0 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: true },
+  { key: 'mats', label: 'MATs Injection', code: '96372', defaultUnits: { IOP: 0, OP: 0 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
 ]
+
+// The starting unit count for a line under a given sequence: the sum of the
+// per-level defaults for every level the sequence actually names.
+export function defaultUnitsFor(line, sequence) {
+  return line.activatedBy.reduce(
+    (total, loc) => total + (sequenceIncludes(sequence, loc) ? (line.defaultUnits[loc] || 0) : 0),
+    0
+  )
+}
+
+// What a line will be costed at: the user's entry when they made one, the
+// sequence default otherwise.
+export function unitsFor(line, form) {
+  const entered = form.units?.[line.key]
+  if (entered !== undefined && entered !== '') return toNumber(entered)
+  return defaultUnitsFor(line, form.treatmentSequence)
+}
 
 export const INPATIENT_LINES = [
   { key: 'detox', label: 'Detox', code: 'H0010', nights: 6, loc: SEQ_LOC.DETOX },
@@ -183,11 +208,46 @@ export const INITIAL_ESTIMATE_STATE = {
   treatmentSequence: '',
   previousBalance: '',
   nights: { detox: String(INPATIENT_LINES[0].nights), residential: String(INPATIENT_LINES[1].nights) },
-  units: Object.fromEntries(SERVICE_LINES.map((l) => [l.key, String(l.units)])),
+  // Only what the user typed. A blank falls back to the sequence's own default,
+  // so changing the pathway re-bases every count that was never overridden.
+  contractSchedule: '',
+  units: {},
   // Rates are looked up from the carrier table, but a verification call can
   // establish a number the table does not have. An override here is the user's
   // rate; a blank falls back to the table.
   rateOverrides: {},
+}
+
+// ── Rate resolution ──────────────────────────────────────────────────────────
+// Three sources, in descending authority:
+//
+//   1. an override the user typed — they are looking at the contract
+//   2. the selected in-network contract schedule — a signed rate for this site
+//   3. the carrier table — what this payer has been observed to allow
+//
+// A code none of them covers stays null rather than becoming zero, and the
+// caller has to say so.
+
+export function resolveRate(form, code) {
+  const override = form.rateOverrides?.[code]
+  if (override !== undefined && override !== '') {
+    const n = parseFloat(override)
+    if (Number.isFinite(n)) return { rate: n, source: 'override' }
+  }
+  const contracted = scheduleRate(form.contractSchedule, code)
+  if (contracted !== null) return { rate: contracted, source: 'contract' }
+
+  const carrier = lookupRate(form.carrier, code)
+  if (carrier !== null) return { rate: carrier, source: 'carrier' }
+
+  // A code the schedule lists with no contracted rate is uncontracted at this
+  // location, which is a different problem from one nobody has priced.
+  return {
+    rate: null,
+    source: getSchedule(form.contractSchedule) && UNCONTRACTED_CODES.includes(String(code))
+      ? 'uncontracted'
+      : 'missing',
+  }
 }
 
 // ── The cost-share waterfall ─────────────────────────────────────────────────
@@ -358,7 +418,7 @@ function computeOutpatient(form, ctx, inpatient) {
     const inSequence = line.activatedBy.some((loc) => sequenceIncludes(sequence, loc))
     const bundledOut = bundled && line.bundledOutInnIop && sequenceIncludes(sequence, SEQ_LOC.IOP)
     const active = inSequence && !bundledOut
-    const units = toNumber(form.units[line.key])
+    const units = unitsFor(line, form)
     const rate = ctx.rateFor(line.code)
     return {
       ...line,
@@ -454,14 +514,7 @@ export function computeEstimate(form) {
   const sequence = form.treatmentSequence
   const coins = toNumber(form.coinsurancePercent) / 100
 
-  const rateFor = (code) => {
-    const override = form.rateOverrides?.[code]
-    if (override !== undefined && override !== '') {
-      const n = parseFloat(override)
-      if (Number.isFinite(n)) return n
-    }
-    return lookupRate(form.carrier, code)
-  }
+  const rateFor = (code) => resolveRate(form, code).rate
 
   const ctx = {
     sequence,
@@ -487,8 +540,16 @@ export function computeEstimate(form) {
   // cells amber; here they are named, because a total assembled over a missing
   // rate is understating the cost by a number nobody can see.
   const missingRates = [...inpatient.lines, ...outpatient.lines]
-    .filter((l) => l.rateMissing)
-    .map((l) => ({ key: l.key, label: l.label, code: l.code, benchmark: benchmarkRate(l.code) }))
+    .filter((l) => l.rateMissing && (l.units ?? l.nights) > 0)
+    .map((l) => ({
+      key: l.key,
+      label: l.label,
+      code: l.code,
+      benchmark: benchmarkRate(l.code),
+      // "Uncontracted here" and "nobody has priced this" need different
+      // answers, so the warning does not merge them.
+      uncontracted: resolveRate(form, l.code).source === 'uncontracted',
+    }))
 
   return {
     network,
@@ -496,6 +557,7 @@ export function computeEstimate(form) {
     outpatient,
     previousBalance,
     missingRates,
+    schedule: getSchedule(form.contractSchedule),
     totalAllowed: inpatient.totalAllowed + outpatient.totalAllowed,
     totalRevenue: inpatient.revenue + outpatient.revenue,
     // I1 — the number the client is quoted.

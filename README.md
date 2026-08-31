@@ -19,6 +19,20 @@ Each tool keeps its own state for the session, so switching tabs to check a rate
 
 A carrier that has no rate for a code is *absent* from that carrier's row rather than stored as `0`. The workbook marks those cells amber and tells you to estimate from a similar plan; the app does the same thing out loud — it names every priced service whose rate is missing, shows the cross-carrier average and the nearest comparable plans, and warns that the total is understated until a rate is entered. Nothing is silently priced at zero.
 
+### In-network contracted rate schedules
+
+`src/data/contractRates.js` holds the signed rate sheets by facility location — **Connecticut** (effective 7/24/2026), **New Jersey — Ramsey** (7/6/2024), and **New York** (12/06/2024) — with both the contracted and billed rate for every code.
+
+These are a different axis from the carrier table. That table answers *"what does this payer allow?"*; a schedule answers *"what have we contracted to be paid here?"* Rates resolve in three tiers, and every row shows which tier its number came from:
+
+1. **Override** — a rate typed in by hand, because the user is looking at the contract
+2. **Contracted schedule** — a signed rate for this site
+3. **Carrier table** — what this payer has been observed to allow
+
+Only Connecticut carries facility per diems; the NJ and NY sheets are professional rates only, so detox, residential, PHP and OPWM fall back to the carrier table there. Codes a schedule lists as *billed but not contracted* (Utox, Case Management, Medical Team Conference, telephone codes) are flagged as **not contracted** rather than merely unpriced — the plan may not pay them at all.
+
+Connecticut contracts **H0018 at two rates** against two revenue codes — $1,186.00 under rev 1000 (Residential 3.7 / Residential Eval) and $1,045.00 under rev 1002 (Residential 3.5 / Residential). The residential line prices at the 1002 rate, matching how the workbook's own table labels H0018, and the app surfaces the other rate on screen so it can be entered when a stay bills that way.
+
 ---
 
 ## Deposit Estimator
@@ -34,7 +48,8 @@ allowed cost → deductible → coinsurance → copay → OOP cap → deposit
 - **The three copay questions**, each of which moves money on its own: how it is counted (per unit, professional visits only, or a manual total), whether it displaces coinsurance, and which accumulators it feeds.
 - **Accumulator routing** — whether the deductible and the admission fee sit inside or outside the out-of-pocket cap changes what is still collected after the maximum is reached.
 - **Admission fees per level of care**, charged only for the levels in the sequence.
-- **Editable nights, units, and rates** — a rate entered by hand overrides the carrier table and is tagged as an override.
+- **Sequence-aware unit defaults** — a typical episode is not one schedule. IOP starts at 1 intake, 30 IOP, 9 individual, 1 psych eval and 2 follow-ups; OP starts at 10 groups and 10 individual. A sequence covering both gets the sum, which is what stepping down from IOP into OP looks like. Every count is editable, and a **Reset counts** action restores the defaults.
+- **Editable nights and rates** — a rate entered by hand outranks both the contracted schedule and the carrier table, and is tagged as an override.
 
 The result panel carries the deposit as a hero figure, its inpatient / outpatient / prior-balance split, a part-to-whole breakdown of what created each dollar of the client's responsibility, and both waterfalls line by line so any number can be checked rather than trusted.
 
@@ -44,7 +59,7 @@ The workbook is internally inconsistent in three places. Each is implemented the
 
 1. **Shared professional services activate on IOP *or* OP.** The workbook gates assessment, individual therapy, psychiatry, family therapy and MATs on IOP alone in the cost cells. An OP-only sequence therefore priced a client's assessment and psychiatry at nothing.
 2. **Copay units follow the lines that were actually costed.** The workbook's copay-unit formula counts OP groups under the IOP branch and individual therapy under the OP branch — the two are swapped relative to the cost formulas.
-3. **A bundled INN IOP agreement excludes individual and family therapy** — what the workbook's own note in B24 says. Its copay-unit formula excludes IOP services instead.
+3. **A bundled INN IOP agreement charges for IOP and excludes individual and family therapy** — what the workbook's own note in B24 says, since confirmed. Its copay-unit formula excludes IOP services instead.
 
 Everything else matches the workbook cell for cell: **600 randomized scenarios × 21 cells** reproduce it exactly, and the inpatient block matches in all 800 scenarios including the divergent ones.
 
