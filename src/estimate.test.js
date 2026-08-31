@@ -22,9 +22,11 @@ import {
   computeEstimate,
   defaultUnitsFor,
   estimateBlockers,
+  lookupRate,
   resolveRate,
   sequenceIncludes,
 } from './estimate.js'
+import { RATE_CORRECTIONS } from './data/rateCorrections.js'
 
 const CASES = JSON.parse(
   readFileSync(new URL('./__fixtures__/workbook-cases.json', import.meta.url))
@@ -184,6 +186,27 @@ describe('rate resolution', () => {
     )
     assert.equal(r.inpatient.totalAllowed, 0)
     assert.ok(r.missingRates.some((m) => m.code === 'H0010'))
+  })
+})
+
+describe('rate corrections', () => {
+  test('a correction is laid over the generated table', () => {
+    assert.equal(lookupRate('Self Pay', '90792'), 675)
+  })
+
+  test('corrections touch nothing else', () => {
+    assert.equal(lookupRate('Self Pay', '90791'), 450)
+    assert.equal(lookupRate('BCBS - Anthem NY', '90792'), 340)
+  })
+
+  test('every correction names what it replaced and why', () => {
+    for (const c of RATE_CORRECTIONS) {
+      assert.ok(c.carrier && c.code, 'a correction needs a carrier and a code')
+      assert.equal(typeof c.rate, 'number')
+      assert.notEqual(c.rate, c.was, 'a correction that changes nothing is dead weight')
+      assert.ok(c.reason, `${c.carrier}/${c.code} needs a reason`)
+      assert.ok(c.noted, `${c.carrier}/${c.code} needs a date`)
+    }
   })
 })
 

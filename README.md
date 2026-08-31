@@ -17,6 +17,8 @@ Each tool keeps its own state for the session, so switching tabs to check a rate
 
 `src/data/rates.js` is generated from the 2026 Deposit Calculator workbook's `Vlookup` sheet: **63 carriers** with their INN / OON / self-pay status, **122 CPT and HCPCS codes** with descriptions, the **carrier × code rate matrix**, the cross-carrier benchmark average per code, and the **47 treatment sequences**.
 
+`rates.js` is generated and is overwritten whenever the workbook is re-exported, so a rate the workbook has **wrong** is corrected in `src/data/rateCorrections.js` instead — an overlay applied at lookup time, where a hand edit cannot be silently reverted. Each entry records the old value, the date and the reason. A rate the workbook is merely *missing* is not corrected there; it is left missing so the app can say so.
+
 A carrier that has no rate for a code is *absent* from that carrier's row rather than stored as `0`. The workbook marks those cells amber and tells you to estimate from a similar plan; the app does the same thing out loud — it names every priced service whose rate is missing, shows the cross-carrier average and the nearest comparable plans, and warns that the total is understated until a rate is entered. Nothing is silently priced at zero.
 
 ### Observed reimbursement — the fallback of last resort

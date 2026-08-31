@@ -17,6 +17,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { BENCHMARK_RATES, CARRIERS, CODES, RATES } from './data/rates.js'
+import { correctedRate } from './data/rateCorrections.js'
 import {
   UNCONTRACTED_CODES,
   getSchedule,
@@ -114,10 +115,13 @@ export function codeDescription(code) {
   return found ? found.description : ''
 }
 
-// The workbook's `INDEX(...MATCH(carrier)...MATCH(code)...)`. A blank cell there
-// is an amber "estimate from a similar plan", not a zero, so this returns null
-// and every caller has to decide what to say about a rate that does not exist.
+// The workbook's `INDEX(...MATCH(carrier)...MATCH(code)...)`, with the hand
+// corrections in `rateCorrections.js` laid over it. A blank cell there is an
+// amber "estimate from a similar plan", not a zero, so this returns null and
+// every caller has to decide what to say about a rate that does not exist.
 export function lookupRate(carrier, code) {
+  const corrected = correctedRate(carrier, code)
+  if (corrected !== null) return corrected
   const row = RATES[carrier]
   if (!row) return null
   const rate = row[String(code)]

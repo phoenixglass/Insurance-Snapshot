@@ -120,6 +120,20 @@ describe('rates', () => {
     assert.equal(routine.rate, 175, 'the routine group keeps the self-pay rate for 90853')
   })
 
+  test('the corrected psychiatric evaluation rate is used, not the workbook value', () => {
+    // rates.js is generated and would revert this on the next export, so the
+    // correction lives in rateCorrections.js. This test is what notices if it
+    // ever stops being applied.
+    const r = computeSelfPay({
+      ...INITIAL_SELF_PAY_STATE,
+      treatmentSequence: 'IOP',
+      units: { ...INITIAL_SELF_PAY_STATE.units, psychEval: '1' },
+    })
+    const psychEval = r.lines.find((l) => l.key === 'psychEval')
+    assert.equal(psychEval.rate, 675, 'the workbook still says 650')
+    assert.equal(psychEval.programCost, 675)
+  })
+
   test('an override replaces the sheet rate', () => {
     const r = computeSelfPay({ ...WORKBOOK, rateOverrides: { detox: '999' } })
     const detox = r.lines.find((l) => l.key === 'detox')
