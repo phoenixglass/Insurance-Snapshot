@@ -184,11 +184,10 @@ textarea {
 .num,
 .stat-value,
 .hero-value,
-.calc-value,
 .waterfall-value,
 .segment-legend-value,
 .meter-value,
-.comparable-rate {
+.comparable-rate{
   font-variant-numeric: tabular-nums;
 }
 
@@ -420,12 +419,6 @@ textarea {
 
 /* ── Sections ─────────────────────────────────────────────────────────── */
 
-.snapshot-form {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
 .form-section {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -457,17 +450,6 @@ textarea {
   font-weight: 660;
   letter-spacing: -0.014em;
   color: var(--text);
-}
-
-/* The snapshot tool renders its own heading directly inside the section. */
-.form-section > .section-title {
-  padding-bottom: 12px;
-  margin-bottom: 18px;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.82rem;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--accent);
 }
 
 .section-description {
@@ -536,68 +518,6 @@ textarea {
   text-transform: none;
   letter-spacing: 0;
   color: var(--text-3);
-}
-
-/* ── Radios & checkboxes ──────────────────────────────────────────────── */
-
-.radio-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 18px;
-}
-
-.radio-group-columns {
-  flex-direction: column;
-  gap: 8px;
-}
-
-.radio-label,
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 0.88rem;
-  cursor: pointer;
-  color: var(--text);
-}
-
-.radio-label input[type='radio'],
-.checkbox-label input[type='checkbox'] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.checkbox-label {
-  margin-top: 4px;
-}
-
-.na-checkbox {
-  font-size: 0.82rem;
-  color: var(--text-3);
-  white-space: nowrap;
-  margin-top: 0;
-}
-
-.checklist {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.checklist-item {
-  padding: 10px 12px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  margin-top: 0;
-}
-
-.checklist-item:has(input:checked) {
-  background: var(--ok-soft);
-  border-color: var(--ok-line);
 }
 
 /* ── Segmented control ────────────────────────────────────────────────── */
@@ -695,9 +615,7 @@ textarea {
 .currency-input,
 .percent-input,
 .number-input,
-.text-input,
-.date-input,
-.search-input {
+.search-input{
   flex: 1;
   min-width: 0;
   border: 0;
@@ -721,21 +639,6 @@ textarea {
 
 .currency-symbol {
   border-right: 1px solid var(--border);
-}
-
-.text-input,
-.date-input {
-  width: 100%;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--r-sm);
-  background: var(--surface);
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-.text-input:focus,
-.date-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .currency-input:disabled,
@@ -767,21 +670,13 @@ textarea {
 
 /* A money or percent field is as wide as the number it holds. Stretching one
    across the column reads as a text field and makes the row harder to scan. */
-.field-group > .currency-input-wrapper,
-.coinsurance-row > .currency-input-wrapper {
+.field-group > .currency-input-wrapper{
   max-width: 230px;
 }
 
 .percent-input-wrapper,
 .number-input-wrapper {
   width: fit-content;
-}
-
-.coinsurance-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
 }
 
 .select-wrapper {
@@ -820,11 +715,7 @@ textarea {
 
 /* ── Banners ──────────────────────────────────────────────────────────── */
 
-.banner,
-.info-banner,
-.alert-banner,
-.success-banner,
-.confirm-prompt {
+.banner{
   display: flex;
   gap: 9px;
   font-size: 0.84rem;
@@ -845,16 +736,13 @@ textarea {
   min-width: 0;
 }
 
-.banner-info,
-.info-banner {
+.banner-info{
   background: var(--accent-soft);
   border-color: var(--accent-line);
   color: var(--text-2);
 }
 
-.banner-warn,
-.alert-banner,
-.confirm-prompt {
+.banner-warn{
   background: var(--warn-soft);
   border-color: var(--warn-line);
   color: var(--warn);
@@ -866,8 +754,7 @@ textarea {
   color: var(--danger);
 }
 
-.banner-success,
-.success-banner {
+.banner-success{
   background: var(--ok-soft);
   border-color: var(--ok-line);
   color: var(--ok);
@@ -970,18 +857,6 @@ textarea {
   left: -6px;
   margin-right: -2px;
   color: var(--text-3);
-}
-
-.primary-tag {
-  margin-left: 8px;
-  padding: 2px 8px;
-  background: var(--accent);
-  color: var(--on-accent);
-  border-radius: 999px;
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
 }
 
 .rate-tag {
@@ -1561,34 +1436,6 @@ textarea {
 
 /* ── Buttons ──────────────────────────────────────────────────────────── */
 
-.btn-submit {
-  width: 100%;
-  padding: 13px 20px;
-  background: var(--accent);
-  color: var(--on-accent);
-  border: 0;
-  border-radius: var(--r);
-  font-size: 0.92rem;
-  font-weight: 680;
-  letter-spacing: 0.04em;
-  cursor: pointer;
-  transition: background 0.15s, transform 0.08s;
-}
-
-.btn-submit:hover:not(:disabled) {
-  background: var(--accent-hover);
-}
-
-.btn-submit:active:not(:disabled) {
-  transform: translateY(1px);
-}
-
-.btn-submit:disabled {
-  background: var(--surface-3);
-  color: var(--text-3);
-  cursor: not-allowed;
-}
-
 .btn-secondary {
   padding: 9px 16px;
   background: var(--surface);
@@ -1624,145 +1471,7 @@ textarea {
   color: var(--accent);
 }
 
-.btn-add-activity {
-  width: 100%;
-  padding: 11px;
-  margin-top: 14px;
-  background: transparent;
-  color: var(--accent);
-  border: 1px dashed var(--accent-line);
-  border-radius: var(--r-sm);
-  font-size: 0.86rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.btn-add-activity:hover {
-  background: var(--accent-soft);
-}
-
-.btn-remove-activity {
-  background: transparent;
-  border: 0;
-  color: var(--text-3);
-  font-size: 0.78rem;
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: var(--r-sm);
-  transition: color 0.15s, background 0.15s;
-}
-
-.btn-remove-activity:hover {
-  color: var(--danger);
-  background: var(--danger-soft);
-}
-
-.submit-row {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-/* ── Snapshot tool: benefit cards, activity rows, calc blocks ─────────── */
-
-.benefit-card,
-.activity-row {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  padding: 16px;
-  margin-bottom: 14px;
-}
-
-.benefit-card-primary {
-  border-color: var(--accent-line);
-  background: color-mix(in srgb, var(--accent-soft) 45%, var(--surface));
-}
-
-.activity-row-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border);
-}
-
-.activity-row-label {
-  font-size: 0.8rem;
-  font-weight: 680;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-2);
-}
-
-.conditional-block {
-  margin-top: 12px;
-  padding-left: 14px;
-  border-left: 2px solid var(--accent-line);
-}
-
-.balance-subsection {
-  margin-top: 20px;
-  padding-top: 18px;
-  border-top: 1px solid var(--border);
-}
-
-.calculated-fields {
-  margin-top: 14px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  padding: 12px 14px;
-}
-
-.calc-field-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 14px;
-  padding: 5px 0;
-  font-size: 0.84rem;
-}
-
-.calc-field-row + .calc-field-row {
-  border-top: 1px dashed var(--border);
-}
-
-.calc-label {
-  color: var(--text-2);
-}
-
-.calc-value {
-  font-weight: 620;
-  white-space: nowrap;
-}
-
-.calc-total {
-  font-weight: 680;
-}
-
-.calc-total .calc-label,
-.calc-total .calc-value {
-  color: var(--accent);
-  font-weight: 680;
-}
-
-.calc-oop-met .calc-value {
-  color: var(--ok);
-}
-
-/* ── Snapshot output ──────────────────────────────────────────────────── */
-
-.explanation-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  padding: 22px;
-  box-shadow: var(--shadow);
-}
+/* ── Generated output ─────────────────────────────────────────────────── */
 
 .output-tabs {
   display: inline-flex;
@@ -1850,13 +1559,6 @@ textarea {
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--text);
-}
-
-.explanation-actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 18px;
-  flex-wrap: wrap;
 }
 
 /* ── Motion ───────────────────────────────────────────────────────────── */

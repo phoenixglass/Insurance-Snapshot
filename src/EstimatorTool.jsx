@@ -22,13 +22,13 @@ import {
   sequenceIncludes,
   sequenceLocs,
 } from './estimate.js'
+import { generateEstimateOutput } from './estimateOutput.js'
 import { TREATMENT_SEQUENCES } from './data/rates.js'
 import { LOCATIONS, getLocation } from './data/contractRates.js'
 import { miscRate } from './data/reimbursement.js'
 import {
   Banner,
   BlockerList,
-  CopyButton,
   CurrencyInput,
   Field,
   HeroFigure,
@@ -82,6 +82,13 @@ function RateCell({ form, code, onOverride }) {
   )
 }
 
+// Two outpatient rows bill 90853, so the second one says whose rate it is
+// sharing rather than leaving a staff member to notice that editing one rate
+// cell moved another row's number.
+const LINE_NOTES = {
+  opSpecialtyGroup: 'same rate as OP Groups',
+}
+
 function LineTable({ columns, children }) {
   return (
     <div className="line-table-scroll">
@@ -101,8 +108,114 @@ function LineTable({ columns, children }) {
   )
 }
 
+// The three views of a finished estimate, in the order the work needs them:
+// the price to read out, the detail behind it, then the wording for the client.
+const OUTPUT_VIEWS = [
+  {
+    key: 'costNote',
+    tab: 'Cost Note',
+    title: 'Cost Note',
+    hint: 'What to tell the client. This is the only part that needs to be read out loud.',
+  },
+  {
+    key: 'staffDetail',
+    tab: 'Staff Detail',
+    title: 'Staff Detail',
+    hint: 'Every number behind that deposit — for the file and for questions.',
+  },
+  {
+    key: 'clientExplanation',
+    // The result column is narrow; the tab is short and the heading below it
+    // carries the full name.
+    tab: 'Explanation',
+    title: 'Client Explanation',
+    hint: 'Long-form plain-language wording, for when the client asks how their plan works.',
+  },
+]
+
+// Rendered as lines rather than a <pre> so a long price that wraps stays lined
+// up under the one above it instead of falling back to the left margin. The
+// copied text keeps its original spacing either way.
+function CostNoteText({ text }) {
+  return (
+    <div className="cost-note-text">
+      {text.split('\n').map((line, i) =>
+        line.trim() === '' ? (
+          <div key={i} className="cost-note-gap" />
+        ) : (
+          <div
+            key={i}
+            className={`cost-note-line${line.startsWith('  ') ? ' cost-note-line-nested' : ''}`}
+          >
+            {line.trim()}
+          </div>
+        )
+      )}
+    </div>
+  )
+}
+
+function OutputPanel({ output }) {
+  const [activeKey, setActiveKey] = useState(OUTPUT_VIEWS[0].key)
+  const [copied, setCopied] = useState(false)
+  const active = OUTPUT_VIEWS.find((v) => v.key === activeKey) || OUTPUT_VIEWS[0]
+  const text = output[active.key] || ''
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      /* Clipboard unavailable — the text is on screen to select by hand. */
+      setCopied(false)
+    }
+  }
+
+  const selectView = (key) => {
+    setActiveKey(key)
+    setCopied(false)
+  }
+
+  return (
+    <div className="result-card">
+      <div className="output-tabs" role="tablist">
+        {OUTPUT_VIEWS.map((view) => (
+          <button
+            key={view.key}
+            type="button"
+            role="tab"
+            aria-selected={view.key === activeKey}
+            className={`output-tab${view.key === activeKey ? ' output-tab-active' : ''}`}
+            onClick={() => selectView(view.key)}
+          >
+            {view.tab}
+          </button>
+        ))}
+      </div>
+
+      <div className="output-header">
+        <div>
+          <h2>{active.title}</h2>
+          <p className="output-hint">{active.hint}</p>
+        </div>
+        <button type="button" className="btn-copy" onClick={handleCopy}>
+          {copied ? '✓ Copied' : '⧉ Copy'}
+        </button>
+      </div>
+
+      {active.key === 'costNote' ? (
+        <CostNoteText text={text} />
+      ) : (
+        <pre className="explanation-text">{text}</pre>
+      )}
+    </div>
+  )
+}
+
 export default function EstimatorTool() {
   const [form, setForm] = useState(INITIAL_ESTIMATE_STATE)
+  const [showOutput, setShowOutput] = useState(false)
 
   const set = (field) => (value) => setForm((prev) => ({ ...prev, [field]: value }))
   const setNested = (group, key) => (value) =>
@@ -121,7 +234,7 @@ export default function EstimatorTool() {
   )
 
   const result = useMemo(() => computeEstimate(form), [form])
-  const blockers = estimateBlockers(form)
+  const blockers = useMemo(() => estimateBlockers(form), [form])
   const { inpatient, outpatient } = result
   const locs = sequenceLocs(form.treatmentSequence)
   const copayActive = form.copayBasis !== COPAY_BASIS.NA
@@ -135,21 +248,14 @@ export default function EstimatorTool() {
     { label: 'Admission fees', value: inpatient.admissionFees + outpatient.admissionFees, series: 4 },
   ]
 
-  const quoteText = [
-    `Treatment sequence: ${form.treatmentSequence || '—'}`,
-    `Carrier: ${form.carrier || '—'}${result.network ? ` (${result.network})` : ''}`,
-    '',
-    `Inpatient deposit: ${formatMoney(inpatient.deposit)}`,
-    `Outpatient deposit: ${formatMoney(outpatient.deposit)}`,
-    result.previousBalance > 0 ? `Previous balance: ${formatMoney(result.previousBalance)}` : null,
-    '',
-    `ESTIMATED TOTAL DEPOSIT: ${formatMoney(result.grandTotal)}`,
-    '',
-    `Total estimated allowed cost: ${formatMoney(result.totalAllowed)}`,
-    `Estimated revenue after client responsibility: ${formatMoney(result.totalRevenue)}`,
-  ]
-    .filter((l) => l !== null)
-    .join('\n')
+  // Nothing is written until it is asked for — a panel offering a quote over a
+  // half-entered form is worse than no panel. Once open it tracks the form, so
+  // what is on screen is always this estimate rather than an older one, and an
+  // edit that reopens a blocker takes the quote back down with it.
+  const output = useMemo(
+    () => (showOutput ? generateEstimateOutput(form, result, blockers) : null),
+    [showOutput, form, result, blockers]
+  )
 
   return (
     <div className="tool-layout">
@@ -509,6 +615,9 @@ export default function EstimatorTool() {
                   {line.label}
                   {line.bundledOut && <span className="row-off row-off-bundled">bundled into IOP</span>}
                   {!line.inSequence && <span className="row-off">not in sequence</span>}
+                  {line.inSequence && LINE_NOTES[line.key] && (
+                    <span className="row-off">{LINE_NOTES[line.key]}</span>
+                  )}
                 </td>
                 <td className="mono">{line.code}</td>
                 <td className="num">
@@ -555,9 +664,18 @@ export default function EstimatorTool() {
             </StatRow>
 
             <div className="result-actions">
-              <CopyButton text={quoteText} label="Copy estimate" />
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setShowOutput((v) => !v)}
+                aria-expanded={showOutput}
+              >
+                {showOutput ? '× Hide output' : '⧉ Generate output'}
+              </button>
             </div>
           </div>
+
+          {output && <OutputPanel output={output} />}
 
           {result.estimatedRates.length > 0 && (
             <Banner tone="info">
