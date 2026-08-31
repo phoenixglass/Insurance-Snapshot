@@ -1,10 +1,64 @@
 # Insurance Snapshot
 
-A single-page React application that helps staff quickly capture and summarize a client's insurance details for a behavioral health or treatment episode — then generates the short cost note that the person relaying costs actually reads to the client, plus the full detail behind it.
+A single-page React application for the money side of a behavioral health admission. It holds four tools over one shared rate sheet:
+
+| Tool | What it answers |
+|------|-----------------|
+| **Snapshot** | "What do I tell this client their care costs?" — captures a verification and writes the cost note read out loud. |
+| **Deposit Estimator** | "What deposit do we collect up front?" — prices a whole treatment sequence against the plan. |
+| **Self-Pay & Scholarship** | "What does this cost without insurance, and how big is the scholarship?" |
+| **Rate Sheet** | "What does this carrier pay for this code?" |
+
+Each tool keeps its own state for the session, so switching tabs to check a rate never costs a half-filled form.
 
 ---
 
-## Features
+## Reference data
+
+`src/data/rates.js` is generated from the 2026 Deposit Calculator workbook's `Vlookup` sheet: **63 carriers** with their INN / OON / self-pay status, **122 CPT and HCPCS codes** with descriptions, the **carrier × code rate matrix**, the cross-carrier benchmark average per code, and the **47 treatment sequences**.
+
+A carrier that has no rate for a code is *absent* from that carrier's row rather than stored as `0`. The workbook marks those cells amber and tells you to estimate from a similar plan; the app does the same thing out loud — it names every priced service whose rate is missing, shows the cross-carrier average and the nearest comparable plans, and warns that the total is understated until a rate is entered. Nothing is silently priced at zero.
+
+---
+
+## Deposit Estimator
+
+A port of the workbook's `Insurance Calculator_v2` sheet. It runs two cost-share waterfalls, and the inpatient one runs first because it consumes the deductible and out-of-pocket room the outpatient one then works against:
+
+```
+allowed cost → deductible → coinsurance → copay → OOP cap → deposit
+```
+
+- **Treatment sequence gating** — a level of care is priced only when the selected sequence names it.
+- **Sequenced deductible** — detox takes what it can, residential takes what detox left, and the outpatient block starts from the remainder.
+- **The three copay questions**, each of which moves money on its own: how it is counted (per unit, professional visits only, or a manual total), whether it displaces coinsurance, and which accumulators it feeds.
+- **Accumulator routing** — whether the deductible and the admission fee sit inside or outside the out-of-pocket cap changes what is still collected after the maximum is reached.
+- **Admission fees per level of care**, charged only for the levels in the sequence.
+- **Editable nights, units, and rates** — a rate entered by hand overrides the carrier table and is tagged as an override.
+
+The result panel carries the deposit as a hero figure, its inpatient / outpatient / prior-balance split, a part-to-whole breakdown of what created each dollar of the client's responsibility, and both waterfalls line by line so any number can be checked rather than trusted.
+
+### Where this deliberately differs from the workbook
+
+The workbook is internally inconsistent in three places. Each is implemented the coherent way, matching the workbook's own written notes (E42/E43, B24) and its `Self Pay Calc` sheet:
+
+1. **Shared professional services activate on IOP *or* OP.** The workbook gates assessment, individual therapy, psychiatry, family therapy and MATs on IOP alone in the cost cells. An OP-only sequence therefore priced a client's assessment and psychiatry at nothing.
+2. **Copay units follow the lines that were actually costed.** The workbook's copay-unit formula counts OP groups under the IOP branch and individual therapy under the OP branch — the two are swapped relative to the cost formulas.
+3. **A bundled INN IOP agreement excludes individual and family therapy** — what the workbook's own note in B24 says. Its copay-unit formula excludes IOP services instead.
+
+Everything else matches the workbook cell for cell: **600 randomized scenarios × 21 cells** reproduce it exactly, and the inpatient block matches in all 800 scenarios including the divergent ones.
+
+---
+
+## Self-Pay & Scholarship
+
+A port of the `Self Pay Calc` sheet. The client's payment is applied to each line first; the scholarship is whatever the payment did not reach. The point of the sheet is the *shape* of that gap, so the scholarship is restated three ways — as a percentage of the program, as units of care covered, and as a blended daily rate — because those are the units a scholarship gets approved in.
+
+---
+
+## Snapshot
+
+The original tool, unchanged. Its features:
 
 - **Plan Basics** — Record network, deductible totals, and out-of-pocket maximum amounts, plus whether they are tracked separately or combined.
 - **Level of Care (LOC)** — Track the client's current status (not yet admitted, in treatment, or discharged), their current/most recent LOC, and the verified LOC used for this agreement.
@@ -29,6 +83,9 @@ A single-page React application that helps staff quickly capture and summarize a
 | UI | React 19 |
 | Build | Vite 8 |
 | Linting | ESLint 9 |
+| Styling | Hand-written CSS on a token system — light and dark, no framework |
+
+The visual system lives in `src/App.css`. Colors are defined once as roles on `:root`, and only the roles are redefined for dark mode. The four `--series-*` slots used by part-to-whole breakdowns are a colorblind-validated categorical palette; every segment that wears one is also labeled with its own value, so hue is never the only thing telling two of them apart.
 
 ---
 
@@ -66,7 +123,7 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ---
 
-## How to Use
+## How to Use the Snapshot
 
 1. **Fill in Plan Basics** — Enter the insurance network, deductible amounts, and out-of-pocket maximum.
 2. **Set Level of Care** — Select the client's current status, most recent LOC, and the verified LOC for this episode.
