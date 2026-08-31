@@ -41,11 +41,11 @@ With Misc held back this way, **16 of the 176** carrier-table gaps fill automati
 These are a different axis from the carrier table. That table answers *"what does this payer allow?"*; a schedule answers *"what have we contracted to be paid here?"* Which schedule applies is a fact about the **site the client is admitting to**, so the estimator asks for a **Location** — Canaan, Wilton, Ramsey, New York City, Chappaqua, Huntington, Mass Virtual — and derives the schedule from it. Mass Virtual has no schedule on file (there is no MA rate sheet), which the app says rather than leaving blank. Rates then resolve in three tiers, and every row shows which tier its number came from:
 
 1. **Override** — a rate typed in by hand, because the user is looking at the contract
-2. **Contracted schedule** — a signed rate for this site
+2. **Contracted schedule** — a signed rate for this site, **in network only**
 3. **Carrier table** — this plan's stated allowed amount
 4. **The carrier's own payer-group average** — what claims like this were actually paid
 
-A code none of the four covers stays missing rather than becoming zero. Only Connecticut carries facility per diems; the NJ and NY sheets are professional rates only, so detox, residential, PHP and OPWM fall back to the carrier table there. Codes a schedule lists as *billed but not contracted* (Utox, Case Management, Medical Team Conference, telephone codes) are flagged as **not contracted** rather than merely unpriced — the plan may not pay them at all.
+A code none of the four covers stays missing rather than becoming zero. A contracted schedule is an in-network agreement, so it prices nothing for an out-of-network plan however the location is set — there is no contract with a payer we are out of network with, and the allowed amount is that plan's own. The Location field says so rather than looking ignored. Only Connecticut carries facility per diems; the NJ and NY sheets are professional rates only, so detox, residential, PHP and OPWM fall back to the carrier table there. Codes a schedule lists as *billed but not contracted* (Utox, Case Management, Medical Team Conference, telephone codes) are flagged as **not contracted** rather than merely unpriced — the plan may not pay them at all.
 
 Connecticut contracts **H0018 at two rates** against two revenue codes — $1,186.00 under rev 1000 (Residential 3.7 / Residential Eval) and $1,045.00 under rev 1002 (Residential 3.5 / Residential). The residential line prices at the 1002 rate, matching how the workbook's own table labels H0018, and the app surfaces the other rate on screen so it can be entered when a stay bills that way.
 

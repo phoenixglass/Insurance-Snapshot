@@ -201,10 +201,16 @@ export default function EstimatorTool() {
               if (result.schedule) {
                 return `${loc?.label} bills on the ${result.schedule.label} schedule, effective ${result.schedule.effective}. Those signed rates outrank the carrier table; a code the schedule does not cover falls back to it.`
               }
+              // A contracted schedule is an in-network agreement, so an OON
+              // plan gets the carrier's own allowed amounts no matter which
+              // site the client walks into.
+              if (result.scheduleSuppressed) {
+                return `${loc?.label} has a ${result.scheduleSuppressed.label} contract, but this plan is ${result.network} — there is no agreement with an out-of-network payer, so every rate below is the carrier's own allowed amount.`
+              }
               if (loc) {
                 return `No contracted rate schedule on file for ${loc.label} — there is no ${loc.state} rate sheet — so every rate here comes from the carrier table.`
               }
-              return 'Which site the client is admitting to. It sets the contracted rates. Without it every rate comes from the carrier table, which is observed and estimated rather than signed.'
+              return 'Which site the client is admitting to. In network it sets the contracted rates; out of network the carrier’s own allowed amounts apply either way.'
             })()}
           >
             <Select
