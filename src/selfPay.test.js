@@ -1,23 +1,31 @@
 // Self-pay and scholarship, checked against the workbook's saved state.
 //
 // The `Self Pay Calc` sheet shipped with one scenario already filled in — a
-// Detox > Residential > PHP episode with $31,300 of client payment against
-// $81,200 of program cost. Every total it computed is asserted here to the
-// cent, so the port cannot drift from the sheet it replaced.
+// Detox > Residential > PHP episode with $81,200 of program cost and $49,900
+// of it scholarshipped. The sheet recorded that as the client's payment; the
+// app records it as the award, which is how it is actually granted. Same
+// arithmetic, same totals to the cent, stated the way it is decided.
 
 import { strict as assert } from 'node:assert'
 import { test, describe } from 'node:test'
 
-import { INITIAL_SELF_PAY_STATE, SELF_PAY_LINES, computeSelfPay, selfPayBlockers } from './selfPay.js'
+import {
+  INITIAL_SELF_PAY_STATE,
+  SELF_PAY_LINES,
+  applyScholarshipPercent,
+  computeSelfPay,
+  selfPayBlockers,
+} from './selfPay.js'
 
-const zeroPayments = Object.fromEntries(SELF_PAY_LINES.map((l) => [l.key, '0']))
+const noScholarship = Object.fromEntries(SELF_PAY_LINES.map((l) => [l.key, '0']))
 
-// The workbook's own saved inputs.
+// The workbook's own saved scenario, entered as the dollar award it was.
 const WORKBOOK = {
   ...INITIAL_SELF_PAY_STATE,
   treatmentSequence: 'Detox > Residential > PHP',
+  scholarshipMode: 'amount',
   units: { ...INITIAL_SELF_PAY_STATE.units, residential: '36' },
-  payments: { ...zeroPayments, detox: '6300', residential: '20000', php: '5000' },
+  scholarship: { ...noScholarship, detox: '6300', residential: '28600', php: '15000' },
   rateOverrides: {},
 }
 
@@ -32,7 +40,6 @@ describe('self-pay vs. the workbook', () => {
     near(r.totalScholarship, 49900, 'scholarship')
     near(r.scholarshipPercent, 0.6145320197044335, 'scholarship %')
     near(r.scholarshipUnits, 39.18518518518519, 'scholarship units')
-    near(r.blendedDailyRate, 504.83870967741933, 'blended daily rate')
     near(r.finalClientResponsibility, 31300, 'final client responsibility')
   })
 
@@ -40,18 +47,66 @@ describe('self-pay vs. the workbook', () => {
     const detox = r.lines.find((l) => l.key === 'detox')
     near(detox.programCost, 12600, 'program cost')
     near(detox.scholarship, 6300, 'scholarship')
+    near(detox.payment, 6300, 'client payment')
     near(detox.scholarshipPercent, 0.5, 'scholarship %')
-    near(detox.scholarshipUnits, 3, 'scholarship nights')
-    near(detox.averageDailyRate, 1050, 'ADR')
+    near(detox.coveredUnits, 3, 'scholarship nights')
+    near(detox.paidUnits, 3, 'nights the client pays for')
   })
 
   test('the residential line matches cell for cell', () => {
     const resi = r.lines.find((l) => l.key === 'residential')
     near(resi.programCost, 48600, 'program cost')
     near(resi.scholarship, 28600, 'scholarship')
+    near(resi.payment, 20000, 'client payment')
     near(resi.scholarshipPercent, 0.588477366255144, 'scholarship %')
-    near(resi.scholarshipUnits, 21.185185185185187, 'scholarship nights')
-    near(resi.averageDailyRate, 555.5555555555555, 'ADR')
+    near(resi.coveredUnits, 21.185185185185187, 'scholarship nights')
+  })
+
+  test('every unit of care is on one side of the split or the other', () => {
+    near(r.paidUnits + r.scholarshipUnits, r.costedUnits, 'units')
+    near(r.totalPayment + r.totalScholarship, r.grossCost, 'dollars')
+  })
+})
+
+describe('a scholarship covers units, it does not cut the rate', () => {
+  const iopEpisode = {
+    ...INITIAL_SELF_PAY_STATE,
+    treatmentSequence: 'IOP',
+    scholarship: { ...noScholarship, iop: '15' },
+  }
+
+  test('half of a 30-unit IOP course is 15 units at the full rate', () => {
+    const iop = computeSelfPay(iopEpisode).lines.find((l) => l.key === 'iop')
+    assert.equal(iop.rate, 295, 'the sheet rate is untouched')
+    assert.equal(iop.programCost, 8850)
+    assert.equal(iop.coveredUnits, 15)
+    assert.equal(iop.paidUnits, 15)
+    assert.equal(iop.scholarship, 4425)
+    assert.equal(iop.payment, 4425)
+    // The point of the whole exercise: the client is billed 15 × $295, not
+    // 30 × $147.50.
+    assert.equal(iop.payment / iop.paidUnits, 295)
+  })
+
+  test('the same award entered in dollars lands on the same units', () => {
+    const iop = computeSelfPay({
+      ...iopEpisode,
+      scholarshipMode: 'amount',
+      scholarship: { ...noScholarship, iop: '4425' },
+    }).lines.find((l) => l.key === 'iop')
+    assert.equal(iop.coveredUnits, 15)
+    assert.equal(iop.payment, 4425)
+  })
+
+  test('a dollar award that does not land on a whole unit is named', () => {
+    const r = computeSelfPay({
+      ...iopEpisode,
+      scholarshipMode: 'amount',
+      scholarship: { ...noScholarship, iop: '4000' },
+    })
+    const iop = r.lines.find((l) => l.key === 'iop')
+    assert.equal(iop.wholeUnits, false)
+    assert.deepEqual(r.partialUnitLines, ['IOP Services'])
   })
 })
 
@@ -72,38 +127,104 @@ describe('sequence gating', () => {
   })
 })
 
-describe('payment allocation', () => {
-  const priced = { ...WORKBOOK, payments: { ...zeroPayments } }
-
-  test('an unpaid line is entirely scholarship', () => {
-    const r = computeSelfPay(priced)
-    const detox = r.lines.find((l) => l.key === 'detox')
-    assert.equal(detox.scholarship, detox.programCost)
-    assert.equal(detox.scholarshipPercent, 1)
-  })
-
-  test('a fully paid line carries no scholarship', () => {
-    const r = computeSelfPay({
-      ...priced,
-      payments: { ...zeroPayments, detox: '12600' },
-    })
+describe('award allocation', () => {
+  test('an unscholarshipped line is paid in full by the client', () => {
+    const r = computeSelfPay({ ...WORKBOOK, scholarship: { ...noScholarship } })
     const detox = r.lines.find((l) => l.key === 'detox')
     assert.equal(detox.scholarship, 0)
-    assert.equal(detox.overpaid, false)
+    assert.equal(detox.payment, detox.programCost)
+    assert.equal(detox.paidUnits, 6)
   })
 
-  test('overpayment is flagged rather than spilling into other lines', () => {
+  test('a fully covered line leaves the client nothing to pay', () => {
     const r = computeSelfPay({
-      ...priced,
-      payments: { ...zeroPayments, detox: '20000' },
+      ...WORKBOOK,
+      scholarship: { ...noScholarship, detox: '12600' },
     })
     const detox = r.lines.find((l) => l.key === 'detox')
-    assert.equal(detox.scholarship, 0, 'a scholarship never goes negative')
-    assert.ok(detox.overpaid)
-    assert.deepEqual(r.overpaidLines, ['Detox'])
-    // The surplus does not reduce the residential scholarship.
+    assert.equal(detox.payment, 0)
+    assert.equal(detox.coveredUnits, 6)
+    assert.equal(detox.overAllocated, false)
+  })
+
+  test('an award larger than the line is flagged rather than spilling over', () => {
+    const r = computeSelfPay({
+      ...WORKBOOK,
+      scholarship: { ...noScholarship, detox: '20000' },
+    })
+    const detox = r.lines.find((l) => l.key === 'detox')
+    assert.equal(detox.scholarship, 12600, 'a scholarship never exceeds the line')
+    assert.equal(detox.payment, 0, 'and never turns into a refund')
+    assert.ok(detox.overAllocated)
+    assert.deepEqual(r.overAllocatedLines, ['Detox'])
+    // The surplus does not cover residential nights.
     const resi = r.lines.find((l) => l.key === 'residential')
-    assert.equal(resi.scholarship, resi.programCost)
+    assert.equal(resi.scholarship, 0)
+  })
+
+  test('more units than the line has is capped at the line', () => {
+    const r = computeSelfPay({
+      ...WORKBOOK,
+      scholarshipMode: 'units',
+      scholarship: { ...noScholarship, detox: '9' },
+    })
+    const detox = r.lines.find((l) => l.key === 'detox')
+    assert.equal(detox.coveredUnits, 6)
+    assert.equal(detox.paidUnits, 0)
+    assert.ok(detox.overAllocated)
+  })
+})
+
+describe('filling from a percentage', () => {
+  const iopEpisode = { ...INITIAL_SELF_PAY_STATE, treatmentSequence: 'IOP' }
+
+  test('50% splits the IOP course down the middle in whole sessions', () => {
+    const filled = applyScholarshipPercent(iopEpisode, '50')
+    assert.equal(filled.scholarship.iop, '15')
+    const iop = computeSelfPay(filled).lines.find((l) => l.key === 'iop')
+    assert.equal(iop.scholarship, 4425)
+    assert.equal(iop.payment, 4425)
+  })
+
+  test('the fill lands near the percentage asked for, not above it', () => {
+    // Rounding every line up on its own would turn a 50% award on an IOP
+    // episode into 55% by covering each one-visit line outright.
+    const r = computeSelfPay(applyScholarshipPercent(iopEpisode, '50'))
+    assert.ok(
+      Math.abs(r.scholarshipPercent - 0.5) < 0.02,
+      `50% award came out at ${(r.scholarshipPercent * 100).toFixed(1)}%`,
+    )
+    // And it is still whole sessions and nights on every line.
+    assert.deepEqual(r.partialUnitLines, [])
+  })
+
+  test('lines outside the sequence are left uncovered', () => {
+    const filled = applyScholarshipPercent(iopEpisode, '50')
+    assert.equal(filled.scholarship.opGroups, '')
+    assert.equal(computeSelfPay(filled).lines.find((l) => l.key === 'opGroups').scholarship, 0)
+  })
+
+  test('in dollar mode the percentage is taken off each line exactly', () => {
+    const filled = applyScholarshipPercent({ ...iopEpisode, scholarshipMode: 'amount' }, '40')
+    assert.equal(filled.scholarship.iop, '3540')
+    const iop = computeSelfPay(filled).lines.find((l) => l.key === 'iop')
+    assert.equal(iop.scholarship, 3540)
+    assert.equal(iop.coveredUnits, 12)
+  })
+
+  test('a percentage over 100 covers the program, not more', () => {
+    const filled = applyScholarshipPercent(iopEpisode, '150')
+    const r = computeSelfPay(filled)
+    assert.equal(r.totalPayment, 0)
+    assert.equal(r.totalScholarship, r.grossCost)
+  })
+
+  test('an empty percentage leaves the entries alone', () => {
+    const filled = applyScholarshipPercent(
+      { ...iopEpisode, scholarship: { ...noScholarship, iop: '15' } },
+      '',
+    )
+    assert.equal(filled.scholarship.iop, '15')
   })
 })
 
@@ -134,10 +255,17 @@ describe('rates', () => {
     assert.equal(psychEval.programCost, 675)
   })
 
-  test('an override replaces the sheet rate', () => {
-    const r = computeSelfPay({ ...WORKBOOK, rateOverrides: { detox: '999' } })
+  test('an override replaces the sheet rate on both sides of the split', () => {
+    const r = computeSelfPay({
+      ...WORKBOOK,
+      scholarship: { ...noScholarship, detox: '3' },
+      scholarshipMode: 'units',
+      rateOverrides: { detox: '999' },
+    })
     const detox = r.lines.find((l) => l.key === 'detox')
     assert.equal(detox.rate, 999)
     assert.equal(detox.programCost, 999 * 6)
+    assert.equal(detox.scholarship, 999 * 3)
+    assert.equal(detox.payment, 999 * 3)
   })
 })

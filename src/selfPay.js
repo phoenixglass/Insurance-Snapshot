@@ -4,13 +4,16 @@
 // Ports the workbook's `Self Pay Calc` sheet. There is no insurance here, so
 // there is no cost-share waterfall — the arithmetic is one subtraction per line:
 //
-//   program cost (rate × units)  −  client payment  =  scholarship
+//   program cost (rate × units)  −  scholarship  =  what the client pays
 //
-// What the sheet is actually for is the shape of that gap. A director signing
-// off on a scholarship wants it in the units they think in: a percentage of the
-// program, a number of nights covered, and an average daily rate. Those are the
-// three columns beside the dollar figure, and they are why this is a sheet
-// rather than a subtraction anyone could do in their head.
+// The thing that subtraction has to keep straight is what a scholarship is
+// here. It is a dollar-amount award against the program, granted as a count of
+// units the program is covering — not a discount on the rate. A 50% scholarship
+// on 30 IOP sessions at $295 is 15 sessions billed at $295 and 15 sessions
+// covered, $4,425 either way; it is never 30 sessions repriced to $147.50. The
+// rate the client sees on the sessions they pay for is the rate on the sheet,
+// and every figure this module reports is stated in those terms: units covered,
+// units paid, and the dollars each side of the split comes to.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { lookupRate, sequenceIncludes, toNumber, SEQ_LOC } from './estimate.js'
@@ -49,10 +52,21 @@ export const SELF_PAY_LINES = [
 
 export const INITIAL_SELF_PAY_STATE = {
   treatmentSequence: '',
+  // How the scholarship is entered. 'units' is the way a scholarship is
+  // actually granted — a count of sessions or nights the program is covering —
+  // and 'amount' is there for the case where a dollar figure was agreed first
+  // and has to be entered as it was written.
+  scholarshipMode: 'units',
   units: Object.fromEntries(SELF_PAY_LINES.map((l) => [l.key, String(l.units)])),
-  payments: Object.fromEntries(SELF_PAY_LINES.map((l) => [l.key, ''])),
+  // Per line: units covered in 'units' mode, dollars covered in 'amount' mode.
+  scholarship: Object.fromEntries(SELF_PAY_LINES.map((l) => [l.key, ''])),
   rateOverrides: {},
 }
+
+export const SCHOLARSHIP_MODES = [
+  { value: 'units', label: 'Sessions covered' },
+  { value: 'amount', label: 'Dollar amount' },
+]
 
 export function selfPayRate(line, overrides = {}) {
   const override = overrides[line.key]
@@ -66,19 +80,31 @@ export function selfPayRate(line, overrides = {}) {
 
 export function computeSelfPay(form) {
   const sequence = form.treatmentSequence
+  const byUnits = (form.scholarshipMode ?? 'units') === 'units'
 
   const lines = SELF_PAY_LINES.map((line) => {
     const active = line.activatedBy.some((loc) => sequenceIncludes(sequence, loc))
     const units = toNumber(form.units[line.key])
     const rate = selfPayRate(line, form.rateOverrides)
     const programCost = active && rate !== null ? units * rate : 0
-    const payment = toNumber(form.payments[line.key])
+    const entered = toNumber(form.scholarship?.[line.key])
 
-    // The client's payment is applied to this line's cost first; the
-    // scholarship is whatever the payment did not reach. A payment above the
-    // program cost does not create a negative scholarship — it is simply a line
-    // paid in full, which the overpaid flag names rather than hiding.
-    const scholarship = Math.max(0, programCost - payment)
+    // The scholarship is a count of units the program is covering, priced at
+    // the same rate the client pays for the units they cover. It never becomes
+    // a discount on the rate: 15 of 30 IOP sessions covered is $4,425 of
+    // scholarship against 15 sessions still billed at the full $295, not 30
+    // sessions repriced to $147.50.
+    const requested = byUnits ? entered * (rate ?? 0) : entered
+    const scholarship = Math.min(Math.max(requested, 0), programCost)
+    const coveredUnits = rate ? scholarship / rate : 0
+    // Only a costed line has units on either side of the split: a level of
+    // care outside the sequence is not care the client is paying for.
+    const paidUnits = programCost > 0 ? Math.max(0, units - coveredUnits) : 0
+    const payment = programCost - scholarship
+
+    // A scholarship larger than the line is flagged rather than silently
+    // clamped away, and never spills into another line.
+    const overAllocated = programCost > 0 && requested > programCost
 
     return {
       ...line,
@@ -87,23 +113,24 @@ export function computeSelfPay(form) {
       rate,
       rateMissing: active && rate === null,
       programCost,
-      payment,
       scholarship,
-      scholarshipPercent: programCost === 0 ? 0 : scholarship / programCost,
-      // The scholarship restated as nights or units of care covered — the unit
-      // the person approving it actually thinks in.
-      scholarshipUnits: rate ? scholarship / rate : 0,
-      averageDailyRate: units > 0 ? payment / units : 0,
+      coveredUnits,
+      paidUnits,
+      payment,
       clientResponsibility: payment,
-      overpaid: programCost > 0 && payment > programCost,
+      scholarshipPercent: programCost === 0 ? 0 : scholarship / programCost,
+      // Whether the covered units land on whole sessions or nights. A dollar
+      // figure agreed at the table often does not, and the fraction is the
+      // thing worth seeing before it is quoted.
+      wholeUnits: Math.abs(coveredUnits - Math.round(coveredUnits)) < 1e-9,
+      overAllocated,
     }
   })
 
   const sum = (fn) => lines.reduce((total, l) => total + fn(l), 0)
   const grossCost = sum((l) => l.programCost)
-  const totalPayment = sum((l) => l.payment)
   const totalScholarship = sum((l) => l.scholarship)
-  const totalUnits = sum((l) => (l.programCost > 0 ? l.units : 0))
+  const totalPayment = sum((l) => l.payment)
 
   return {
     lines,
@@ -112,16 +139,81 @@ export function computeSelfPay(form) {
     totalPayment,
     totalScholarship,
     scholarshipPercent: grossCost === 0 ? 0 : totalScholarship / grossCost,
-    scholarshipUnits: sum((l) => l.scholarshipUnits),
-    // The blended rate across every costed line — what one day of this
-    // client's episode actually collects.
-    blendedDailyRate: totalUnits > 0 ? totalPayment / totalUnits : 0,
+    // Units of care on each side of the split — the sentence a director signs
+    // off on is "we are covering N sessions", not "we are charging less".
+    scholarshipUnits: sum((l) => l.coveredUnits),
+    paidUnits: sum((l) => l.paidUnits),
+    costedUnits: sum((l) => (l.programCost > 0 ? l.units : 0)),
     finalClientResponsibility: totalPayment,
     missingRates: lines
       .filter((l) => l.rateMissing)
       .map((l) => ({ key: l.key, label: l.label, code: l.code })),
-    overpaidLines: lines.filter((l) => l.overpaid).map((l) => l.label),
+    overAllocatedLines: lines.filter((l) => l.overAllocated).map((l) => l.label),
+    partialUnitLines: lines
+      .filter((l) => l.scholarship > 0 && !l.wholeUnits)
+      .map((l) => l.label),
   }
+}
+
+// Turn "give them 50%" into per-line scholarship entries. A percentage is how
+// the award is decided; the entries it produces are units of care, so in units
+// mode no line is split down the middle of a session — the units are whole, and
+// the leftover fraction of the award is spent where it lands closest to the
+// percentage that was asked for. That keeps a 50% award on an episode worth
+// about half the episode rather than drifting up every time a one-visit line
+// rounds itself a free visit.
+export function applyScholarshipPercent(form, percent) {
+  const pct = toNumber(percent) / 100
+  if (!Number.isFinite(pct) || pct <= 0) return form
+  const byUnits = (form.scholarshipMode ?? 'units') === 'units'
+  const capped = Math.min(pct, 1)
+
+  const priced = SELF_PAY_LINES.map((line) => {
+    const active = line.activatedBy.some((loc) => sequenceIncludes(form.treatmentSequence, loc))
+    const units = toNumber(form.units[line.key])
+    const rate = selfPayRate(line, form.rateOverrides)
+    return { line, units, rate, costed: active && rate !== null && rate > 0 && units > 0 }
+  })
+
+  const scholarship = { ...form.scholarship }
+  for (const { line, costed } of priced) {
+    if (!costed) scholarship[line.key] = ''
+  }
+
+  if (!byUnits) {
+    for (const { line, units, rate, costed } of priced) {
+      if (costed) scholarship[line.key] = String(round2(units * rate * capped))
+    }
+    return { ...form, scholarship }
+  }
+
+  const costed = priced.filter((p) => p.costed)
+  const target = costed.reduce((total, p) => total + p.units * p.rate * capped, 0)
+  const whole = costed.map((p) => ({ ...p, covered: Math.floor(p.units * capped) }))
+  let short = target - whole.reduce((total, p) => total + p.covered * p.rate, 0)
+
+  // Spend what is left of the award a whole unit at a time, biggest fraction
+  // first, and only where the extra unit lands nearer the target than leaving
+  // it off would.
+  const byFraction = [...whole].sort((a, b) => {
+    const fa = a.units * capped - Math.floor(a.units * capped)
+    const fb = b.units * capped - Math.floor(b.units * capped)
+    return fb - fa || b.rate - a.rate
+  })
+  for (const p of byFraction) {
+    if (p.covered >= p.units) continue
+    if (short >= p.rate / 2) {
+      p.covered += 1
+      short -= p.rate
+    }
+  }
+
+  for (const p of whole) scholarship[p.line.key] = String(p.covered)
+  return { ...form, scholarship }
+}
+
+function round2(n) {
+  return Math.round(n * 100) / 100
 }
 
 export function selfPayBlockers(form) {

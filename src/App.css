@@ -1434,6 +1434,27 @@ textarea {
   font-size: 1rem;
 }
 
+/* A second figure under a total — the same number restated as a share. */
+.cell-sub {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--text-3);
+}
+
+/* A percentage typed beside the button that spreads it over the line items —
+   one control, so it reads as "50% … apply" rather than two loose fields. */
+.percent-apply {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.percent-apply .percent-input-wrapper {
+  max-width: 120px;
+}
+
 /* ── Buttons ──────────────────────────────────────────────────────────── */
 
 .btn-secondary {
