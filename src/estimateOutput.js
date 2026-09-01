@@ -82,17 +82,19 @@ function copayRules(form) {
 
 // What one copay is charged on, said the way it will be collected. The basis is
 // the only thing that decides this; the amount is stated with it so the phrase
-// stands on its own.
+// stands on its own, and a ceiling is part of the charge rather than a footnote
+// to it — "$200 a day" and "$200 a day up to $2,000" are different benefits.
 function basisPhrase(rule, units) {
+  const upTo = rule.copayMax > 0 ? `, up to ${dollars(rule.copayMax)}` : ''
   switch (rule.copayBasis) {
     case COPAY_BASIS.MANUAL:
-      return `${dollars(rule.copayAmount)}, charged once for the episode`
+      return `${dollars(rule.copayAmount)}, charged once for the episode${upTo}`
     case COPAY_BASIS.PROFESSIONAL_ONLY:
-      return `${dollars(rule.copayAmount)} per visit${units > 0 ? `, on ${plural(units, 'visit', 'visits')}` : ''}`
+      return `${dollars(rule.copayAmount)} per visit${units > 0 ? `, on ${plural(units, 'visit', 'visits')}` : ''}${upTo}`
     case COPAY_BASIS.PER_UNIT:
-      return `${dollars(rule.copayAmount)} per service unit`
+      return `${dollars(rule.copayAmount)} per service unit${upTo}`
     default:
-      return dollars(rule.copayAmount)
+      return `${dollars(rule.copayAmount)}${upTo}`
   }
 }
 
@@ -104,7 +106,9 @@ function copayPhrase(form, result) {
   const rules = copayRules(form)
   if (rules.length === 0) return null
   const units = result.outpatient.copayUnits
-  const distinct = new Set(rules.map(({ rule }) => `${rule.copayAmount}|${rule.copayBasis}`))
+  const distinct = new Set(
+    rules.map(({ rule }) => `${rule.copayAmount}|${rule.copayBasis}|${rule.copayMax}`)
+  )
   if (distinct.size === 1) return basisPhrase(rules[0].rule, units)
   return rules.map(({ label, rule }) => `${label}: ${basisPhrase(rule, units)}`).join('; ')
 }
@@ -266,7 +270,11 @@ function levelTerms(form, loc) {
   }
   const parts = [rule.deductibleApplies ? 'deductible applies' : 'deductible waived']
   if (rule.copayAmount > 0 && rule.copayBasis !== COPAY_BASIS.NA) {
-    parts.push(`${formatMoney(rule.copayAmount)} copay (${rule.copayBasis.toLowerCase()})`)
+    parts.push(
+      `${formatMoney(rule.copayAmount)} copay (${rule.copayBasis.toLowerCase()})${
+        rule.copayMax > 0 ? `, up to ${formatMoney(rule.copayMax)}` : ''
+      }`
+    )
     parts.push(
       rule.copayReplacesCoinsurance ? 'charged instead of coinsurance' : 'charged with coinsurance'
     )
@@ -302,6 +310,16 @@ function coinsuranceRow(block) {
   const replaced = block.coinsurance - block.coinsuranceDue
   return `  Coinsurance: ${formatMoney(block.coinsuranceDue)}${
     replaced > 0.005 ? ` (a copay replaced ${formatMoney(replaced)} of it)` : ''
+  }`
+}
+
+// The copay a block actually collects. A ceiling that stopped it is named with
+// what it stopped, because a copay that is not the nights times the amount is
+// otherwise a number the reader cannot reconcile against the stay.
+function copayRow(block, label) {
+  const stopped = block.copayBeforeMax - block.copay
+  return `  ${label}: ${formatMoney(block.copay)}${
+    stopped > 0.005 ? ` (a maximum stopped ${formatMoney(stopped)} of it)` : ''
   }`
 }
 
@@ -347,6 +365,11 @@ function staffDetail(form, result) {
       ? lines(
           `  Amount: ${formatMoney(toNumber(form.copayAmount))}`,
           `  Basis: ${form.copayBasis}`,
+          `  Maximum: ${
+            toNumber(form.copayMax) > 0
+              ? `${formatMoney(toNumber(form.copayMax))} for the episode`
+              : 'none stated'
+          }`,
           `  Treatment: ${form.copayTreatment}${
             form.copayTreatment === COPAY_TREATMENT.REPLACE ? ' — no coinsurance is charged alongside it' : ''
           }`,
@@ -407,7 +430,7 @@ function staffDetail(form, result) {
           `  Allowed cost (${plural(inpatient.totalNights, 'night', 'nights')}): ${formatMoney(inpatient.totalAllowed)}`,
           deductibleRow(inpatient),
           coinsuranceRow(inpatient),
-          `  Copay: ${formatMoney(inpatient.copay)}`,
+          copayRow(inpatient, 'Copay'),
           `  Admission fee: ${formatMoney(inpatient.admissionFees)}`,
           `  Before the out-of-pocket cap: ${formatMoney(inpatient.beforeCap)}`,
           `  After the out-of-pocket cap: ${formatMoney(inpatient.afterCap)}`,
@@ -424,7 +447,10 @@ function staffDetail(form, result) {
           `  Out-of-pocket remaining at entry: ${formatMoney(outpatient.oopAtEntry)}`,
           deductibleRow(outpatient),
           coinsuranceRow(outpatient),
-          `  Copay${outpatient.copayUnits > 0 ? ` (${plural(outpatient.copayUnits, 'unit', 'units')})` : ''}: ${formatMoney(outpatient.copay)}`,
+          copayRow(
+            outpatient,
+            `Copay${outpatient.copayUnits > 0 ? ` (${plural(outpatient.copayUnits, 'unit', 'units')})` : ''}`
+          ),
           `  Admission fee: ${formatMoney(outpatient.admissionFees)}`,
           `  Before the out-of-pocket cap: ${formatMoney(outpatient.beforeCap)}`,
           `  After the out-of-pocket cap: ${formatMoney(outpatient.afterCap)}`,

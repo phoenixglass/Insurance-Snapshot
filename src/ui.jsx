@@ -107,7 +107,12 @@ export function Select({ id, value, onChange, options, placeholder = 'Select…'
   )
 }
 
-export function Field({ label, htmlFor, hint, required, optional, children }) {
+// `badge` marks where a field's value came from when the field has somewhere to
+// inherit it from — a level of care reading the plan's answer rather than
+// stating its own. A control showing an inherited value looks exactly like one
+// showing a chosen value, and on a form where both are on screen at once that
+// is the difference between "the plan says no" and "I said no".
+export function Field({ label, htmlFor, hint, required, optional, badge, children }) {
   return (
     <div className="field-group">
       {label && (
@@ -115,6 +120,11 @@ export function Field({ label, htmlFor, hint, required, optional, children }) {
           {label}
           {required && <span className="required-star"> *</span>}
           {optional && <span className="optional-hint"> — optional</span>}
+          {badge && (
+            <span className={`field-badge${badge.tone ? ` field-badge-${badge.tone}` : ''}`}>
+              {badge.label}
+            </span>
+          )}
         </label>
       )}
       {children}

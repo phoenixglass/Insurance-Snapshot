@@ -35,6 +35,11 @@ import {
 // The workbook asks three separate questions about a copay, and each one moves
 // money on its own: how it is counted (basis), whether it displaces coinsurance
 // (treatment), and which accumulators it feeds.
+//
+// A fourth question the workbook never asks: where the copay stops. A detox or
+// residential benefit is often written "$200 a day up to $2,000" — a per-unit
+// copay with a ceiling on what it can add up to. The amount says what one unit
+// costs; the maximum says when the meter stops. See `copayLedger` below.
 
 export const COPAY_BASIS = {
   NA: 'Not Applicable',
@@ -298,6 +303,9 @@ export const INITIAL_ESTIMATE_STATE = {
   copayAmount: '',
   networkOverride: '',
   copayBasis: COPAY_BASIS.NA,
+  // Blank is no ceiling, which is not the same as a ceiling of nothing: a plan
+  // that never stated one does not stop collecting.
+  copayMax: '',
   copayTreatment: COPAY_TREATMENT.NA,
   copayAppliesToDeductible: 'Not Applicable',
   copayAppliesToOop: 'Not Applicable',
@@ -473,6 +481,8 @@ export function planRule(form) {
     deductibleApplies: true,
     copayAmount: toNumber(form.copayAmount),
     copayBasis: form.copayBasis,
+    copayMax: toNumber(form.copayMax),
+    copayMaxOverridden: false,
     copayTreatment: form.copayTreatment,
     copayReplacesCoinsurance: form.copayTreatment === COPAY_TREATMENT.REPLACE,
     copayToDeductibleAnswer: form.copayAppliesToDeductible,
@@ -502,6 +512,7 @@ export function levelRule(form, loc) {
   const deductibleOverridden = rule.deductibleApplies === 'No'
   const copayAmountSet = rule.copayAmount !== undefined && rule.copayAmount !== ''
   const copayBasisSet = Boolean(rule.copayBasis)
+  const copayMaxSet = rule.copayMax !== undefined && rule.copayMax !== ''
   const feeCovers = rule.admissionFeeCovers === 'Yes'
   const treatmentSet = Boolean(rule.copayTreatment)
   const toDeductibleSet = Boolean(rule.copayAppliesToDeductible)
@@ -517,10 +528,21 @@ export function levelRule(form, loc) {
     // copay, and the deductible pool passes through to the next level untouched.
     admissionFeeCovers: feeCovers,
     chargeOverridden,
-    copayOverridden: chargeOverridden || treatmentSet || toDeductibleSet || toOopSet,
-    ownTerms: deductibleOverridden || feeCovers || chargeOverridden || treatmentSet || toDeductibleSet || toOopSet,
+    copayOverridden: chargeOverridden || copayMaxSet || treatmentSet || toDeductibleSet || toOopSet,
+    ownTerms:
+      deductibleOverridden ||
+      feeCovers ||
+      chargeOverridden ||
+      copayMaxSet ||
+      treatmentSet ||
+      toDeductibleSet ||
+      toOopSet,
     copayAmount: copayAmountSet ? toNumber(rule.copayAmount) : plan.copayAmount,
     copayBasis: copayBasisSet ? rule.copayBasis : plan.copayBasis,
+    // A ceiling this level states is this level's own; one it reads from the
+    // plan is a share of the plan's, which is what `copayLedger` keys on.
+    copayMax: copayMaxSet ? toNumber(rule.copayMax) : plan.copayMax,
+    copayMaxOverridden: copayMaxSet,
     copayTreatment,
     copayReplacesCoinsurance: copayTreatment === COPAY_TREATMENT.REPLACE,
     copayToDeductibleAnswer: toDeductibleSet
@@ -606,6 +628,39 @@ function planManualCopay(form, rules) {
   return onPlan ? toNumber(form.copayAmount) : 0
 }
 
+// ── The copay maximum ────────────────────────────────────────────────────────
+// "$200 a day up to $2,000." The ceiling is not a second copay question about
+// one charge — it is a running total across everything charged under it, so it
+// cannot be settled line by line the way the amount and the basis can. This
+// keeps that total for one estimate.
+//
+// What shares a ceiling is what reads the same one. A maximum entered on the
+// plan is one ceiling for the episode: the detox nights are charged in the
+// order they are stayed, and a ceiling detox fills leaves nothing for the
+// residential days after it — and nothing for the outpatient block either,
+// which starts from what the inpatient block left exactly as the deductible and
+// the out-of-pocket room do. A maximum entered on a level of care is that
+// level's own ceiling and stops that level alone.
+//
+// The cap is applied before the accumulators, not after, because a copay the
+// plan never collects is not credited to the deductible and does not spend
+// out-of-pocket room. Everything downstream sees the charge as collected.
+const PLAN_CEILING = Symbol('plan copay maximum')
+
+function copayLedger() {
+  const spent = new Map()
+  return {
+    charge(rule, copay) {
+      if (!(rule.copayMax > 0) || copay <= 0) return copay
+      const key = rule.copayMaxOverridden ? rule.loc : PLAN_CEILING
+      const used = spent.get(key) || 0
+      const charged = Math.min(copay, clampAtZero(rule.copayMax - used))
+      spent.set(key, used + charged)
+      return charged
+    },
+  }
+}
+
 // ── Inpatient waterfall (rows 5–16) ──────────────────────────────────────────
 
 function computeInpatient(form, ctx) {
@@ -653,6 +708,7 @@ function computeInpatient(form, ctx) {
   // is kept with the rules that decide what it counts toward, because those
   // are the level's answers and not necessarily the plan's.
   let copayUnits = 0
+  let copayBeforeMax = 0
   const shares = []
   lines.forEach((line) => {
     if (!line.active || line.coveredByFee) {
@@ -661,7 +717,12 @@ function computeInpatient(form, ctx) {
     }
     const rule = levelRule(form, line.loc)
     const { copay: lineCopay, units } = levelUnitCopay(rule, [line])
-    line.copay = lineCopay + levelManualCopay(rule)
+    const uncapped = lineCopay + levelManualCopay(rule)
+    // The nights are charged in the order they are stayed, so a ceiling the
+    // detox stay fills leaves nothing for the residential days after it.
+    line.copay = ctx.copayCap.charge(rule, uncapped)
+    line.copayMaxReached = line.copay < uncapped - 0.005
+    copayBeforeMax += uncapped
     copayUnits += units
     shares.push(
       levelShare(rule, {
@@ -674,9 +735,11 @@ function computeInpatient(form, ctx) {
   // "Professional Visit Only" prices individually billed visits. A per diem
   // night is not one, so the inpatient block collects no copay under it.
 
-  const planCopay = planManualCopay(form, rules)
+  const planCopayUncapped = planManualCopay(form, rules)
+  const planCopay = ctx.copayCap.charge(planRule(form), planCopayUncapped)
   if (planCopay > 0) shares.push(levelShare(planRule(form), { copay: planCopay }))
   const copay = lines.reduce((sum, l) => sum + (l.active ? l.copay : 0), 0) + planCopay
+  copayBeforeMax += planCopayUncapped
 
   const admissionFees = lines.reduce(
     (sum, l) => sum + (l.active ? toNumber(form.admissionFees[l.key]) : 0),
@@ -702,6 +765,10 @@ function computeInpatient(form, ctx) {
     coinsurance,
     copay,
     copayUnits,
+    // What the copay came to before its ceiling stopped it. The result panel
+    // and the staff detail quote the difference rather than showing a total
+    // nobody can reconcile against the nights it was charged on.
+    copayBeforeMax,
     // What the waterfall actually charged, as against what it was handed: a
     // copay credited to the deductible is not collected twice, and a copay that
     // replaces coinsurance leaves no coinsurance behind it. The outputs quote
@@ -895,6 +962,7 @@ function computeOutpatient(form, ctx, inpatient) {
   let deductiblePool = deductibleAtEntry
   let copayUnits = 0
   let levelCopay = 0
+  let copayBeforeMax = 0
   const levels = activeLocs.map((loc) => {
     const rule = levelRule(form, loc)
     // Care an admission fee already covers is not charged again here — and it
@@ -918,8 +986,20 @@ function computeOutpatient(form, ctx, inpatient) {
     })
 
     const { copay: unitCopay, units } = levelUnitCopay(rule, locLines)
-    const copay = unitCopay + levelManualCopay(rule)
+    const uncapped = unitCopay + levelManualCopay(rule)
+    const copay = ctx.copayCap.charge(rule, uncapped)
+    const maxReached = copay < uncapped - 0.005
+    // Past the ceiling one more unit of care adds no copay to the deposit, so
+    // the client-per-unit column stops quoting one — with a copay that replaces
+    // coinsurance, that leaves the extra unit costing the client nothing.
+    if (maxReached) {
+      locLines.forEach((l) => {
+        l.copayMaxReached = true
+        l.clientPerUnit = clientUnitCost(l, { ...rule, copayAmount: 0 }, l.rate, coins)
+      })
+    }
     levelCopay += copay
+    copayBeforeMax += uncapped
     copayUnits += units
     return {
       loc,
@@ -928,6 +1008,8 @@ function computeOutpatient(form, ctx, inpatient) {
       deductible,
       coinsurance,
       copay,
+      copayBeforeMax: uncapped,
+      copayMaxReached: maxReached,
       feeCovered: rule.admissionFeeCovers,
       fee: admissionFeeFor(form, loc),
       lines: locLines,
@@ -952,9 +1034,11 @@ function computeOutpatient(form, ctx, inpatient) {
         levelShare(l.rule, { deductible: l.deductible, coinsurance: l.coinsurance, copay: l.copay })
       )
     : []
-  const planCopay = anyActive ? planManualCopay(form, rules) : 0
+  const planCopayUncapped = anyActive ? planManualCopay(form, rules) : 0
+  const planCopay = ctx.copayCap.charge(planRule(form), planCopayUncapped)
   if (planCopay > 0) shares.push(levelShare(planRule(form), { copay: planCopay }))
   const copay = anyActive ? levelCopay + planCopay : 0
+  copayBeforeMax += planCopayUncapped
 
   const capInputs = { oopRemaining: oopAtEntry, deductibleInOopm: ctx.deductibleInOopm }
   const share = applyCostShare(shares, capInputs)
@@ -976,6 +1060,7 @@ function computeOutpatient(form, ctx, inpatient) {
     coinsurance,
     copay,
     copayUnits,
+    copayBeforeMax: anyActive ? copayBeforeMax : 0,
     netDeductible: share.netDeductible,
     coinsuranceDue: share.coinsuranceDue,
     beforeCap: share.beforeCap,
@@ -1018,6 +1103,10 @@ export function computeEstimate(form) {
     oopmRemaining: toNumber(form.oopmRemaining),
     deductibleInOopm: form.deductibleInOopm === 'Yes',
     admissionFeeInOopm: form.admissionFeeInOopm === 'Yes',
+    // One running total for the whole estimate: a ceiling stated on the plan is
+    // spent by the inpatient block first, and the outpatient block collects
+    // only what is left of it.
+    copayCap: copayLedger(),
   }
 
   const inpatient = computeInpatient(form, ctx)
@@ -1130,6 +1219,19 @@ export function estimateBlockers(form) {
     }
   }
 
+  // A ceiling with nothing being collected under it stops nothing. On a level
+  // of care that is the level's own entry, so the level is named; on the plan
+  // it is only inert while no level of care is collecting a copay at all.
+  for (const { label, rule } of levels) {
+    if (
+      rule.copayMaxOverridden &&
+      rule.copayMax > 0 &&
+      (rule.copayAmount <= 0 || rule.copayBasis === COPAY_BASIS.NA)
+    ) {
+      blockers.push(`${label} has a copay maximum but no copay is collected there`)
+    }
+  }
+
   // The accumulator questions are asked wherever a copay is actually collected,
   // under the answers that level reads. A level that answers for itself settles
   // them for its own copay; one still on the plan's unanswered terms does not,
@@ -1140,6 +1242,10 @@ export function estimateBlockers(form) {
   )
   const asked = collecting.length > 0 ? collecting.map(({ rule }) => rule) : []
   if (asked.length === 0 && toNumber(form.copayAmount) > 0) asked.push(planRule(form))
+
+  if (collecting.length === 0 && toNumber(form.copayMax) > 0) {
+    blockers.push('A copay maximum is entered but no copay is being collected under it')
+  }
 
   if (asked.some((rule) => rule.copayToDeductibleAnswer === 'Not Applicable')) {
     blockers.push('State whether the copay applies to the deductible')

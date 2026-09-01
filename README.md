@@ -60,7 +60,7 @@ allowed cost → deductible → coinsurance → copay → OOP cap → deposit
 
 - **Treatment sequence gating** — a level of care is priced only when the selected sequence names it.
 - **Sequenced deductible** — detox takes what it can, residential takes what detox left, and the outpatient block starts from the remainder.
-- **The three copay questions**, each of which moves money on its own: how it is counted (per unit, professional visits only, or a manual total), whether it displaces coinsurance, and which accumulators it feeds. **Every one of them can be answered per level of care** — see below.
+- **The four copay questions**, each of which moves money on its own: how it is counted (per unit, professional visits only, or a manual total), **where it stops**, whether it displaces coinsurance, and which accumulators it feeds. **Every one of them can be answered per level of care** — see below.
 - **Accumulator routing** — whether the deductible and the admission fee sit inside or outside the out-of-pocket cap changes what is still collected after the maximum is reached.
 - **Admission fees per level of care**, charged only for the levels in the sequence — and optionally **all-inclusive**, where the fee is the client's whole cost share for that level.
 - **Sequence-aware unit defaults** — a typical episode is not one schedule:
@@ -81,13 +81,28 @@ The workbook states the plan's terms once and applies them to the whole episode.
 
 > The IOP course is billed against the deductible and coinsured on the contracted rate — **$305 a session until the deductible is met, then 20% of it**. The psychiatry delivered alongside it is outpatient care: a **$20 copay a visit that never touches the deductible** and feeds only the out-of-pocket maximum.
 
-One plan-wide answer cannot hold both — "replace coinsurance" for the copay would wipe out the coinsurance the IOP course is charging. So each level of care can state its own: whether the **deductible applies**, the copay **amount** and **basis**, whether that copay **replaces or adds to coinsurance**, whether it is **credited to the deductible**, and whether it **counts toward the out-of-pocket maximum**. Anything a level does not answer it reads from the plan.
+One plan-wide answer cannot hold both — "replace coinsurance" for the copay would wipe out the coinsurance the IOP course is charging. So each level of care can state its own: whether the **deductible applies**, the copay **amount**, **basis** and **maximum**, whether that copay **replaces or adds to coinsurance**, whether it is **credited to the deductible**, and whether it **counts toward the out-of-pocket maximum**. Anything a level does not answer it reads from the plan.
+
+Every field in that panel is showing one of two things — an answer this level states, or the plan's answer read through — and a control looks the same either way, so the label says which: **plan** or **this level**. **Use plan terms** puts a level back on all of them at once.
+
+Two of those questions sound alike and are not. **"Deductible applies?"** asks whether this level of care spends the deductible at all. **"Copay applies to deductible?"** asks whether copay dollars are *credited* against it, so the same money is not collected twice. Answering the second one "No" does not waive the deductible — it means the copay is charged on top of it. A plan that charges a copay *instead of* the deductible is the first question, answered "No".
 
 The waterfall then adds the levels up rather than applying one answer to the block: the deductible is spent in the order care is delivered, skipping any level that waives it, and each level's charge is counted the way that level's own answers say. Where every level is on the plan's terms, each of those sums collapses back to the workbook's single expression — which is why an estimate with nothing overridden is still exactly the workbook's estimate.
 
 A level can also be charged **as a whole**: some plans put an admission fee on IOP and include everything in it — $200, and that is the IOP course, psychiatry included. Answer **"admission fee covers this level"** and that level charges its fee and nothing else: no deductible, no coinsurance, no copay for anything delivered in it, and the deductible passes through untouched to whatever comes next. A step-down is not covered by it — that level is priced under its own terms, against the deductible the client still has. The care is still billed to the plan; it is the client's share that the fee settles. A level marked this way with no fee entered is a **submit blocker**, because it would otherwise quote that level at nothing.
 
 **Psychiatry is outpatient care wherever it is delivered.** A psychiatric evaluation, follow-up or MATs injection during an IOP course is an OP visit and is charged under OP's terms, so OP is a level of the estimate even in a sequence that never names it — the rules panel shows it, and the service row says where it is billed. Coverage still follows **where care was delivered**, not where it bills: psychiatry during an all-inclusive IOP course is covered by that fee. The follow-ups are one course for the admission but delivered through every level the client passes, so they carry a row per level — the counts do not change, but the visits after a step-down can be quoted separately from the ones the IOP fee already covered. A copay is not a rate: the rate column is the plan's **allowed amount**, and the column beside it is what the client pays for one more unit under the rules of the level it bills at.
+
+### The copay maximum
+
+A detox or residential benefit is often written **"$200 a day up to $2,000"**, and a per-unit copay with no ceiling quotes a twenty-night stay at $4,000 of copay the plan will never collect. **Copay maximum** is that ceiling. Leave it blank and there is none — which is the workbook's behavior, and why every fixture still reproduces it cell for cell.
+
+The ceiling is a running total rather than a rule about a single charge, so two things about it have to be said:
+
+- **What shares it.** A maximum entered on the plan is one ceiling for the whole episode. A maximum entered on a level of care is that level's own and does not draw on the plan's.
+- **When it is spent.** In the order care is delivered, exactly as the deductible is. Six detox nights at $200 fill $1,200 of a $2,000 ceiling; the residential nights that follow collect the $800 left; and the outpatient block starts from what the inpatient block did not spend.
+
+The ceiling binds **before** the accumulators, not after: a copay the plan never collects is not credited to the deductible and does not spend out-of-pocket room. Where it stops a copay, the waterfall row says how much it stopped, the service row says where the copay ran out, and the client-per-unit column stops quoting one past it — under a copay that replaces coinsurance, a unit of care past the ceiling costs the client nothing at all.
 
 ### The OP specialty group
 
@@ -113,7 +128,7 @@ The workbook is internally inconsistent in three places. Each is implemented the
 2. **Copay units follow the lines that were actually costed.** The workbook's copay-unit formula counts OP groups under the IOP branch and individual therapy under the OP branch — the two are swapped relative to the cost formulas.
 3. **A bundled INN IOP agreement charges for IOP and folds in the intake, individual therapy and family therapy** — what the workbook's own note in B24 says, since confirmed and extended to the intake. Its copay-unit formula excludes IOP services instead. The bundle is an IOP agreement, so it reaches only what IOP delivers: therapy after a step-down to OP is billed like any other OP service, and psychiatry is never in the bundle.
 
-Everything else matches the workbook cell for cell: **600 randomized scenarios × 21 cells** reproduce it exactly, and the inpatient block matches in all 800 scenarios including the divergent ones. The per-level rules are a superset rather than a departure — with nothing overridden, the same scenarios still reproduce it.
+Everything else matches the workbook cell for cell: **600 randomized scenarios × 21 cells** reproduce it exactly, and the inpatient block matches in all 800 scenarios including the divergent ones. The per-level rules and the copay maximum are a superset rather than a departure — with nothing overridden and no ceiling stated, the same scenarios still reproduce it.
 
 ---
 
