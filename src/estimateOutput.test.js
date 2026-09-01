@@ -290,3 +290,83 @@ describe('reading the staff detail back for the screen', () => {
     }
   })
 })
+
+// The outputs under mixed rules. A deposit assembled from two different sets of
+// terms has to say so, and every figure it quotes has to be one the client is
+// actually asked for — not one the waterfall computed and then replaced.
+describe('an estimate whose levels of care differ', () => {
+  const MIXED = {
+    ...BASE,
+    treatmentSequence: 'IOP',
+    deductibleRemaining: '3000',
+    oopmRemaining: '20000',
+    levelRules: {
+      OP: {
+        deductibleApplies: 'No',
+        copayAmount: '20',
+        copayBasis: COPAY_BASIS.PER_UNIT,
+        copayTreatment: COPAY_TREATMENT.REPLACE,
+        copayAppliesToDeductible: 'No',
+        copayAppliesToOop: 'Yes',
+      },
+    },
+  }
+
+  test('the staff detail states the terms each level ran under', () => {
+    const { staffDetail } = outputFor(MIXED)
+    assert.match(staffDetail, /LEVEL OF CARE RULES/)
+    assert.match(staffDetail, /IOP: deductible applies/)
+    assert.match(
+      staffDetail,
+      /OP: deductible waived, \$20\.00 copay \(per service unit\), charged instead of coinsurance, not credited to the deductible, counts toward the out-of-pocket maximum/
+    )
+  })
+
+  test('an estimate on the plan terms alone does not list level rules', () => {
+    const { staffDetail } = outputFor()
+    assert.doesNotMatch(staffDetail, /LEVEL OF CARE RULES/)
+  })
+
+  test('the waterfall quotes the coinsurance charged, and says what replaced the rest', () => {
+    const { staffDetail, result } = outputFor(MIXED)
+    const { coinsurance, coinsuranceDue } = result.outpatient
+    assert.ok(coinsurance > coinsuranceDue, 'the OP copay replaced some coinsurance')
+    const row = `  Coinsurance: ${formatMoney(coinsuranceDue)} (a copay replaced ${formatMoney(
+      coinsurance - coinsuranceDue
+    )} of it)`
+    assert.ok(staffDetail.includes(row), `no such row in:\n${staffDetail}`)
+    assert.ok(
+      !staffDetail.includes(`  Coinsurance: ${formatMoney(coinsurance)}`),
+      'the coinsurance nobody is charged is not quoted as if it were'
+    )
+  })
+
+  test('the waterfall it prints adds up to the responsibility it prints', () => {
+    const { staffDetail, result } = outputFor(MIXED)
+    const { netDeductible, coinsuranceDue, copay, beforeCap } = result.outpatient
+    assert.ok(
+      Math.abs(netDeductible + coinsuranceDue + copay - beforeCap) < 0.005,
+      'the rows have to reconcile to the total under them'
+    )
+    assert.ok(staffDetail.includes(`  Before the out-of-pocket cap: ${formatMoney(beforeCap)}`))
+  })
+
+  test('the cost note describes a copay that belongs to a level, not the plan', () => {
+    const { costNote, result } = outputFor(MIXED)
+    assert.ok(result.outpatient.copay > 0, 'the OP level collects one')
+    assert.ok(
+      costNote.includes('Copay: $60 — $20 per service unit, charged instead of coinsurance.'),
+      `no copay line in:\n${costNote}`
+    )
+  })
+
+  test('and quotes the coinsurance that survived it', () => {
+    const { costNote, result } = outputFor(MIXED)
+    const charged = Math.round(result.outpatient.coinsuranceDue)
+    assert.ok(charged > 0, 'the IOP course is still coinsured')
+    assert.ok(
+      costNote.includes(`the deductible: $${charged.toLocaleString('en-US')}.`),
+      `the note has to quote the coinsurance actually charged:\n${costNote}`
+    )
+  })
+})

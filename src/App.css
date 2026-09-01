@@ -993,6 +993,59 @@ textarea {
   opacity: 0.5;
 }
 
+/* One level of care's terms, as a card rather than a row of a very wide table:
+   there are six questions per level, and a table that scrolls sideways hides
+   half of them. */
+
+.level-rule {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  background: var(--surface-2);
+}
+
+.level-rule-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.level-rule-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.level-rule-head .row-off {
+  display: inline;
+}
+
+.row-off-own {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.level-rule-note {
+  margin: -4px 0 12px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+.field-row-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+@media (max-width: 900px) {
+  .field-row-3 {
+    grid-template-columns: 1fr;
+  }
+}
+
 .row-off {
   display: block;
   font-size: 0.7rem;
@@ -1624,10 +1677,12 @@ textarea {
   border-top: 1px solid var(--border);
 }
 
+/* No `min-width: 0` here: that is what lets a flex row squeeze a label below
+   the width of its own longest word, one letter to a line. The label wraps
+   between words and no further. */
 .doc-label {
   flex: 1 1 auto;
-  min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   color: var(--text-2);
 }
 
@@ -1650,6 +1705,19 @@ textarea {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* A sentence is not a reading. Where the value is prose rather than a figure,
+   the row stacks: the label above it and the sentence left-aligned underneath,
+   because a three-line sentence set flush right is not a column of anything. */
+.doc-row-stacked {
+  display: block;
+}
+
+.doc-row-stacked .doc-value {
+  margin-top: 2px;
+  text-align: left;
+  color: var(--text-2);
 }
 
 .doc-statement {

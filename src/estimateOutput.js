@@ -26,7 +26,10 @@ import {
   ADMISSION_FEE_LOCS,
   COPAY_BASIS,
   COPAY_TREATMENT,
+  billingLevels,
   formatMoney,
+  hasLevelOverrides,
+  levelRule,
   sequenceIncludes,
   sequenceLocs,
   toNumber,
@@ -60,23 +63,42 @@ function headline(form, result) {
   return `${carrier}${network ? ` (${network})` : ''} — ${form.treatmentSequence || 'no treatment sequence selected'}.`
 }
 
-// What the copay is actually charged on, said the way it will be collected.
-// The basis is the only thing that decides this; the amount is stated with it
-// so the sentence stands on its own.
-function copayPhrase(form, result) {
-  const amount = toNumber(form.copayAmount)
-  if (amount <= 0 || form.copayBasis === COPAY_BASIS.NA) return null
-  const units = result.outpatient.copayUnits
-  switch (form.copayBasis) {
+// The levels of care that actually collect a copay, with the terms they collect
+// it under. A copay can belong to one level of care and not the plan, so this
+// reads the levels rather than the plan's own cells.
+function copayRules(form) {
+  return billingLevels(form)
+    .map(({ loc, label }) => ({ label, loc, rule: levelRule(form, loc) }))
+    .filter(({ rule }) => rule.copayAmount > 0 && rule.copayBasis !== COPAY_BASIS.NA)
+}
+
+// What one copay is charged on, said the way it will be collected. The basis is
+// the only thing that decides this; the amount is stated with it so the phrase
+// stands on its own.
+function basisPhrase(rule, units) {
+  switch (rule.copayBasis) {
     case COPAY_BASIS.MANUAL:
-      return `${dollars(amount)}, charged once for the episode`
+      return `${dollars(rule.copayAmount)}, charged once for the episode`
     case COPAY_BASIS.PROFESSIONAL_ONLY:
-      return `${dollars(amount)} per visit${units > 0 ? `, on ${plural(units, 'visit', 'visits')}` : ''}`
+      return `${dollars(rule.copayAmount)} per visit${units > 0 ? `, on ${plural(units, 'visit', 'visits')}` : ''}`
     case COPAY_BASIS.PER_UNIT:
-      return `${dollars(amount)} per service unit`
+      return `${dollars(rule.copayAmount)} per service unit`
     default:
-      return dollars(amount)
+      return dollars(rule.copayAmount)
   }
+}
+
+// What the copay is charged on, for the client. Where one set of terms covers
+// every level collecting it, that is the sentence; where they differ, each
+// level is named, because "a copay" that is two different copays is not
+// something to leave a client to work out from the total.
+function copayPhrase(form, result) {
+  const rules = copayRules(form)
+  if (rules.length === 0) return null
+  const units = result.outpatient.copayUnits
+  const distinct = new Set(rules.map(({ rule }) => `${rule.copayAmount}|${rule.copayBasis}`))
+  if (distinct.size === 1) return basisPhrase(rules[0].rule, units)
+  return rules.map(({ label, rule }) => `${label}: ${basisPhrase(rule, units)}`).join('; ')
 }
 
 // The pieces of the client's responsibility, each with what created it.
@@ -99,7 +121,12 @@ function componentLines(form, result) {
   const { deductible, coinsurance, copay, fees } = components(form, result)
   const coinsPercent = toNumber(form.coinsurancePercent)
   const copayNote = copayPhrase(form, result)
-  const replaces = form.copayTreatment === COPAY_TREATMENT.REPLACE && copay > 0
+  const rules = copayRules(form)
+  // Said only where it is true of every copay being charged. Where one level
+  // replaces coinsurance and another adds to it, the phrase above has already
+  // named them, and one clause cannot cover both.
+  const replaces =
+    copay > 0 && rules.length > 0 && rules.every(({ rule }) => rule.copayReplacesCoinsurance)
 
   const out = []
   if (deductible > 0) out.push(`  Deductible: ${dollars(deductible)}.`)
@@ -211,6 +238,51 @@ function costNote(form, result) {
 
 // ── Staff detail ─────────────────────────────────────────────────────────────
 
+// One level of care's terms, said as a sentence rather than a row of cells: the
+// deductible first, then the copay and what it does to everything else.
+function levelTerms(form, loc) {
+  const rule = levelRule(form, loc)
+  const parts = [rule.deductibleApplies ? 'deductible applies' : 'deductible waived']
+  if (rule.copayAmount > 0 && rule.copayBasis !== COPAY_BASIS.NA) {
+    parts.push(`${formatMoney(rule.copayAmount)} copay (${rule.copayBasis.toLowerCase()})`)
+    parts.push(
+      rule.copayReplacesCoinsurance ? 'charged instead of coinsurance' : 'charged with coinsurance'
+    )
+    parts.push(rule.copayToDeductible ? 'credited to the deductible' : 'not credited to the deductible')
+    parts.push(
+      rule.copayToOop === 'Yes'
+        ? 'counts toward the out-of-pocket maximum'
+        : rule.copayToOop === 'No'
+          ? 'outside the out-of-pocket maximum'
+          : 'accumulator treatment not established'
+    )
+  } else {
+    parts.push('no copay')
+  }
+  return parts.join(', ')
+}
+
+// The deductible a block actually charges. A copay credited to it is not
+// collected as deductible on top of the copay, so the row says what is left
+// after that credit rather than what the deductible run started from.
+function deductibleRow(block) {
+  const credited = block.deductibleApplied - block.netDeductible
+  return `  Deductible applied: ${formatMoney(block.netDeductible)}${
+    credited > 0.005 ? ` (a copay was credited with ${formatMoney(credited)} of it)` : ''
+  }`
+}
+
+// The coinsurance a block actually charges. Where a copay replaced some of it —
+// which a level of care can do without the others doing it — the difference is
+// named, because a reader reconciling the waterfall will otherwise look for
+// coinsurance the estimate computed and never collected.
+function coinsuranceRow(block) {
+  const replaced = block.coinsurance - block.coinsuranceDue
+  return `  Coinsurance: ${formatMoney(block.coinsuranceDue)}${
+    replaced > 0.005 ? ` (a copay replaced ${formatMoney(replaced)} of it)` : ''
+  }`
+}
+
 function lineRows(rows) {
   return rows.map(({ label, units, unitNoun, rate, allowed, note }) => {
     const rateText = rate === null ? 'no rate on file' : formatMoney(rate)
@@ -259,8 +331,21 @@ function staffDetail(form, result) {
           `  Applies to deductible: ${form.copayAppliesToDeductible}`,
           `  Applies to out-of-pocket maximum: ${form.copayAppliesToOop}`
         )
-      : '  None.',
+      : hasLevelOverrides(form)
+        ? '  None plan-wide — see the level of care rules below.'
+        : '  None.',
     '',
+    // Where the levels of care are not all on the plan's terms, the terms each
+    // one actually ran under are part of the estimate, not a footnote to it: a
+    // deposit assembled from two different sets of rules cannot be checked
+    // against one of them.
+    hasLevelOverrides(form) ? 'LEVEL OF CARE RULES' : null,
+    hasLevelOverrides(form)
+      ? billingLevels(form)
+          .map(({ loc, label }) => `  ${label}: ${levelTerms(form, loc)}`)
+          .join('\n')
+      : null,
+    hasLevelOverrides(form) ? '' : null,
     activeInpatient.length > 0 ? 'INPATIENT LINES' : null,
     activeInpatient.length > 0
       ? lineRows(
@@ -294,8 +379,8 @@ function staffDetail(form, result) {
     inpatient.active
       ? lines(
           `  Allowed cost (${plural(inpatient.totalNights, 'night', 'nights')}): ${formatMoney(inpatient.totalAllowed)}`,
-          `  Deductible applied: ${formatMoney(inpatient.deductibleApplied)}`,
-          `  Coinsurance: ${formatMoney(inpatient.coinsurance)}`,
+          deductibleRow(inpatient),
+          coinsuranceRow(inpatient),
           `  Copay: ${formatMoney(inpatient.copay)}`,
           `  Admission fee: ${formatMoney(inpatient.admissionFees)}`,
           `  Before the out-of-pocket cap: ${formatMoney(inpatient.beforeCap)}`,
@@ -311,8 +396,8 @@ function staffDetail(form, result) {
           `  Allowed cost: ${formatMoney(outpatient.totalAllowed)}`,
           `  Deductible remaining at entry: ${formatMoney(outpatient.deductibleAtEntry)}`,
           `  Out-of-pocket remaining at entry: ${formatMoney(outpatient.oopAtEntry)}`,
-          `  Deductible applied: ${formatMoney(outpatient.deductibleApplied)}`,
-          `  Coinsurance: ${formatMoney(outpatient.coinsurance)}`,
+          deductibleRow(outpatient),
+          coinsuranceRow(outpatient),
           `  Copay${outpatient.copayUnits > 0 ? ` (${plural(outpatient.copayUnits, 'unit', 'units')})` : ''}: ${formatMoney(outpatient.copay)}`,
           `  Admission fee: ${formatMoney(outpatient.admissionFees)}`,
           `  Before the out-of-pocket cap: ${formatMoney(outpatient.beforeCap)}`,

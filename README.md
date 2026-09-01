@@ -60,7 +60,7 @@ allowed cost → deductible → coinsurance → copay → OOP cap → deposit
 
 - **Treatment sequence gating** — a level of care is priced only when the selected sequence names it.
 - **Sequenced deductible** — detox takes what it can, residential takes what detox left, and the outpatient block starts from the remainder.
-- **The three copay questions**, each of which moves money on its own: how it is counted (per unit, professional visits only, or a manual total), whether it displaces coinsurance, and which accumulators it feeds.
+- **The three copay questions**, each of which moves money on its own: how it is counted (per unit, professional visits only, or a manual total), whether it displaces coinsurance, and which accumulators it feeds. **Every one of them can be answered per level of care** — see below.
 - **Accumulator routing** — whether the deductible and the admission fee sit inside or outside the out-of-pocket cap changes what is still collected after the maximum is reached.
 - **Admission fees per level of care**, charged only for the levels in the sequence.
 - **Sequence-aware unit defaults** — a typical episode is not one schedule:
@@ -73,7 +73,19 @@ allowed cost → deductible → coinsurance → copay → OOP cap → deposit
   A sequence covering both sums the therapy and group counts — `IOP > OP` gives 19 individual sessions — but the **psychiatric services are one course for the admission**, so intake, the evaluation and the follow-ups take the larger of the two rather than starting a second course. Every count is editable, changing the sequence re-bases anything not typed over, and a **Reset counts** action restores the defaults.
 - **Editable nights and rates** — a rate entered by hand outranks both the contracted schedule and the carrier table, and is tagged as an override.
 
-The result panel carries the deposit as a hero figure, its inpatient / outpatient / prior-balance split, a part-to-whole breakdown of what created each dollar of the client's responsibility, and both waterfalls line by line so any number can be checked rather than trusted.
+The result panel carries the deposit as a hero figure, its inpatient / outpatient / prior-balance split, a part-to-whole breakdown of what created each dollar of the client's responsibility, and both waterfalls line by line so any number can be checked rather than trusted. Every figure it shows is one the client is actually charged: where a copay replaced coinsurance or was credited to the deductible, the row says how much moved rather than quoting an amount the estimate computed and never collected.
+
+### Rules per level of care
+
+The workbook states the plan's terms once and applies them to the whole episode. A benefit check is not always that tidy, and the case that breaks a single set of terms is an ordinary one:
+
+> The IOP course is billed against the deductible and coinsured on the contracted rate — **$305 a session until the deductible is met, then 20% of it**. The psychiatry delivered alongside it is outpatient care: a **$20 copay a visit that never touches the deductible** and feeds only the out-of-pocket maximum.
+
+One plan-wide answer cannot hold both — "replace coinsurance" for the copay would wipe out the coinsurance the IOP course is charging. So each level of care can state its own: whether the **deductible applies**, the copay **amount** and **basis**, whether that copay **replaces or adds to coinsurance**, whether it is **credited to the deductible**, and whether it **counts toward the out-of-pocket maximum**. Anything a level does not answer it reads from the plan.
+
+The waterfall then adds the levels up rather than applying one answer to the block: the deductible is spent in the order care is delivered, skipping any level that waives it, and each level's charge is counted the way that level's own answers say. Where every level is on the plan's terms, each of those sums collapses back to the workbook's single expression — which is why an estimate with nothing overridden is still exactly the workbook's estimate.
+
+**Psychiatry is outpatient care wherever it is delivered.** A psychiatric evaluation or follow-up during an IOP course is an OP visit and is charged under OP's terms, so OP is a level of the estimate even in a sequence that never names it — the rules panel shows it, and the service row says where it is billed. A copay is not a rate: the rate column is the plan's **allowed amount**, and the column beside it is what the client pays for one more unit under the rules of the level it bills at.
 
 ### The OP specialty group
 
@@ -97,9 +109,9 @@ The workbook is internally inconsistent in three places. Each is implemented the
 
 1. **Shared professional services activate on IOP *or* OP.** The workbook gates assessment, individual therapy, psychiatry, family therapy and MATs on IOP alone in the cost cells. An OP-only sequence therefore priced a client's assessment and psychiatry at nothing.
 2. **Copay units follow the lines that were actually costed.** The workbook's copay-unit formula counts OP groups under the IOP branch and individual therapy under the OP branch — the two are swapped relative to the cost formulas.
-3. **A bundled INN IOP agreement charges for IOP and excludes individual and family therapy** — what the workbook's own note in B24 says, since confirmed. Its copay-unit formula excludes IOP services instead.
+3. **A bundled INN IOP agreement charges for IOP and folds in the intake, individual therapy and family therapy** — what the workbook's own note in B24 says, since confirmed and extended to the intake. Its copay-unit formula excludes IOP services instead. The bundle is an IOP agreement, so it reaches only what IOP delivers: therapy after a step-down to OP is billed like any other OP service, and psychiatry is never in the bundle.
 
-Everything else matches the workbook cell for cell: **600 randomized scenarios × 21 cells** reproduce it exactly, and the inpatient block matches in all 800 scenarios including the divergent ones.
+Everything else matches the workbook cell for cell: **600 randomized scenarios × 21 cells** reproduce it exactly, and the inpatient block matches in all 800 scenarios including the divergent ones. The per-level rules are a superset rather than a departure — with nothing overridden, the same scenarios still reproduce it.
 
 ---
 
