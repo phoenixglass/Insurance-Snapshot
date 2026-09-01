@@ -176,18 +176,20 @@ export function benchmarkRate(code) {
 // and against insurance that is the whole story: the plan allows one amount per
 // group and does not distinguish the curriculum, so the two lines resolve to
 // one rate and editing either rate cell moves both. It is a separate row only
-// because the counts differ — a specialty track is scheduled on top of the
-// routine groups, not instead of them. (Self-pay is the one place the two
-// prices part company; see `fixedRate` in selfPay.js.) It starts at zero units
-// so an episode without a specialty track prices exactly as it did before.
+// because the counts differ — the specialty track and the routine groups are
+// each scheduled their own share of the OP week. (Self-pay is the one place
+// the two prices part company; see `fixedRate` in selfPay.js.) An OP course
+// starts at ten of each: the same twenty groups the workbook carried on a
+// single row, split across the two rows the schedule actually runs, so an OP
+// episode still prices identically at the default counts.
 
 export const SERVICE_LINES = [
   { key: 'opwm', label: 'OPWM', code: 'H0014', defaultUnits: { OPWM: 5 }, activatedBy: [SEQ_LOC.OPWM], professional: false, bundledOutInnIop: false },
   { key: 'php', label: 'PHP', code: 'H0035', defaultUnits: { PHP: 20 }, activatedBy: [SEQ_LOC.PHP], professional: false, bundledOutInnIop: false },
   { key: 'assessment', label: 'Initial Assessment', code: '90791', defaultUnits: { IOP: 1, OP: 1 }, oncePerEpisode: true, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
   { key: 'iop', label: 'IOP Services', code: 'H0015', defaultUnits: { IOP: 30 }, activatedBy: [SEQ_LOC.IOP], professional: false, bundledOutInnIop: false },
-  { key: 'opGroups', label: 'OP Groups', code: '90853', defaultUnits: { OP: 20 }, activatedBy: [SEQ_LOC.OP], professional: false, bundledOutInnIop: false },
-  { key: 'opSpecialtyGroup', label: 'OP Specialty Group', code: '90853', defaultUnits: { OP: 0 }, activatedBy: [SEQ_LOC.OP], professional: false, bundledOutInnIop: false },
+  { key: 'opGroups', label: 'OP Groups', code: '90853', defaultUnits: { OP: 10 }, activatedBy: [SEQ_LOC.OP], professional: false, bundledOutInnIop: false },
+  { key: 'opSpecialtyGroup', label: 'OP Specialty Group', code: '90853', defaultUnits: { OP: 10 }, activatedBy: [SEQ_LOC.OP], professional: false, bundledOutInnIop: false },
   { key: 'individual', label: 'Individual Therapy', code: '90837', defaultUnits: { IOP: 9, OP: 10 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: true },
   { key: 'psychEval', label: 'Psychiatric Evaluation', code: '90792', defaultUnits: { IOP: 1, OP: 1 }, oncePerEpisode: true, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
   { key: 'psychFollowUp', label: 'Psychiatric Follow Up', code: '99214', defaultUnits: { IOP: 2, OP: 2 }, oncePerEpisode: true, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },

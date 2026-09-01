@@ -68,7 +68,7 @@ allowed cost → deductible → coinsurance → copay → OOP cap → deposit
   | | Intake | IOP | Groups | Specialty groups | IT | Psych eval | Psych F/U | FT |
   |---|---|---|---|---|---|---|---|---|
   | **IOP** | 1 | 30 | — | — | 9 | 1 | 2 | — |
-  | **OP** | 1 | — | 20 | 0 | 10 | 1 | 2 | 3 |
+  | **OP** | 1 | — | 10 | 10 | 10 | 1 | 2 | 3 |
 
   A sequence covering both sums the therapy and group counts — `IOP > OP` gives 19 individual sessions — but the **psychiatric services are one course for the admission**, so intake, the evaluation and the follow-ups take the larger of the two rather than starting a second course. Every count is editable, changing the sequence re-bases anything not typed over, and a **Reset counts** action restores the defaults.
 - **Editable nights and rates** — a rate entered by hand outranks both the contracted schedule and the carrier table, and is tagged as an override.
@@ -77,7 +77,7 @@ The result panel carries the deposit as a hero figure, its inpatient / outpatien
 
 ### The OP specialty group
 
-The specialty group bills **CPT 90853**, the same code as the routine OP group, and against insurance that is the whole story: the plan allows one amount per group and does not distinguish the curriculum. So the two rows resolve to one rate, an override typed into either rate cell moves both, and the row says so on screen. It is a separate row only because the counts differ — a specialty track is scheduled *on top of* the routine groups, not instead of them — and it starts at **0 units**, so an episode without a specialty track prices exactly as it did before the row existed.
+The specialty group bills **CPT 90853**, the same code as the routine OP group, and against insurance that is the whole story: the plan allows one amount per group and does not distinguish the curriculum. So the two rows resolve to one rate, an override typed into either rate cell moves both, and the row says so on screen. It is a separate row only because the counts differ: the specialty track and the routine groups each get their own share of the OP week. An OP course starts at **10 of each** — the same twenty groups the workbook carried on a single row, split across the two rows the schedule actually runs — so an OP episode prices identically at the default counts, and moving a group between the rows never moves the estimate.
 
 Self-pay is the one place the two prices part company: there the specialty group is a **flat $100**, written down rather than looked up, because one code cannot carry two self-pay rates in the rate table.
 
@@ -107,7 +107,7 @@ Everything else matches the workbook cell for cell: **600 randomized scenarios �
 
 A port of the `Self Pay Calc` sheet. The client's payment is applied to each line first; the scholarship is whatever the payment did not reach. The point of the sheet is the *shape* of that gap, so the scholarship is restated three ways — as a percentage of the program, as units of care covered, and as a blended daily rate — because those are the units a scholarship gets approved in.
 
-Two of its counts are the estimator's rather than the workbook's. **Individual therapy starts at 10 sessions**, the OP course, where the workbook's 18 belonged to no single level of care and quoted an OP episode nearly two courses of therapy. The **OP specialty group** is priced at a flat **$100** and starts at 0 groups. Every count is editable, so a longer course is typed in rather than assumed.
+Two of its counts are the estimator's rather than the workbook's. **Individual therapy starts at 10 sessions**, the OP course, where the workbook's 18 belonged to no single level of care and quoted an OP episode nearly two courses of therapy. The **OP specialty group** is priced at a flat **$100** rather than the sheet's own rate for 90853. Every count is editable, so a longer course is typed in rather than assumed.
 
 ---
 
