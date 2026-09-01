@@ -116,6 +116,13 @@ function LineTable({ columns, children }) {
   )
 }
 
+// Every field in the level of care rules can be showing one of two things: an
+// answer this level states, or the plan's answer read through. The control
+// looks the same either way, so the label says which — a level of care panel
+// where the two are indistinguishable is a panel that cannot be checked.
+const isSet = (v) => v !== undefined && v !== ''
+const sourceTag = (own) => ({ label: own ? 'this level' : 'plan', tone: own ? 'own' : 'plan' })
+
 // A waterfall row states what was charged, not what the step started from. A
 // copay credited to the deductible is not collected as deductible as well, and
 // a copay that replaces coinsurance leaves none behind — under mixed rules
@@ -129,6 +136,15 @@ const creditedTo = (block) => {
 const replacedIn = (block) => {
   const replaced = block.coinsurance - block.coinsuranceDue
   return replaced > 0.005 ? `${formatMoney(replaced)} replaced by the copay` : undefined
+}
+
+// A copay stopped by its ceiling is no longer the units times the amount, so
+// the row says what the ceiling stopped rather than leaving a total that does
+// not reconcile against the nights it was charged on.
+const stoppedBy = (block, note) => {
+  const stopped = block.copayBeforeMax - block.copay
+  const capped = stopped > 0.005 ? `${formatMoney(stopped)} stopped by the maximum` : undefined
+  return [note, capped].filter(Boolean).join(', ') || undefined
 }
 
 // The three views of a finished estimate, in the order the work needs them:
@@ -300,6 +316,13 @@ export default function EstimatorTool() {
       const levelRules = { ...prev.levelRules }
       if (Object.keys(rule).length === 0) delete levelRules[loc]
       else levelRules[loc] = rule
+      return { ...prev, levelRules }
+    })
+
+  const clearLevelRule = (loc) => () =>
+    setForm((prev) => {
+      const levelRules = { ...prev.levelRules }
+      delete levelRules[loc]
       return { ...prev, levelRules }
     })
 
@@ -527,7 +550,7 @@ export default function EstimatorTool() {
         <Section
           title="Copay"
           eyebrow="Step 3"
-          description="Three separate questions, each of which moves money on its own: how the copay is counted, whether it displaces coinsurance, and which accumulators it feeds. These are the plan's answers; a level of care can give its own in Step 7."
+          description="Four separate questions, each of which moves money on its own: how the copay is counted, where it stops, whether it displaces coinsurance, and which accumulators it feeds. These are the plan's answers; a level of care can give its own in Step 7."
         >
           <div className="field-row">
             <Field label="Copay Amount" htmlFor="copayAmount">
@@ -559,6 +582,18 @@ export default function EstimatorTool() {
           {copayActive && (
             <>
               <Field
+                label="Copay Maximum"
+                htmlFor="copayMax"
+                optional
+                hint={
+                  form.copayBasis === COPAY_BASIS.MANUAL
+                    ? 'A manual total is already the whole copay — a maximum only trims it.'
+                    : 'The most this copay can add up to — the “up to $2,000” in “$200 a day up to $2,000”. Leave it blank when the plan states no ceiling. Entered here it is one ceiling for the whole episode, spent in the order care is delivered; a level of care can state its own in Step 7.'
+                }
+              >
+                <CurrencyInput id="copayMax" value={form.copayMax} onChange={set('copayMax')} />
+              </Field>
+              <Field
                 label="Copay Treatment"
                 htmlFor="copayTreatment"
                 hint="Replace Coinsurance means the copay is the whole cost share — no coinsurance is charged alongside it."
@@ -572,7 +607,11 @@ export default function EstimatorTool() {
               </Field>
 
               <div className="field-row">
-                <Field label="Copay Applies to Deductible?" required>
+                <Field
+                  label="Copay Applies to Deductible?"
+                  required
+                  hint="Yes credits the copay against the deductible, so the same dollars are not collected twice. No means it is charged on top of the deductible — it does not waive it. To waive the deductible itself, answer “Deductible applies? No” for that level of care in Step 7."
+                >
                   <SegmentedControl
                     name="copayAppliesToDeductible"
                     options={['Not Applicable', 'Yes', 'No']}
@@ -710,6 +749,9 @@ export default function EstimatorTool() {
                   {line.inSequence && LINE_NOTES[line.lineKey ?? line.key] && (
                     <span className="row-off">{LINE_NOTES[line.lineKey ?? line.key]}</span>
                   )}
+                  {line.copayMaxReached && (
+                    <span className="row-off">copay maximum reached</span>
+                  )}
                 </td>
                 <td className="mono">{line.code}</td>
                 <td className="num">
@@ -751,9 +793,20 @@ export default function EstimatorTool() {
                   <div className="level-rule" key={loc}>
                     <div className="level-rule-head">
                       <h3 className="level-rule-title">{label}</h3>
-                      <span className={`row-off${own ? ' row-off-own' : ''}`}>
-                        {own ? 'own terms' : 'plan terms'}
-                      </span>
+                      <div className="level-rule-state">
+                        <span className={`row-off${own ? ' row-off-own' : ''}`}>
+                          {own ? 'own terms' : 'plan terms'}
+                        </span>
+                        {own && (
+                          <button
+                            type="button"
+                            className="btn-secondary btn-tiny"
+                            onClick={clearLevelRule(loc)}
+                          >
+                            Use plan terms
+                          </button>
+                        )}
+                      </div>
                     </div>
                     {fromElsewhere && (
                       <p className="level-rule-note">
@@ -785,22 +838,25 @@ export default function EstimatorTool() {
                     ) : (
                       <>
                     <div className="field-row field-row-3">
-                      <Field label="Deductible applies?">
-                        <SegmentedControl
-                          name={`deductibleApplies-${loc}`}
-                          options={['Yes', 'No']}
-                          value={rule.deductibleApplies || 'Yes'}
+                      <Field
+                        label="Deductible applies?"
+                        badge={sourceTag(isSet(rule.deductibleApplies))}
+                      >
+                        <Select
+                          value={rule.deductibleApplies || ''}
                           onChange={setLevelRule(loc, 'deductibleApplies')}
+                          options={['Yes', 'No']}
+                          placeholder="Plan — Yes"
                         />
                       </Field>
-                      <Field label="Copay">
+                      <Field label="Copay" badge={sourceTag(isSet(rule.copayAmount))}>
                         <CurrencyInput
                           value={rule.copayAmount ?? ''}
                           onChange={setLevelRule(loc, 'copayAmount')}
                           placeholder={toNumber(form.copayAmount).toFixed(2)}
                         />
                       </Field>
-                      <Field label="Copay basis">
+                      <Field label="Copay basis" badge={sourceTag(isSet(rule.copayBasis))}>
                         <Select
                           value={rule.copayBasis || ''}
                           onChange={setLevelRule(loc, 'copayBasis')}
@@ -809,8 +865,28 @@ export default function EstimatorTool() {
                         />
                       </Field>
                     </div>
-                    <div className="field-row field-row-3">
-                      <Field label="Copay vs coinsurance">
+                    <div className="field-row">
+                      <Field
+                        label="Copay maximum"
+                        badge={sourceTag(isSet(rule.copayMax))}
+                        hint={
+                          effective.copayMax > 0
+                            ? isSet(rule.copayMax)
+                              ? `Its own ceiling, ${formatMoney(effective.copayMax)}.`
+                              : `The plan's ${formatMoney(effective.copayMax)}, shared across the episode.`
+                            : 'No ceiling.'
+                        }
+                      >
+                        <CurrencyInput
+                          value={rule.copayMax ?? ''}
+                          onChange={setLevelRule(loc, 'copayMax')}
+                          placeholder={toNumber(form.copayMax).toFixed(2)}
+                        />
+                      </Field>
+                      <Field
+                        label="Copay vs coinsurance"
+                        badge={sourceTag(isSet(rule.copayTreatment))}
+                      >
                         <Select
                           value={rule.copayTreatment || ''}
                           onChange={setLevelRule(loc, 'copayTreatment')}
@@ -818,7 +894,13 @@ export default function EstimatorTool() {
                           placeholder={`Plan — ${form.copayTreatment}`}
                         />
                       </Field>
-                      <Field label="Applies to deductible?">
+                    </div>
+                    <div className="field-row">
+                      <Field
+                        label="Applies to deductible?"
+                        badge={sourceTag(isSet(rule.copayAppliesToDeductible))}
+                        hint="Credited against the deductible, not charged instead of it."
+                      >
                         <Select
                           value={rule.copayAppliesToDeductible || ''}
                           onChange={setLevelRule(loc, 'copayAppliesToDeductible')}
@@ -826,7 +908,10 @@ export default function EstimatorTool() {
                           placeholder={`Plan — ${form.copayAppliesToDeductible}`}
                         />
                       </Field>
-                      <Field label="Applies to OOP max?">
+                      <Field
+                        label="Applies to OOP max?"
+                        badge={sourceTag(isSet(rule.copayAppliesToOop))}
+                      >
                         <Select
                           value={rule.copayAppliesToOop || ''}
                           onChange={setLevelRule(loc, 'copayAppliesToOop')}
@@ -1112,7 +1197,11 @@ export default function EstimatorTool() {
                     value: formatMoney(inpatient.netDeductible),
                   },
                   { label: 'Coinsurance', note: replacedIn(inpatient), value: formatMoney(inpatient.coinsuranceDue) },
-                  { label: 'Copay applied', value: formatMoney(inpatient.copay) },
+                  {
+                    label: 'Copay applied',
+                    note: stoppedBy(inpatient),
+                    value: formatMoney(inpatient.copay),
+                  },
                   { label: 'Admission fee', value: formatMoney(inpatient.admissionFees) },
                   {
                     label: 'Responsibility before OOP cap',
@@ -1149,7 +1238,10 @@ export default function EstimatorTool() {
                   { label: 'Coinsurance', note: replacedIn(outpatient), value: formatMoney(outpatient.coinsuranceDue) },
                   {
                     label: 'Copay applied',
-                    note: outpatient.copayUnits > 0 ? `${outpatient.copayUnits} units` : undefined,
+                    note: stoppedBy(
+                      outpatient,
+                      outpatient.copayUnits > 0 ? `${outpatient.copayUnits} units` : undefined
+                    ),
                     value: formatMoney(outpatient.copay),
                   },
                   { label: 'Admission fee', value: formatMoney(outpatient.admissionFees) },
