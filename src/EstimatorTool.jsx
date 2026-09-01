@@ -10,19 +10,22 @@ import {
   COPAY_TREATMENT,
   INITIAL_ESTIMATE_STATE,
   CARRIER_OPTIONS,
+  LEVEL_RULE_LOCS,
   SERVICE_LINES,
   carriersWithRate,
   computeEstimate,
-  defaultUnitsFor,
   estimateBlockers,
   formatMoney,
   formatPercent,
   formatUnits,
+  hasLevelOverrides,
   isOtherCarrier,
+  levelRule,
   needsNetworkChoice,
   resolveRate,
   sequenceIncludes,
   sequenceLocs,
+  toNumber,
   unitNoun,
 } from './estimate.js'
 import { generateEstimateOutput } from './estimateOutput.js'
@@ -232,10 +235,23 @@ export default function EstimatorTool() {
       return { ...prev, rateOverrides: next }
     })
 
+  // A level's own terms. Clearing a field puts that level back on the plan's
+  // answer rather than storing a second copy of it.
+  const setLevelRule = (loc, field) => (value) =>
+    setForm((prev) => {
+      const rule = { ...(prev.levelRules[loc] || {}) }
+      if (value === '' || value === undefined) delete rule[field]
+      else rule[field] = value
+      const levelRules = { ...prev.levelRules }
+      if (Object.keys(rule).length === 0) delete levelRules[loc]
+      else levelRules[loc] = rule
+      return { ...prev, levelRules }
+    })
+
   const resetUnits = () => setForm((prev) => ({ ...prev, units: {} }))
-  const unitsEdited = SERVICE_LINES.some(
-    (l) => form.units[l.key] !== undefined && form.units[l.key] !== ''
-  )
+  // Any count the user typed, whether against a service or against one level
+  // of care inside it.
+  const unitsEdited = Object.values(form.units).some((v) => v !== undefined && v !== '')
 
   const result = useMemo(() => computeEstimate(form), [form])
   const hardship = useMemo(() => computeHardship(result, form), [result, form])
@@ -243,6 +259,12 @@ export default function EstimatorTool() {
   const { inpatient, outpatient } = result
   const locs = sequenceLocs(form.treatmentSequence)
   const copayActive = form.copayBasis !== COPAY_BASIS.NA
+  // The levels this sequence actually names, in the order care is delivered
+  // through them. Nothing to override until a sequence is chosen.
+  const sequenceLevels = LEVEL_RULE_LOCS.filter((l) =>
+    sequenceIncludes(form.treatmentSequence, l.loc)
+  )
+  const levelsDiffer = hasLevelOverrides(form)
 
   // The client's side of the estimate, split by what created each dollar. Four
   // categories, each direct-labeled with its own value in the legend.
@@ -620,14 +642,14 @@ export default function EstimatorTool() {
                   {line.label}
                   {line.bundledOut && <span className="row-off row-off-bundled">bundled into IOP</span>}
                   {!line.inSequence && <span className="row-off">not in sequence</span>}
-                  {line.inSequence && LINE_NOTES[line.key] && (
-                    <span className="row-off">{LINE_NOTES[line.key]}</span>
+                  {line.inSequence && LINE_NOTES[line.lineKey ?? line.key] && (
+                    <span className="row-off">{LINE_NOTES[line.lineKey ?? line.key]}</span>
                   )}
                 </td>
                 <td className="mono">{line.code}</td>
                 <td className="num">
                   <NumberInput
-                    value={form.units[line.key] ?? String(defaultUnitsFor(line, form.treatmentSequence))}
+                    value={form.units[line.key] ?? formatUnits(line.units)}
                     onChange={setNested('units', line.key)}
                   />
                 </td>
@@ -644,8 +666,80 @@ export default function EstimatorTool() {
         </Section>
 
         <Section
-          title="Hardship"
+          title="Level of Care Rules"
           eyebrow="Step 7"
+          description="Where a plan does not treat every level of care the same way. Leave a cell blank and that level uses the plan terms above — this is only for what the verification call actually established."
+        >
+          {sequenceLevels.length === 0 ? (
+            <Banner tone="info">
+              Select a treatment sequence to set rules for the levels of care in it.
+            </Banner>
+          ) : (
+            <>
+              <div className="line-table-scroll">
+                <table className="line-table">
+                  <thead>
+                    <tr>
+                      <th>Level of care</th>
+                      <th>Deductible applies?</th>
+                      <th className="num">Copay</th>
+                      <th>Copay basis</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sequenceLevels.map(({ loc, label }) => {
+                      const rule = form.levelRules[loc] || {}
+                      const effective = levelRule(form, loc)
+                      return (
+                        <tr key={loc}>
+                          <td>
+                            {label}
+                            {(effective.deductibleOverridden || effective.copayOverridden) && (
+                              <span className="row-off">own terms</span>
+                            )}
+                          </td>
+                          <td>
+                            <SegmentedControl
+                              name={`deductibleApplies-${loc}`}
+                              options={['Yes', 'No']}
+                              value={rule.deductibleApplies || 'Yes'}
+                              onChange={setLevelRule(loc, 'deductibleApplies')}
+                            />
+                          </td>
+                          <td className="num">
+                            <CurrencyInput
+                              value={rule.copayAmount ?? ''}
+                              onChange={setLevelRule(loc, 'copayAmount')}
+                              placeholder={toNumber(form.copayAmount).toFixed(2)}
+                              size="sm"
+                            />
+                          </td>
+                          <td>
+                            <Select
+                              value={rule.copayBasis || ''}
+                              onChange={setLevelRule(loc, 'copayBasis')}
+                              options={Object.values(COPAY_BASIS)}
+                              placeholder={`Plan default — ${form.copayBasis}`}
+                            />
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <Banner tone={levelsDiffer ? 'warn' : 'info'}>
+                {levelsDiffer
+                  ? 'This estimate runs on mixed rules. The deductible is spent in the order care is delivered, skipping any level that waives it, and each level collects its own copay.'
+                  : 'Every level of care is on the plan terms above. An estimate with nothing overridden here is the estimate the workbook computes.'}
+              </Banner>
+            </>
+          )}
+        </Section>
+
+        <Section
+          title="Hardship"
+          eyebrow="Step 8"
           description="Turn this on only when a client cannot meet the deposit. Everything above stays exactly as it is — hardship splits the deposit, it does not change the estimate."
         >
           <Field label="Hardship / scholarship required?">

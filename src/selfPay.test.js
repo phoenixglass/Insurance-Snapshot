@@ -25,7 +25,9 @@ const WORKBOOK = {
   ...INITIAL_SELF_PAY_STATE,
   treatmentSequence: 'Detox > Residential > PHP',
   scholarshipMode: 'amount',
-  units: { ...INITIAL_SELF_PAY_STATE.units, residential: '36' },
+  // Every count starts at zero in the app, so the sheet's own episode states
+  // its nights and units here rather than inheriting them.
+  units: { ...INITIAL_SELF_PAY_STATE.units, detox: '6', residential: '36', php: '20' },
   scholarship: { ...noScholarship, detox: '6300', residential: '28600', php: '15000' },
   rateOverrides: {},
 }
@@ -73,6 +75,7 @@ describe('a scholarship covers units, it does not cut the rate', () => {
   const iopEpisode = {
     ...INITIAL_SELF_PAY_STATE,
     treatmentSequence: 'IOP',
+    units: { ...INITIAL_SELF_PAY_STATE.units, iop: '30' },
     scholarship: { ...noScholarship, iop: '15' },
   }
 
@@ -115,6 +118,7 @@ describe('switching how the award is expressed', () => {
   const iopEpisode = {
     ...INITIAL_SELF_PAY_STATE,
     treatmentSequence: 'IOP',
+    units: { ...INITIAL_SELF_PAY_STATE.units, iop: '30' },
     scholarship: { ...noScholarship, iop: '15' },
   }
 
@@ -232,7 +236,19 @@ describe('award allocation', () => {
 })
 
 describe('filling from a percentage', () => {
-  const iopEpisode = { ...INITIAL_SELF_PAY_STATE, treatmentSequence: 'IOP' }
+  const iopEpisode = {
+    ...INITIAL_SELF_PAY_STATE,
+    treatmentSequence: 'IOP',
+    units: {
+      ...INITIAL_SELF_PAY_STATE.units,
+      assessment: '1',
+      individual: '10',
+      iop: '30',
+      psychEval: '1',
+      psychFollowUp: '4',
+      family: '3',
+    },
+  }
 
   test('50% splits the IOP course down the middle in whole sessions', () => {
     const filled = applyScholarshipPercent(iopEpisode, '50')
@@ -309,6 +325,27 @@ describe('rates', () => {
     const psychEval = r.lines.find((l) => l.key === 'psychEval')
     assert.equal(psychEval.rate, 675, 'the workbook still says 650')
     assert.equal(psychEval.programCost, 675)
+  })
+
+  test('a rate set for one client prices that line and nothing else', () => {
+    // A discounted intake alongside a units scholarship: the assessment is
+    // priced at what was agreed, every other line stays on the sheet, and the
+    // award is still counted in whole units of care.
+    const r = computeSelfPay({
+      ...INITIAL_SELF_PAY_STATE,
+      treatmentSequence: 'IOP',
+      units: { ...INITIAL_SELF_PAY_STATE.units, assessment: '1', iop: '30' },
+      rateOverrides: { assessment: '250' },
+      scholarship: { ...noScholarship, iop: '15' },
+    })
+    const assessment = r.lines.find((l) => l.key === 'assessment')
+    const iop = r.lines.find((l) => l.key === 'iop')
+    assert.equal(assessment.rate, 250, 'the agreed rate')
+    assert.equal(assessment.programCost, 250)
+    assert.equal(assessment.payment, 250, 'and the client pays it in full')
+    assert.equal(iop.rate, 295, 'the sheet rate everywhere else')
+    assert.equal(r.grossCost, 250 + 8850)
+    assert.equal(r.totalScholarship, 4425, 'the award is still 15 sessions of IOP')
   })
 
   test('an override replaces the sheet rate on both sides of the split', () => {

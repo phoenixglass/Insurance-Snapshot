@@ -63,8 +63,13 @@ function LineRows({ lines, form, byUnits, onUnits, onScholarship, onRate }) {
             }
             size="sm"
           />
-          {line.fixedRate !== undefined && !form.rateOverrides[line.key] && (
-            <span className="rate-tag">set rate</span>
+          {form.rateOverrides[line.key] ? (
+            // A rate typed over the sheet is its own kind of discount — a
+            // reduced intake, say — and it is not the scholarship. Saying so on
+            // the row keeps the two from being read as one number.
+            <span className="rate-tag rate-tag-override">own rate</span>
+          ) : (
+            line.fixedRate !== undefined && <span className="rate-tag">set rate</span>
           )}
         </div>
       </td>
@@ -140,7 +145,9 @@ export default function SelfPayTool() {
     .filter((l) => l.programCost > 0)
     .map((l) =>
       [
-        `${l.label} — ${unitText(l.units)} ${noun(l.units, l.unitNoun)} @ ${formatMoney(l.rate)}`,
+        `${l.label} — ${unitText(l.units)} ${noun(l.units, l.unitNoun)} @ ${formatMoney(l.rate)}${
+          form.rateOverrides[l.key] ? ' (rate set for this client)' : ''
+        }`,
         `    Client pays ${unitText(l.paidUnits)} ${noun(l.paidUnits, l.unitNoun)}: ${formatMoney(l.payment)}`,
         `    Scholarship covers ${unitText(l.coveredUnits)} ${noun(l.coveredUnits, l.unitNoun)}: ${formatMoney(l.scholarship)}`,
       ].join('\n'),
@@ -331,7 +338,7 @@ export default function SelfPayTool() {
         <Section
           title="Line Items"
           eyebrow="Step 3"
-          description="One row per service. Enter what the scholarship covers against each; the client pays for the rest at the sheet rate."
+          description="Every count starts at zero — enter what this client is actually buying. The rate is the sheet rate unless you type your own over it, and the scholarship covers whole units at whatever rate the row carries."
         >
           <div className="line-table-scroll">
             <table className="line-table line-table-wide">

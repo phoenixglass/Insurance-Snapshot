@@ -24,7 +24,7 @@
 // it costs the client.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { SERVICE_LINES, toNumber } from './estimate.js'
+import { toNumber } from './estimate.js'
 
 export const HARDSHIP_OFF = 'No'
 export const HARDSHIP_ON = 'Yes'
@@ -75,19 +75,15 @@ function inpatientRows(inpatient) {
   return scaleToDeposit(rows, inpatient.deposit)
 }
 
-// The outpatient block prices its deductible and coinsurance as one total, so
-// the per-line split is done here — in the same listed order, off what the
-// inpatient stay left of the deductible.
-function outpatientRows(outpatient, coins) {
-  let deductiblePool = outpatient.deductibleAtEntry
-  const byKey = new Map(outpatient.lines.map((l) => [l.key, l]))
-  const rows = []
-  for (const line of SERVICE_LINES) {
-    const l = byKey.get(line.key)
-    if (!l || !l.active || l.allowed <= 0) continue
-    const deductible = Math.min(deductiblePool, l.allowed)
-    deductiblePool = clampAtZero(deductiblePool - deductible)
-    rows.push({
+// The outpatient rows, in the order the estimator lists them. The estimator
+// now spends the deductible level by level and records what each row carried,
+// so this reads those numbers rather than re-deriving them — which is what
+// keeps the allocation right when a level of care waives the deductible and
+// the next one charges it.
+function outpatientRows(outpatient) {
+  const rows = outpatient.lines
+    .filter((l) => l.active && l.allowed > 0)
+    .map((l) => ({
       key: l.key,
       label: l.label,
       code: l.code,
@@ -96,9 +92,8 @@ function outpatientRows(outpatient, coins) {
       unitNoun: 'units',
       rate: l.rate,
       allowed: l.allowed,
-      basis: deductible + clampAtZero(l.allowed - deductible) * coins,
-    })
-  }
+      basis: l.deductibleApplied + l.coinsurance,
+    }))
   return scaleToDeposit(rows, outpatient.deposit)
 }
 
@@ -154,7 +149,7 @@ export function computeHardship(result, form) {
 
   const rows = [
     ...inpatientRows(result.inpatient),
-    ...outpatientRows(result.outpatient, toNumber(form.coinsurancePercent) / 100),
+    ...outpatientRows(result.outpatient),
   ]
   if (result.previousBalance > 0) {
     rows.push({
