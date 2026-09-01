@@ -26,6 +26,7 @@ import {
   ADMISSION_FEE_LOCS,
   COPAY_BASIS,
   COPAY_TREATMENT,
+  admissionFeeFor,
   billingLevels,
   formatMoney,
   hasLevelOverrides,
@@ -61,6 +62,13 @@ function headline(form, result) {
   const network = networkPhrase(result.network)
   const carrier = form.carrier || 'Carrier not selected'
   return `${carrier}${network ? ` (${network})` : ''} — ${form.treatmentSequence || 'no treatment sequence selected'}.`
+}
+
+// The levels of care an admission fee covers outright: there the fee is the
+// client's whole cost share, and saying so is the difference between "$200"
+// and "$200 and we will see what else the plan does".
+function feeCoveredLevels(form) {
+  return billingLevels(form).filter(({ loc }) => levelRule(form, loc).admissionFeeCovers)
 }
 
 // The levels of care that actually collect a copay, with the terms they collect
@@ -140,7 +148,16 @@ function componentLines(form, result) {
       }.`
     )
   }
-  if (fees > 0) out.push(`  Admission fee: ${dollars(fees)}.`)
+  if (fees > 0) {
+    const covered = feeCoveredLevels(form).map(({ label }) => label)
+    out.push(
+      `  Admission fee: ${dollars(fees)}${
+        covered.length > 0
+          ? ` — this covers everything in ${joinList(covered)}, with nothing else charged for that care`
+          : ''
+      }.`
+    )
+  }
   return out
 }
 
@@ -242,6 +259,11 @@ function costNote(form, result) {
 // deductible first, then the copay and what it does to everything else.
 function levelTerms(form, loc) {
   const rule = levelRule(form, loc)
+  if (rule.admissionFeeCovers) {
+    return `the ${formatMoney(
+      admissionFeeFor(form, loc)
+    )} admission fee covers everything delivered here — no deductible, coinsurance or copay`
+  }
   const parts = [rule.deductibleApplies ? 'deductible applies' : 'deductible waived']
   if (rule.copayAmount > 0 && rule.copayBasis !== COPAY_BASIS.NA) {
     parts.push(`${formatMoney(rule.copayAmount)} copay (${rule.copayBasis.toLowerCase()})`)
@@ -369,7 +391,11 @@ function staffDetail(form, result) {
             unitNoun: 'unit',
             rate: l.rate,
             allowed: l.allowed,
-            note: l.bundledOut ? 'bundled into IOP — no cost' : undefined,
+            note: l.bundledOut
+              ? 'bundled into IOP — no cost'
+              : l.coveredByFee
+                ? `covered by the ${l.deliveredIn} admission fee`
+                : undefined,
           }))
         ).join('\n')
       : null,
@@ -487,7 +513,11 @@ function clientExplanation(form, result) {
       : null,
     copay > 0 ? '' : null,
     fees > 0
-      ? `There is also an admission fee of ${dollars(fees)}, charged once when you enter a level of care.`
+      ? feeCoveredLevels(form).length > 0
+        ? `There is also an admission fee of ${dollars(fees)}, charged once when you enter a level of care. For ${joinList(
+            feeCoveredLevels(form).map(({ label }) => label)
+          )} that fee is the whole cost of your care at that level — no deductible, no coinsurance and no copay is charged for anything delivered there.`
+        : `There is also an admission fee of ${dollars(fees)}, charged once when you enter a level of care.`
       : null,
     fees > 0 ? '' : null,
     oopRemaining > 0

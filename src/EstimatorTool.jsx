@@ -11,6 +11,7 @@ import {
   INITIAL_ESTIMATE_STATE,
   CARRIER_OPTIONS,
   SERVICE_LINES,
+  admissionFeeFor,
   billingLevels,
   carriersWithRate,
   computeEstimate,
@@ -697,7 +698,12 @@ export default function EstimatorTool() {
                 <td>
                   {line.label}
                   {line.bundledOut && <span className="row-off row-off-bundled">bundled into IOP</span>}
-                  {line.billedElsewhere && (
+                  {line.coveredByFee && (
+                    <span className="row-off row-off-bundled">
+                      covered by the {line.deliveredIn} admission fee
+                    </span>
+                  )}
+                  {line.billedElsewhere && !line.coveredByFee && (
                     <span className="row-off">billed at the {line.loc} level</span>
                   )}
                   {!line.inSequence && <span className="row-off">not in sequence</span>}
@@ -738,8 +744,9 @@ export default function EstimatorTool() {
               {sequenceLevels.map(({ loc, label }) => {
                 const rule = form.levelRules[loc] || {}
                 const effective = levelRule(form, loc)
-                const own = effective.deductibleOverridden || effective.copayOverridden
+                const own = effective.ownTerms
                 const fromElsewhere = !sequenceIncludes(form.treatmentSequence, loc)
+                const fee = admissionFeeFor(form, loc)
                 return (
                   <div className="level-rule" key={loc}>
                     <div className="level-rule-head">
@@ -754,6 +761,29 @@ export default function EstimatorTool() {
                         they are delivered — these are the terms they are charged under.
                       </p>
                     )}
+                    <Field
+                      label="Admission fee covers this level?"
+                      hint={
+                        fee > 0
+                          ? `${formatMoney(fee)} entered for ${label} in Step 4.`
+                          : `No admission fee is entered for ${label} yet — Step 4.`
+                      }
+                    >
+                      <SegmentedControl
+                        name={`admissionFeeCovers-${loc}`}
+                        options={['No', 'Yes']}
+                        value={rule.admissionFeeCovers || 'No'}
+                        onChange={setLevelRule(loc, 'admissionFeeCovers')}
+                      />
+                    </Field>
+                    {effective.admissionFeeCovers ? (
+                      <Banner tone={fee > 0 ? 'info' : 'warn'}>
+                        {fee > 0
+                          ? `Everything delivered in ${label} is covered by the ${formatMoney(fee)} admission fee — no deductible, coinsurance or copay is charged for it, including the psychiatric services billed at the OP level. A step-down to another level is priced under that level's own terms.`
+                          : `${label} is charged its admission fee and nothing else, but no admission fee is entered for it — as it stands this level would be quoted at nothing.`}
+                      </Banner>
+                    ) : (
+                      <>
                     <div className="field-row field-row-3">
                       <Field label="Deductible applies?">
                         <SegmentedControl
@@ -805,6 +835,8 @@ export default function EstimatorTool() {
                         />
                       </Field>
                     </div>
+                    </>
+                    )}
                   </div>
                 )
               })}

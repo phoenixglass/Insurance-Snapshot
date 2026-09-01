@@ -62,7 +62,7 @@ allowed cost → deductible → coinsurance → copay → OOP cap → deposit
 - **Sequenced deductible** — detox takes what it can, residential takes what detox left, and the outpatient block starts from the remainder.
 - **The three copay questions**, each of which moves money on its own: how it is counted (per unit, professional visits only, or a manual total), whether it displaces coinsurance, and which accumulators it feeds. **Every one of them can be answered per level of care** — see below.
 - **Accumulator routing** — whether the deductible and the admission fee sit inside or outside the out-of-pocket cap changes what is still collected after the maximum is reached.
-- **Admission fees per level of care**, charged only for the levels in the sequence.
+- **Admission fees per level of care**, charged only for the levels in the sequence — and optionally **all-inclusive**, where the fee is the client's whole cost share for that level.
 - **Sequence-aware unit defaults** — a typical episode is not one schedule:
 
   | | Intake | IOP | Groups | Specialty groups | IT | Psych eval | Psych F/U | FT |
@@ -85,7 +85,9 @@ One plan-wide answer cannot hold both — "replace coinsurance" for the copay wo
 
 The waterfall then adds the levels up rather than applying one answer to the block: the deductible is spent in the order care is delivered, skipping any level that waives it, and each level's charge is counted the way that level's own answers say. Where every level is on the plan's terms, each of those sums collapses back to the workbook's single expression — which is why an estimate with nothing overridden is still exactly the workbook's estimate.
 
-**Psychiatry is outpatient care wherever it is delivered.** A psychiatric evaluation or follow-up during an IOP course is an OP visit and is charged under OP's terms, so OP is a level of the estimate even in a sequence that never names it — the rules panel shows it, and the service row says where it is billed. A copay is not a rate: the rate column is the plan's **allowed amount**, and the column beside it is what the client pays for one more unit under the rules of the level it bills at.
+A level can also be charged **as a whole**: some plans put an admission fee on IOP and include everything in it — $200, and that is the IOP course, psychiatry included. Answer **"admission fee covers this level"** and that level charges its fee and nothing else: no deductible, no coinsurance, no copay for anything delivered in it, and the deductible passes through untouched to whatever comes next. A step-down is not covered by it — that level is priced under its own terms, against the deductible the client still has. The care is still billed to the plan; it is the client's share that the fee settles. A level marked this way with no fee entered is a **submit blocker**, because it would otherwise quote that level at nothing.
+
+**Psychiatry is outpatient care wherever it is delivered.** A psychiatric evaluation, follow-up or MATs injection during an IOP course is an OP visit and is charged under OP's terms, so OP is a level of the estimate even in a sequence that never names it — the rules panel shows it, and the service row says where it is billed. Coverage still follows **where care was delivered**, not where it bills: psychiatry during an all-inclusive IOP course is covered by that fee. The follow-ups are one course for the admission but delivered through every level the client passes, so they carry a row per level — the counts do not change, but the visits after a step-down can be quoted separately from the ones the IOP fee already covered. A copay is not a rate: the rate column is the plan's **allowed amount**, and the column beside it is what the client pays for one more unit under the rules of the level it bills at.
 
 ### The OP specialty group
 

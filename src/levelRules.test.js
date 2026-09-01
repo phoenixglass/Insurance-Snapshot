@@ -16,6 +16,7 @@ import {
   INITIAL_ESTIMATE_STATE,
   billingLevels,
   computeEstimate,
+  estimateBlockers,
   hasLevelOverrides,
   levelRule,
 } from './estimate.js'
@@ -449,5 +450,129 @@ describe('a level that answers only an accumulator question', () => {
     assert.equal(hasLevelOverrides(manual), true)
     assert.equal(levelRule(manual, 'OP').chargeOverridden, false)
     assert.equal(levelRule(manual, 'OP').copayOverridden, true)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A level of care charged as a whole.
+//
+// Some plans put an admission fee on IOP and include everything in it, psychiatry
+// included: $200, and that is the IOP course. A step-down to OP is not covered
+// by it — that level is priced under its own terms.
+describe('an admission fee that covers the level', () => {
+  const COVERED = {
+    ...BASE,
+    carrier: 'Oxford',
+    treatmentSequence: 'IOP',
+    deductibleRemaining: '3000',
+    oopmRemaining: '9000',
+    admissionFees: { ...INITIAL_ESTIMATE_STATE.admissionFees, iop: '200' },
+    levelRules: { IOP: { admissionFeeCovers: 'Yes' } },
+  }
+
+  test('the fee is the whole deposit', () => {
+    const r = computeEstimate(COVERED)
+    near(r.outpatient.deductibleApplied, 0, 'no deductible is spent on covered care')
+    near(r.outpatient.coinsurance, 0, 'and no coinsurance is charged on it')
+    near(r.outpatient.copay, 0)
+    near(r.outpatient.deposit, 200, 'the admission fee, and nothing else')
+    near(r.grandTotal, 200)
+  })
+
+  test('the plan is still billed for the care the fee covered', () => {
+    // Covered is not free: the services are delivered and billed, the client
+    // just is not charged for them beyond the fee.
+    const r = computeEstimate(COVERED)
+    assert.ok(r.outpatient.totalAllowed > 10000, 'the episode is still priced')
+    assert.ok(lineFor(r, 'iop').allowed > 0, 'the IOP line carries its allowed cost')
+    assert.equal(lineFor(r, 'iop').coveredByFee, true)
+  })
+
+  test('psychiatry delivered in the covered level is covered, though it bills at OP', () => {
+    const r = computeEstimate(COVERED)
+    assert.equal(lineFor(r, 'psychEval').loc, 'OP', 'still billed as outpatient care')
+    assert.equal(lineFor(r, 'psychEval').coveredByFee, true, 'and still covered by the IOP fee')
+    near(levelFor(r, 'OP').allowed, 0, 'so the OP level has nothing left to charge')
+  })
+
+  test('an OP copay does not reach the visits the fee covered', () => {
+    const r = computeEstimate({
+      ...COVERED,
+      levelRules: {
+        ...COVERED.levelRules,
+        OP: { copayAmount: '20', copayBasis: COPAY_BASIS.PER_UNIT, copayAppliesToOop: 'Yes' },
+      },
+    })
+    near(r.outpatient.copay, 0, 'every psychiatric visit happened inside the covered level')
+    near(r.outpatient.deposit, 200)
+  })
+
+  test('a step-down is priced under its own terms, with the deductible intact', () => {
+    const r = computeEstimate({ ...COVERED, treatmentSequence: 'IOP > OP' })
+    const op = levelFor(r, 'OP')
+    assert.ok(op.allowed > 0, 'the OP course is billed')
+    assert.equal(lineFor(r, 'opGroups').coveredByFee, false)
+    // Nothing was collected from the client in IOP, so OP meets the deductible
+    // it would have met on its own.
+    near(op.deductible, Math.min(3000, op.allowed), 'the OP course spends the deductible')
+    near(r.outpatient.deposit, op.deductible + (op.allowed - op.deductible) * 0.2 + 200, 'deposit')
+  })
+
+  test('the follow-ups delivered after the step-down are charged', () => {
+    const r = computeEstimate({ ...COVERED, treatmentSequence: 'IOP > OP' })
+    assert.equal(lineFor(r, 'psychFollowUp:IOP').coveredByFee, true, 'during the IOP course')
+    assert.equal(lineFor(r, 'psychFollowUp:OP').coveredByFee, false, 'after the step-down')
+  })
+
+  test('a level charged as a whole with no fee entered is a blocker', () => {
+    const blockers = estimateBlockers({
+      ...COVERED,
+      admissionFees: INITIAL_ESTIMATE_STATE.admissionFees,
+    })
+    assert.ok(
+      blockers.some((b) => /IOP: the admission fee covers the level/.test(b)),
+      `expected a blocker, got: ${blockers.join(' | ')}`
+    )
+    assert.equal(estimateBlockers(COVERED).length, 0, 'and none once the fee is entered')
+  })
+
+  test('an inpatient level can be charged as a whole too', () => {
+    const r = computeEstimate({
+      ...BASE,
+      treatmentSequence: 'Detox > Residential',
+      nights: { detox: '6', residential: '14' },
+      admissionFees: { ...INITIAL_ESTIMATE_STATE.admissionFees, detox: '500' },
+      levelRules: { Detox: { admissionFeeCovers: 'Yes' } },
+    })
+    const detox = r.inpatient.lines.find((l) => l.key === 'detox')
+    const resi = r.inpatient.lines.find((l) => l.key === 'residential')
+    near(detox.deductibleApplied, 0, 'detox charges its fee and nothing else')
+    near(detox.coinsurance, 0)
+    assert.equal(detox.coveredByFee, true)
+    near(resi.deductibleApplied, 5000, 'residential still meets the whole deductible')
+  })
+})
+
+describe('psychiatry through a step-down', () => {
+  test('the follow-ups split across the levels without changing the course', () => {
+    const r = computeEstimate(BASE)
+    const iop = lineFor(r, 'psychFollowUp:IOP')
+    const op = lineFor(r, 'psychFollowUp:OP')
+    assert.ok(iop && op, 'a row for each level the client passes through')
+    near(iop.units + op.units, 2, 'still one course of follow-ups for the admission')
+    assert.equal(iop.loc, 'OP', 'both bill at the OP level')
+    assert.equal(op.loc, 'OP')
+  })
+
+  test('the evaluation stays one visit at admission', () => {
+    const r = computeEstimate(BASE)
+    assert.ok(lineFor(r, 'psychEval'), 'not split')
+    assert.equal(lineFor(r, 'psychEval').deliveredIn, 'IOP', 'delivered where the client came in')
+  })
+
+  test('MATs injections are psychiatric services and bill at OP', () => {
+    const r = computeEstimate(BASE)
+    assert.equal(lineFor(r, 'mats:IOP').loc, 'OP')
+    assert.equal(lineFor(r, 'mats:OP').loc, 'OP')
   })
 })
