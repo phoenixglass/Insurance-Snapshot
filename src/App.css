@@ -1582,6 +1582,81 @@ textarea {
   height: 12px;
 }
 
+/* The staff detail, laid out. Labels read down one column and amounts down
+   another, so a long line wraps inside its own column instead of dropping back
+   to the left margin the way a <pre> wraps it. The arithmetic behind a priced
+   line sits under its label, where it is available without competing with the
+   number the eye came for. */
+
+.doc {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 16px 18px;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+
+.doc-section + .doc-section {
+  margin-top: 20px;
+}
+
+.doc-heading {
+  margin: 0 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.doc-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 4px 0;
+}
+
+.doc-row + .doc-row {
+  border-top: 1px solid var(--border);
+}
+
+.doc-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-2);
+}
+
+.doc-working {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--text-3);
+}
+
+.doc-value {
+  text-align: right;
+  color: var(--text);
+}
+
+/* An amount holds its width: the label beside it wraps instead, so a number is
+   never squeezed into two lines or clipped by the column it sits in. */
+.doc-value-amount {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.doc-statement {
+  margin: 4px 0;
+  color: var(--text-2);
+}
+
 .explanation-text {
   background: var(--surface-2);
   border: 1px solid var(--border);

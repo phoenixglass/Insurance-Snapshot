@@ -188,7 +188,7 @@ The suite is built around one question — **does the output say what was entere
 ```
 Oxford (in network) — Detox > Residential > IOP > OP.
 
-Deposit before care begins: $8,228.
+Deposit: $8,228.
 
   Detox and Residential, 20 nights: $5,569.
   IOP and OP: $2,660.

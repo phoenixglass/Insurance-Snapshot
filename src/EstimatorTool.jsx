@@ -28,7 +28,7 @@ import {
   toNumber,
   unitNoun,
 } from './estimate.js'
-import { generateEstimateOutput } from './estimateOutput.js'
+import { generateEstimateOutput, parseStaffDetail } from './estimateOutput.js'
 import { computeHardship, hardshipBlockers } from './hardship.js'
 import { TREATMENT_SEQUENCES } from './data/rates.js'
 import { LOCATIONS, getLocation } from './data/contractRates.js'
@@ -162,6 +162,44 @@ function CostNoteText({ text }) {
   )
 }
 
+// The staff detail, laid out rather than dumped into a <pre>. It is the longest
+// of the three outputs and the one read in a narrow column, where a monospace
+// block wraps a price back to the left margin and the sections run together.
+// Laid out, the labels read down one column and the amounts down another, and a
+// priced line keeps its arithmetic under the label it belongs to instead of
+// pushing the amount off the end of the row. The text behind it is unchanged —
+// what the Copy button puts on the clipboard is what was generated.
+function StaffDetailText({ text }) {
+  const { blocks } = parseStaffDetail(text)
+  return (
+    <div className="doc">
+      {blocks.map((block, i) => (
+        <section key={i} className="doc-section">
+          {block.heading && <h3 className="doc-heading">{block.heading}</h3>}
+          {block.rows.map((row, j) =>
+            row.label === null ? (
+              <p key={j} className="doc-statement">
+                {row.value}
+              </p>
+            ) : (
+              <div key={j} className="doc-row">
+                <div className="doc-label">
+                  {row.label}
+                  {row.working && <span className="doc-working">{row.working}</span>}
+                  {row.note && <span className="doc-working">{row.note}</span>}
+                </div>
+                <div className={`doc-value${row.amount ? ' doc-value-amount' : ''}`}>
+                  {row.value}
+                </div>
+              </div>
+            )
+          )}
+        </section>
+      ))}
+    </div>
+  )
+}
+
 function OutputPanel({ output }) {
   const [activeKey, setActiveKey] = useState(OUTPUT_VIEWS[0].key)
   const [copied, setCopied] = useState(false)
@@ -211,11 +249,9 @@ function OutputPanel({ output }) {
         </button>
       </div>
 
-      {active.key === 'costNote' ? (
-        <CostNoteText text={text} />
-      ) : (
-        <pre className="explanation-text">{text}</pre>
-      )}
+      {active.key === 'costNote' && <CostNoteText text={text} />}
+      {active.key === 'staffDetail' && <StaffDetailText text={text} />}
+      {active.key === 'clientExplanation' && <pre className="explanation-text">{text}</pre>}
     </div>
   )
 }

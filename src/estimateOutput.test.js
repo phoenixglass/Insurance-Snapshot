@@ -15,8 +15,9 @@ import {
   INITIAL_ESTIMATE_STATE,
   computeEstimate,
   estimateBlockers,
+  formatMoney,
 } from './estimate.js'
-import { generateEstimateOutput } from './estimateOutput.js'
+import { generateEstimateOutput, parseStaffDetail } from './estimateOutput.js'
 
 // A complete, quotable estimate: both waterfalls active, and every field a
 // blocker asks for filled in.
@@ -45,7 +46,7 @@ describe('the cost note quotes the estimate', () => {
   test('the deposit it states is the deposit that was computed', () => {
     const { costNote, result } = outputFor()
     assert.ok(result.grandTotal > 0, 'the fixture has to price something')
-    const stated = costNote.match(/Deposit before care begins: \$([\d,]+)\./)
+    const stated = costNote.match(/^Deposit: \$([\d,]+)\.$/m)
     assert.ok(stated, `no deposit line in:\n${costNote}`)
     assert.equal(
       Number(stated[1].replace(/,/g, '')),
@@ -119,7 +120,7 @@ describe('the cost note refuses to quote what it cannot stand behind', () => {
     const { costNote, result } = outputFor({ carrier: '', coinsurancePercent: '' })
     assert.match(costNote, /^DO NOT QUOTE/)
     assert.match(costNote, /Select an insurance carrier/)
-    assert.doesNotMatch(costNote, /Deposit before care begins/)
+    assert.doesNotMatch(costNote, /^Deposit:/m)
     // The estimate itself still computes; it is the quote that is withheld.
     assert.equal(typeof result.grandTotal, 'number')
   })
@@ -221,5 +222,71 @@ describe('the client explanation', () => {
       'the explanation must quote the same deposit'
     )
     assert.match(clientExplanation, /This is an estimate, not a bill/)
+  })
+})
+
+// The screen lays the staff detail out from its own text, so the reader has to
+// keep agreeing with the writer: if a row stops parsing it does not vanish, it
+// renders as an unlabeled statement, and a wrong split is worse than none.
+describe('reading the staff detail back for the screen', () => {
+  test('sections and their rows come back the way they were written', () => {
+    const { staffDetail } = outputFor()
+    const { title, blocks } = parseStaffDetail(staffDetail)
+    const section = (heading) => blocks.find((b) => b.heading === heading)
+
+    assert.match(title, /STAFF DETAIL/)
+    assert.ok(section('PLAN'), 'the plan section is found')
+    assert.ok(section('INPATIENT LINES'), 'the inpatient lines are found')
+    assert.ok(section('TOTALS'), 'the totals are found')
+
+    const carrier = section('PLAN').rows.find((r) => r.label === 'Carrier')
+    assert.equal(carrier.value, 'Cigna')
+    assert.equal(carrier.working, null, 'a plain reading has no arithmetic behind it')
+
+    // Every heading in the text opens exactly one section, and no row is lost
+    // on the way: the two have to add up to the lines that were written.
+    const written = staffDetail.split('\n').filter((l) => l.trim() !== '')
+    const headings = written.filter((l) => !l.startsWith('  '))
+    const rows = blocks.reduce((n, b) => n + b.rows.length, 0)
+    assert.equal(blocks.length, headings.length - 1, 'one section per heading, less the title')
+    assert.equal(rows, written.length - headings.length, 'every indented line is a row')
+  })
+
+  test('a priced line keeps its amount apart from the arithmetic behind it', () => {
+    const { staffDetail, result } = outputFor()
+    const { blocks } = parseStaffDetail(staffDetail)
+    const detox = blocks
+      .find((b) => b.heading === 'INPATIENT LINES')
+      .rows.find((r) => r.label === 'Detox')
+    const nights = result.inpatient.lines.find((l) => l.key === 'detox')
+
+    assert.equal(detox.amount, true)
+    assert.equal(detox.value, formatMoney(nights.allowed))
+    assert.match(detox.working, /nights × /)
+    assert.ok(!detox.working.includes('='), 'the working stops where the amount starts')
+  })
+
+  test('a bundled line keeps the note that explains its zero', () => {
+    const { staffDetail } = outputFor({
+      carrier: 'Oxford',
+      treatmentSequence: 'IOP',
+      bundledInnIop: 'Yes',
+    })
+    const individual = parseStaffDetail(staffDetail)
+      .blocks.find((b) => b.heading === 'OUTPATIENT LINES')
+      .rows.find((r) => r.label === 'Individual Therapy')
+    assert.match(individual.note, /bundled into IOP/)
+  })
+
+  test('a line that is not a reading stays whole rather than being split badly', () => {
+    const { staffDetail } = outputFor({ carrier: '', coinsurancePercent: '' })
+    const blockers = parseStaffDetail(staffDetail).blocks.find(
+      (b) => b.heading === 'NOT READY TO QUOTE'
+    )
+    assert.ok(blockers, 'the blockers are listed for staff even when the quote is withheld')
+    for (const row of blockers.rows) {
+      assert.equal(row.label, null, 'a blocker is a sentence, not a label and a value')
+      assert.ok(row.value.length > 0)
+    }
   })
 })

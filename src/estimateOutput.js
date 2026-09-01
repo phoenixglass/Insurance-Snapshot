@@ -179,8 +179,8 @@ function costNote(form, result) {
     headline(form, result),
     '',
     hardship?.active && hardship.scholarship > 0
-      ? `Deposit before care begins: ${dollars(hardship.clientPays)}, after a hardship award of ${dollars(hardship.scholarship)} against a ${dollars(result.grandTotal)} deposit.`
-      : `Deposit before care begins: ${dollars(result.grandTotal)}.`,
+      ? `Deposit: ${dollars(hardship.clientPays)}, after a hardship award of ${dollars(hardship.scholarship)} against a ${dollars(result.grandTotal)} deposit.`
+      : `Deposit: ${dollars(result.grandTotal)}.`,
     // One level of care and no prior balance is already the whole story; the
     // split would only restate the number above it.
     split.length > 1 || award ? '' : null,
@@ -433,4 +433,69 @@ export function generateEstimateOutput(form, result, blockers = [], hardship = n
     staffDetail: staffDetail(form, withBlockers),
     clientExplanation: clientExplanation(form, withBlockers),
   }
+}
+
+// ── Reading the staff detail back ────────────────────────────────────────────
+//
+// The outputs above are plain text, because plain text is what gets pasted into
+// the file. The staff detail is also the longest of the three, and dumping it
+// into a <pre> reads badly in a narrow column: a price that wraps falls back to
+// the left margin, where it lines up under the next label rather than its own.
+//
+// So the screen lays it out instead, and this reads the text back into the
+// shape it was written in. The conventions are this file's own — a section
+// heading sits at the left margin, its rows are indented two spaces, and a row
+// is `label: value` — so the reader lives next to the writer rather than
+// guessing at it from the other side of the app. The text itself is untouched:
+// what is copied is exactly what was generated.
+//
+// A priced line carries its arithmetic in that value (`20 units × $135.00 =
+// $2,700.00`), and the amount at the end of it is what the eye is looking for,
+// so it comes back separated from the working behind it.
+
+const AMOUNT_ONLY = /^\$-?[\d,]+\.\d{2}$/
+const PRICED_LINE = /^(.+) = (\$-?[\d,]+\.\d{2})(?: \((.+)\))?$/
+
+export function parseStaffDetail(text) {
+  const blocks = []
+  let title = null
+  let current = null
+
+  for (const raw of String(text).split('\n')) {
+    if (raw.trim() === '') continue
+    if (!raw.startsWith('  ')) {
+      // The first heading is the document's own title, which the panel around
+      // it already carries; everything after it opens a section.
+      if (title === null && blocks.length === 0 && current === null) {
+        title = raw
+        continue
+      }
+      current = { heading: raw, rows: [] }
+      blocks.push(current)
+      continue
+    }
+    if (current === null) {
+      current = { heading: null, rows: [] }
+      blocks.push(current)
+    }
+
+    const line = raw.trim()
+    const at = line.indexOf(': ')
+    // A row with nothing to the left of a colon is a statement rather than a
+    // reading — an unpriced code, a blocker — and stays whole.
+    if (at === -1) {
+      current.rows.push({ label: null, working: null, value: line, note: null, amount: false })
+      continue
+    }
+    const label = line.slice(0, at)
+    const value = line.slice(at + 2)
+    const priced = PRICED_LINE.exec(value)
+    current.rows.push(
+      priced
+        ? { label, working: priced[1], value: priced[2], note: priced[3] ?? null, amount: true }
+        : { label, working: null, value, note: null, amount: AMOUNT_ONLY.test(value) }
+    )
+  }
+
+  return { title, blocks }
 }
