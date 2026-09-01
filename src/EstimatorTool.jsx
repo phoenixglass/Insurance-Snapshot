@@ -10,8 +10,9 @@ import {
   COPAY_TREATMENT,
   INITIAL_ESTIMATE_STATE,
   CARRIER_OPTIONS,
-  LEVEL_RULE_LOCS,
   SERVICE_LINES,
+  admissionFeeFor,
+  billingLevels,
   carriersWithRate,
   computeEstimate,
   estimateBlockers,
@@ -28,7 +29,7 @@ import {
   toNumber,
   unitNoun,
 } from './estimate.js'
-import { generateEstimateOutput } from './estimateOutput.js'
+import { generateEstimateOutput, parseStaffDetail } from './estimateOutput.js'
 import { computeHardship, hardshipBlockers } from './hardship.js'
 import { TREATMENT_SEQUENCES } from './data/rates.js'
 import { LOCATIONS, getLocation } from './data/contractRates.js'
@@ -115,6 +116,21 @@ function LineTable({ columns, children }) {
   )
 }
 
+// A waterfall row states what was charged, not what the step started from. A
+// copay credited to the deductible is not collected as deductible as well, and
+// a copay that replaces coinsurance leaves none behind — under mixed rules
+// either can be true of one level of care and not the others, so the row says
+// how much moved rather than quietly showing a number nobody is asked for.
+const creditedTo = (block) => {
+  const credited = block.deductibleApplied - block.netDeductible
+  return credited > 0.005 ? `${formatMoney(credited)} met by the copay` : undefined
+}
+
+const replacedIn = (block) => {
+  const replaced = block.coinsurance - block.coinsuranceDue
+  return replaced > 0.005 ? `${formatMoney(replaced)} replaced by the copay` : undefined
+}
+
 // The three views of a finished estimate, in the order the work needs them:
 // the price to read out, the detail behind it, then the wording for the client.
 const OUTPUT_VIEWS = [
@@ -158,6 +174,47 @@ function CostNoteText({ text }) {
           </div>
         )
       )}
+    </div>
+  )
+}
+
+// The staff detail, laid out rather than dumped into a <pre>. It is the longest
+// of the three outputs and the one read in a narrow column, where a monospace
+// block wraps a price back to the left margin and the sections run together.
+// Laid out, the labels read down one column and the amounts down another, and a
+// priced line keeps its arithmetic under the label it belongs to instead of
+// pushing the amount off the end of the row. The text behind it is unchanged —
+// what the Copy button puts on the clipboard is what was generated.
+function StaffDetailText({ text }) {
+  const { blocks } = parseStaffDetail(text)
+  return (
+    <div className="doc">
+      {blocks.map((block, i) => (
+        <section key={i} className="doc-section">
+          {block.heading && <h3 className="doc-heading">{block.heading}</h3>}
+          {block.rows.map((row, j) =>
+            row.label === null ? (
+              <p key={j} className="doc-statement">
+                {row.value}
+              </p>
+            ) : (
+              <div
+                key={j}
+                className={`doc-row${!row.amount && row.value.length > 30 ? ' doc-row-stacked' : ''}`}
+              >
+                <div className="doc-label">
+                  {row.label}
+                  {row.working && <span className="doc-working">{row.working}</span>}
+                  {row.note && <span className="doc-working">{row.note}</span>}
+                </div>
+                <div className={`doc-value${row.amount ? ' doc-value-amount' : ''}`}>
+                  {row.value}
+                </div>
+              </div>
+            )
+          )}
+        </section>
+      ))}
     </div>
   )
 }
@@ -211,11 +268,9 @@ function OutputPanel({ output }) {
         </button>
       </div>
 
-      {active.key === 'costNote' ? (
-        <CostNoteText text={text} />
-      ) : (
-        <pre className="explanation-text">{text}</pre>
-      )}
+      {active.key === 'costNote' && <CostNoteText text={text} />}
+      {active.key === 'staffDetail' && <StaffDetailText text={text} />}
+      {active.key === 'clientExplanation' && <pre className="explanation-text">{text}</pre>}
     </div>
   )
 }
@@ -259,18 +314,18 @@ export default function EstimatorTool() {
   const { inpatient, outpatient } = result
   const locs = sequenceLocs(form.treatmentSequence)
   const copayActive = form.copayBasis !== COPAY_BASIS.NA
-  // The levels this sequence actually names, in the order care is delivered
-  // through them. Nothing to override until a sequence is chosen.
-  const sequenceLevels = LEVEL_RULE_LOCS.filter((l) =>
-    sequenceIncludes(form.treatmentSequence, l.loc)
-  )
+  // The levels this estimate bills at, in the order care is delivered through
+  // them: the sequence's own, plus OP wherever psychiatry bills there from
+  // inside a higher level of care. Nothing to override until a sequence is
+  // chosen.
+  const sequenceLevels = billingLevels(form)
   const levelsDiffer = hasLevelOverrides(form)
 
   // The client's side of the estimate, split by what created each dollar. Four
   // categories, each direct-labeled with its own value in the legend.
   const responsibilitySegments = [
-    { label: 'Deductible', value: inpatient.deductibleApplied + outpatient.deductibleApplied, series: 1 },
-    { label: 'Coinsurance', value: inpatient.coinsurance + outpatient.coinsurance, series: 2 },
+    { label: 'Deductible', value: inpatient.netDeductible + outpatient.netDeductible, series: 1 },
+    { label: 'Coinsurance', value: inpatient.coinsuranceDue + outpatient.coinsuranceDue, series: 2 },
     { label: 'Copay', value: inpatient.copay + outpatient.copay, series: 3 },
     { label: 'Admission fees', value: inpatient.admissionFees + outpatient.admissionFees, series: 4 },
   ]
@@ -402,8 +457,10 @@ export default function EstimatorTool() {
               />
               {form.bundledInnIop === 'Yes' && (
                 <Banner tone="info">
-                  Individual and family therapy are folded into the IOP rate — they add no cost and
-                  no copay units to this estimate.
+                  The intake, individual therapy and family therapy delivered in IOP are folded into
+                  the IOP rate — they add no cost and no copay units to this estimate. Therapy after
+                  a step-down to OP is still billed, and psychiatric services are never in the
+                  bundle: they bill at the OP level under OP&rsquo;s terms.
                 </Banner>
               )}
             </Field>
@@ -470,7 +527,7 @@ export default function EstimatorTool() {
         <Section
           title="Copay"
           eyebrow="Step 3"
-          description="Three separate questions, each of which moves money on its own: how the copay is counted, whether it displaces coinsurance, and which accumulators it feeds."
+          description="Three separate questions, each of which moves money on its own: how the copay is counted, whether it displaces coinsurance, and which accumulators it feeds. These are the plan's answers; a level of care can give its own in Step 7."
         >
           <div className="field-row">
             <Field label="Copay Amount" htmlFor="copayAmount">
@@ -617,7 +674,7 @@ export default function EstimatorTool() {
         <Section
           title="Outpatient Services"
           eyebrow="Step 6"
-          description="Counts start from the typical episode for the levels of care in this sequence, and every one of them is editable."
+          description="Counts start from the typical episode for the levels of care in this sequence, and every one of them is editable. The rate is the plan’s allowed amount — what the plan is billed, not what the client pays. A copay is not a rate: enter it in Level of Care Rules below, and the client-per-unit column will show it."
           actions={
             unitsEdited && (
               <button type="button" className="btn-secondary" onClick={resetUnits}>
@@ -632,7 +689,7 @@ export default function EstimatorTool() {
               { key: 'code', label: 'Code' },
               { key: 'units', label: 'Units', align: 'right' },
               { key: 'rate', label: 'Allowed rate', align: 'right' },
-              { key: 'after', label: 'After ded.', align: 'right' },
+              { key: 'after', label: 'Client / unit', align: 'right' },
               { key: 'cost', label: 'Allowed cost', align: 'right' },
             ]}
           >
@@ -641,6 +698,14 @@ export default function EstimatorTool() {
                 <td>
                   {line.label}
                   {line.bundledOut && <span className="row-off row-off-bundled">bundled into IOP</span>}
+                  {line.coveredByFee && (
+                    <span className="row-off row-off-bundled">
+                      covered by the {line.deliveredIn} admission fee
+                    </span>
+                  )}
+                  {line.billedElsewhere && !line.coveredByFee && (
+                    <span className="row-off">billed at the {line.loc} level</span>
+                  )}
                   {!line.inSequence && <span className="row-off">not in sequence</span>}
                   {line.inSequence && LINE_NOTES[line.lineKey ?? line.key] && (
                     <span className="row-off">{LINE_NOTES[line.lineKey ?? line.key]}</span>
@@ -657,7 +722,7 @@ export default function EstimatorTool() {
                   <RateCell form={form} code={line.code} onOverride={setOverride} />
                 </td>
                 <td className="num muted">
-                  {line.afterDeductibleRate === null ? '—' : formatMoney(line.afterDeductibleRate)}
+                  {line.clientPerUnit === null ? '—' : formatMoney(line.clientPerUnit)}
                 </td>
                 <td className="num strong">{formatMoney(line.allowed)}</td>
               </tr>
@@ -668,7 +733,7 @@ export default function EstimatorTool() {
         <Section
           title="Level of Care Rules"
           eyebrow="Step 7"
-          description="Where a plan does not treat every level of care the same way. Leave a cell blank and that level uses the plan terms above — this is only for what the verification call actually established."
+          description="Where a plan does not treat every level of care the same way. Leave a field on the plan default and that level uses the plan terms above — this is only for what the verification call actually established."
         >
           {sequenceLevels.length === 0 ? (
             <Banner tone="info">
@@ -676,61 +741,108 @@ export default function EstimatorTool() {
             </Banner>
           ) : (
             <>
-              <div className="line-table-scroll">
-                <table className="line-table">
-                  <thead>
-                    <tr>
-                      <th>Level of care</th>
-                      <th>Deductible applies?</th>
-                      <th className="num">Copay</th>
-                      <th>Copay basis</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sequenceLevels.map(({ loc, label }) => {
-                      const rule = form.levelRules[loc] || {}
-                      const effective = levelRule(form, loc)
-                      return (
-                        <tr key={loc}>
-                          <td>
-                            {label}
-                            {(effective.deductibleOverridden || effective.copayOverridden) && (
-                              <span className="row-off">own terms</span>
-                            )}
-                          </td>
-                          <td>
-                            <SegmentedControl
-                              name={`deductibleApplies-${loc}`}
-                              options={['Yes', 'No']}
-                              value={rule.deductibleApplies || 'Yes'}
-                              onChange={setLevelRule(loc, 'deductibleApplies')}
-                            />
-                          </td>
-                          <td className="num">
-                            <CurrencyInput
-                              value={rule.copayAmount ?? ''}
-                              onChange={setLevelRule(loc, 'copayAmount')}
-                              placeholder={toNumber(form.copayAmount).toFixed(2)}
-                              size="sm"
-                            />
-                          </td>
-                          <td>
-                            <Select
-                              value={rule.copayBasis || ''}
-                              onChange={setLevelRule(loc, 'copayBasis')}
-                              options={Object.values(COPAY_BASIS)}
-                              placeholder={`Plan default — ${form.copayBasis}`}
-                            />
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              {sequenceLevels.map(({ loc, label }) => {
+                const rule = form.levelRules[loc] || {}
+                const effective = levelRule(form, loc)
+                const own = effective.ownTerms
+                const fromElsewhere = !sequenceIncludes(form.treatmentSequence, loc)
+                const fee = admissionFeeFor(form, loc)
+                return (
+                  <div className="level-rule" key={loc}>
+                    <div className="level-rule-head">
+                      <h3 className="level-rule-title">{label}</h3>
+                      <span className={`row-off${own ? ' row-off-own' : ''}`}>
+                        {own ? 'own terms' : 'plan terms'}
+                      </span>
+                    </div>
+                    {fromElsewhere && (
+                      <p className="level-rule-note">
+                        Not in the sequence, but psychiatric services bill at the OP level wherever
+                        they are delivered — these are the terms they are charged under.
+                      </p>
+                    )}
+                    <Field
+                      label="Admission fee covers this level?"
+                      hint={
+                        fee > 0
+                          ? `${formatMoney(fee)} entered for ${label} in Step 4.`
+                          : `No admission fee is entered for ${label} yet — Step 4.`
+                      }
+                    >
+                      <SegmentedControl
+                        name={`admissionFeeCovers-${loc}`}
+                        options={['No', 'Yes']}
+                        value={rule.admissionFeeCovers || 'No'}
+                        onChange={setLevelRule(loc, 'admissionFeeCovers')}
+                      />
+                    </Field>
+                    {effective.admissionFeeCovers ? (
+                      <Banner tone={fee > 0 ? 'info' : 'warn'}>
+                        {fee > 0
+                          ? `Everything delivered in ${label} is covered by the ${formatMoney(fee)} admission fee — no deductible, coinsurance or copay is charged for it, including the psychiatric services billed at the OP level. A step-down to another level is priced under that level's own terms.`
+                          : `${label} is charged its admission fee and nothing else, but no admission fee is entered for it — as it stands this level would be quoted at nothing.`}
+                      </Banner>
+                    ) : (
+                      <>
+                    <div className="field-row field-row-3">
+                      <Field label="Deductible applies?">
+                        <SegmentedControl
+                          name={`deductibleApplies-${loc}`}
+                          options={['Yes', 'No']}
+                          value={rule.deductibleApplies || 'Yes'}
+                          onChange={setLevelRule(loc, 'deductibleApplies')}
+                        />
+                      </Field>
+                      <Field label="Copay">
+                        <CurrencyInput
+                          value={rule.copayAmount ?? ''}
+                          onChange={setLevelRule(loc, 'copayAmount')}
+                          placeholder={toNumber(form.copayAmount).toFixed(2)}
+                        />
+                      </Field>
+                      <Field label="Copay basis">
+                        <Select
+                          value={rule.copayBasis || ''}
+                          onChange={setLevelRule(loc, 'copayBasis')}
+                          options={Object.values(COPAY_BASIS)}
+                          placeholder={`Plan — ${form.copayBasis}`}
+                        />
+                      </Field>
+                    </div>
+                    <div className="field-row field-row-3">
+                      <Field label="Copay vs coinsurance">
+                        <Select
+                          value={rule.copayTreatment || ''}
+                          onChange={setLevelRule(loc, 'copayTreatment')}
+                          options={[COPAY_TREATMENT.ADD, COPAY_TREATMENT.REPLACE]}
+                          placeholder={`Plan — ${form.copayTreatment}`}
+                        />
+                      </Field>
+                      <Field label="Applies to deductible?">
+                        <Select
+                          value={rule.copayAppliesToDeductible || ''}
+                          onChange={setLevelRule(loc, 'copayAppliesToDeductible')}
+                          options={['Yes', 'No']}
+                          placeholder={`Plan — ${form.copayAppliesToDeductible}`}
+                        />
+                      </Field>
+                      <Field label="Applies to OOP max?">
+                        <Select
+                          value={rule.copayAppliesToOop || ''}
+                          onChange={setLevelRule(loc, 'copayAppliesToOop')}
+                          options={['Yes', 'No']}
+                          placeholder={`Plan — ${form.copayAppliesToOop}`}
+                        />
+                      </Field>
+                    </div>
+                    </>
+                    )}
+                  </div>
+                )
+              })}
               <Banner tone={levelsDiffer ? 'warn' : 'info'}>
                 {levelsDiffer
-                  ? 'This estimate runs on mixed rules. The deductible is spent in the order care is delivered, skipping any level that waives it, and each level collects its own copay.'
+                  ? 'This estimate runs on mixed rules. The deductible is spent in the order care is delivered, skipping any level that waives it, and each level collects its own copay under its own answers — a copay that replaces coinsurance in one level leaves the other levels\u2019 coinsurance alone.'
                   : 'Every level of care is on the plan terms above. An estimate with nothing overridden here is the estimate the workbook computes.'}
               </Banner>
             </>
@@ -994,8 +1106,12 @@ export default function EstimatorTool() {
                     note: `${inpatient.totalNights} nights`,
                     value: formatMoney(inpatient.totalAllowed),
                   },
-                  { label: 'Deductible applied', value: formatMoney(inpatient.deductibleApplied) },
-                  { label: 'Coinsurance', value: formatMoney(inpatient.coinsurance) },
+                  {
+                    label: 'Deductible applied',
+                    note: creditedTo(inpatient),
+                    value: formatMoney(inpatient.netDeductible),
+                  },
+                  { label: 'Coinsurance', note: replacedIn(inpatient), value: formatMoney(inpatient.coinsuranceDue) },
                   { label: 'Copay applied', value: formatMoney(inpatient.copay) },
                   { label: 'Admission fee', value: formatMoney(inpatient.admissionFees) },
                   {
@@ -1025,8 +1141,12 @@ export default function EstimatorTool() {
                   { label: 'Estimated allowed cost', value: formatMoney(outpatient.totalAllowed) },
                   { label: 'Deductible remaining at entry', value: formatMoney(outpatient.deductibleAtEntry), muted: true },
                   { label: 'OOP remaining at entry', value: formatMoney(outpatient.oopAtEntry), muted: true },
-                  { label: 'Deductible applied', value: formatMoney(outpatient.deductibleApplied) },
-                  { label: 'Coinsurance', value: formatMoney(outpatient.coinsurance) },
+                  {
+                    label: 'Deductible applied',
+                    note: creditedTo(outpatient),
+                    value: formatMoney(outpatient.netDeductible),
+                  },
+                  { label: 'Coinsurance', note: replacedIn(outpatient), value: formatMoney(outpatient.coinsuranceDue) },
                   {
                     label: 'Copay applied',
                     note: outpatient.copayUnits > 0 ? `${outpatient.copayUnits} units` : undefined,

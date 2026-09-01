@@ -169,30 +169,50 @@ export function benchmarkRate(code) {
 // counts: the individually billed visits, not the program day.
 //
 // `bundledOutInnIop` marks what an INN bundled IOP agreement folds into the
-// program rate. A bundled agreement charges for IOP and not for individual or
-// family therapy, so those two are the lines it zeroes.
+// program rate: the intake, individual therapy and family therapy. The bundle
+// is an IOP agreement, so it zeroes those lines only where they are delivered
+// in IOP — an `IOP > OP` client's OP therapy is billed, because no bundle
+// covers it — and psychiatry is never in it.
+//
+// `billedAt` names the level of care a service is billed at when that is not
+// the level it is delivered in. Psychiatry — the evaluation, the follow-ups and
+// the MATs injections — is outpatient care wherever the client is: a
+// psychiatric visit during an IOP course is an OP visit, and it takes OP's
+// terms — its copay, and whether that copay touches the deductible — rather
+// than the IOP course's. It is the one case where a level of care is in force
+// without the sequence naming it.
+//
+// `deliveredAcrossLevels` marks a service that is one course for the admission
+// but delivered through every level the client passes: the psychiatric
+// follow-ups continue after a step-down. It splits into a row per level like a
+// therapy does, except that what is divided between them is the episode's own
+// total rather than the sum of two courses — so the counts do not change, only
+// what can be said about where the visits happen. That matters wherever a level
+// of care is charged as a whole, an all-inclusive admission fee above all.
 //
 // The OP specialty group bills the same code as the routine OP group, 90853,
 // and against insurance that is the whole story: the plan allows one amount per
 // group and does not distinguish the curriculum, so the two lines resolve to
 // one rate and editing either rate cell moves both. It is a separate row only
-// because the counts differ — a specialty track is scheduled on top of the
-// routine groups, not instead of them. (Self-pay is the one place the two
-// prices part company; see `fixedRate` in selfPay.js.) It starts at zero units
-// so an episode without a specialty track prices exactly as it did before.
+// because the counts differ — the specialty track and the routine groups are
+// each scheduled their own share of the OP week. (Self-pay is the one place
+// the two prices part company; see `fixedRate` in selfPay.js.) An OP course
+// starts at ten of each: the same twenty groups the workbook carried on a
+// single row, split across the two rows the schedule actually runs, so an OP
+// episode still prices identically at the default counts.
 
 export const SERVICE_LINES = [
   { key: 'opwm', label: 'OPWM', code: 'H0014', defaultUnits: { OPWM: 5 }, activatedBy: [SEQ_LOC.OPWM], professional: false, bundledOutInnIop: false },
   { key: 'php', label: 'PHP', code: 'H0035', defaultUnits: { PHP: 20 }, activatedBy: [SEQ_LOC.PHP], professional: false, bundledOutInnIop: false },
-  { key: 'assessment', label: 'Initial Assessment', code: '90791', defaultUnits: { IOP: 1, OP: 1 }, oncePerEpisode: true, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
+  { key: 'assessment', label: 'Initial Assessment', code: '90791', defaultUnits: { IOP: 1, OP: 1 }, oncePerEpisode: true, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: true },
   { key: 'iop', label: 'IOP Services', code: 'H0015', defaultUnits: { IOP: 30 }, activatedBy: [SEQ_LOC.IOP], professional: false, bundledOutInnIop: false },
-  { key: 'opGroups', label: 'OP Groups', code: '90853', defaultUnits: { OP: 20 }, activatedBy: [SEQ_LOC.OP], professional: false, bundledOutInnIop: false },
-  { key: 'opSpecialtyGroup', label: 'OP Specialty Group', code: '90853', defaultUnits: { OP: 0 }, activatedBy: [SEQ_LOC.OP], professional: false, bundledOutInnIop: false },
+  { key: 'opGroups', label: 'OP Groups', code: '90853', defaultUnits: { OP: 10 }, activatedBy: [SEQ_LOC.OP], professional: false, bundledOutInnIop: false },
+  { key: 'opSpecialtyGroup', label: 'OP Specialty Group', code: '90853', defaultUnits: { OP: 10 }, activatedBy: [SEQ_LOC.OP], professional: false, bundledOutInnIop: false },
   { key: 'individual', label: 'Individual Therapy', code: '90837', defaultUnits: { IOP: 9, OP: 10 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: true },
-  { key: 'psychEval', label: 'Psychiatric Evaluation', code: '90792', defaultUnits: { IOP: 1, OP: 1 }, oncePerEpisode: true, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
-  { key: 'psychFollowUp', label: 'Psychiatric Follow Up', code: '99214', defaultUnits: { IOP: 2, OP: 2 }, oncePerEpisode: true, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
+  { key: 'psychEval', label: 'Psychiatric Evaluation', code: '90792', defaultUnits: { IOP: 1, OP: 1 }, oncePerEpisode: true, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false, billedAt: SEQ_LOC.OP },
+  { key: 'psychFollowUp', label: 'Psychiatric Follow Up', code: '99214', defaultUnits: { IOP: 2, OP: 2 }, oncePerEpisode: true, deliveredAcrossLevels: true, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false, billedAt: SEQ_LOC.OP },
   { key: 'family', label: 'Family Therapy', code: '90847', defaultUnits: { IOP: 0, OP: 3 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: true },
-  { key: 'mats', label: 'MATs Injection', code: '96372', defaultUnits: { IOP: 0, OP: 0 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false },
+  { key: 'mats', label: 'MATs Injection', code: '96372', defaultUnits: { IOP: 0, OP: 0 }, activatedBy: [SEQ_LOC.IOP, SEQ_LOC.OP], professional: true, bundledOutInnIop: false, billedAt: SEQ_LOC.OP },
 ]
 
 // The starting unit count for a line under a given sequence.
@@ -357,40 +377,59 @@ export function resolveRate(form, code) {
 //   coinsurance  — dropped entirely when the copay replaces it
 //   copay        — always collected; only its accumulator treatment varies
 //
+// The workbook asks those three questions once for the whole episode. A plan
+// does not always answer them once: an IOP course can be billed against the
+// deductible and coinsured on the contracted rate while the psychiatry
+// delivered alongside it is an outpatient copay that never touches the
+// deductible and only feeds the out-of-pocket maximum. One plan-wide answer
+// cannot hold both — a copay that replaces coinsurance in OP would wipe out
+// the coinsurance IOP is charging.
+//
+// So each level of care states what it charges and how the plan counts it, and
+// the block adds those contributions up. Where every level is on the plan's
+// terms each sum collapses to the workbook's single expression, which is why an
+// estimate with nothing overridden is still the workbook's estimate.
+//
 // The OOP maximum caps only the portion of that total the plan actually counts
 // toward it. Anything the plan does not count keeps being collected after the
 // maximum is reached, which is why those pieces sit outside the MIN().
 
-function applyCostShare({
-  deductibleApplied,
-  coinsurance,
-  copay,
-  oopRemaining,
-  deductibleInOopm,
-  copayReplacesCoinsurance,
-  copayToDeductible,
-  copayToOop,
-  extraInsideCap = 0,
-}) {
-  // A copay credited to the deductible is not collected a second time as
-  // deductible, so it comes off the deductible amount.
-  const deductibleCredit = copayToDeductible ? Math.min(copay, deductibleApplied) : 0
+// What one level of care contributes, sorted by how the plan counts it.
+function levelShare(rule, { deductible = 0, coinsurance = 0, copay = 0 }) {
+  return {
+    deductible,
+    coinsurance,
+    copay,
+    // A copay credited to the deductible is not collected a second time as
+    // deductible. The credit is settled against the block's whole deductible
+    // rather than this level's, because a copay paid in one level of care
+    // counts toward the deductible the next one spends.
+    creditableCopay: rule.copayToDeductible ? copay : 0,
+    coinsuranceDue: rule.copayReplacesCoinsurance ? 0 : coinsurance,
+    // "Applies to OOP" is three states, not two, and the third one is not a
+    // synonym for "No": a copay whose accumulator treatment was never
+    // established goes into neither side of the cap, so it drops out of the
+    // deposit entirely. That is the workbook's behavior, and it is why a copay
+    // with an unanswered OOP question is a submit blocker rather than a default.
+    copayInsideCap: rule.copayToOop === 'Yes' ? copay : 0,
+    copayOutsideCap: rule.copayToOop === 'No' ? copay : 0,
+  }
+}
+
+function applyCostShare(shares, { oopRemaining, deductibleInOopm, extraInsideCap = 0 }) {
+  const sum = (key) => shares.reduce((total, share) => total + share[key], 0)
+
+  const deductibleApplied = sum('deductible')
+  const deductibleCredit = Math.min(sum('creditableCopay'), deductibleApplied)
   const netDeductible = clampAtZero(deductibleApplied - deductibleCredit)
-  const coinsuranceDue = copayReplacesCoinsurance ? 0 : coinsurance
+  const coinsuranceDue = sum('coinsuranceDue')
+  const copay = sum('copay')
 
   const beforeCap = netDeductible + coinsuranceDue + copay
 
-  // "Applies to OOP" is three states, not two, and the third one is not a
-  // synonym for "No": a copay whose accumulator treatment was never
-  // established goes into neither side of the cap, so it drops out of the
-  // deposit entirely. That is the workbook's behavior, and it is why a copay
-  // with an unanswered OOP question is a submit blocker rather than a default.
-  const copayInsideCap = copayToOop === 'Yes' ? copay : 0
-  const copayOutsideCap = copayToOop === 'No' ? copay : 0
-
   const insideCap =
-    (deductibleInOopm ? netDeductible : 0) + coinsuranceDue + copayInsideCap + extraInsideCap
-  const outsideCap = (deductibleInOopm ? 0 : netDeductible) + copayOutsideCap
+    (deductibleInOopm ? netDeductible : 0) + coinsuranceDue + sum('copayInsideCap') + extraInsideCap
+  const outsideCap = (deductibleInOopm ? 0 : netDeductible) + sum('copayOutsideCap')
 
   return {
     netDeductible,
@@ -426,40 +465,109 @@ export const LEVEL_RULE_LOCS = [
   { loc: SEQ_LOC.OP, label: 'OP' },
 ]
 
+// The plan's own terms, in the shape a level of care states its terms in. Every
+// level reads these until it says otherwise.
+export function planRule(form) {
+  return {
+    loc: null,
+    deductibleApplies: true,
+    copayAmount: toNumber(form.copayAmount),
+    copayBasis: form.copayBasis,
+    copayTreatment: form.copayTreatment,
+    copayReplacesCoinsurance: form.copayTreatment === COPAY_TREATMENT.REPLACE,
+    copayToDeductibleAnswer: form.copayAppliesToDeductible,
+    copayToDeductible: form.copayAppliesToDeductible === 'Yes',
+    copayToOop: form.copayAppliesToOop,
+  }
+}
+
 // The rules in force for one level of care: the plan's terms, with whatever
-// this level overrides laid over them. `deductibleOverridden` and
-// `copayOverridden` matter downstream — a manual-total copay is charged once
-// for a block, and a level that states its own is charged separately from it.
+// this level overrides laid over them.
+//
+// All five copay questions are answerable here, not just the amount and the
+// basis, because the answers that decide what a copay does to the rest of the
+// bill — whether it replaces coinsurance, whether it is credited to the
+// deductible, whether it feeds the out-of-pocket maximum — are exactly the ones
+// a plan splits by level of care.
+//
+// Two flags matter downstream. `deductibleOverridden` says this level does not
+// spend the deductible. `chargeOverridden` says the level states its own copay
+// charge rather than the plan's: a manual-total copay is one charge for a
+// block, and a level that names its own is charged separately from it, while a
+// level that only answers an accumulator question differently is still on the
+// plan's charge.
 export function levelRule(form, loc) {
   const rule = form.levelRules?.[loc] || {}
+  const plan = planRule(form)
   const deductibleOverridden = rule.deductibleApplies === 'No'
   const copayAmountSet = rule.copayAmount !== undefined && rule.copayAmount !== ''
   const copayBasisSet = Boolean(rule.copayBasis)
+  const feeCovers = rule.admissionFeeCovers === 'Yes'
+  const treatmentSet = Boolean(rule.copayTreatment)
+  const toDeductibleSet = Boolean(rule.copayAppliesToDeductible)
+  const toOopSet = Boolean(rule.copayAppliesToOop)
+  const copayTreatment = treatmentSet ? rule.copayTreatment : plan.copayTreatment
+  const chargeOverridden = copayAmountSet || copayBasisSet
   return {
     loc,
     deductibleApplies: !deductibleOverridden,
     deductibleOverridden,
-    copayOverridden: copayAmountSet || copayBasisSet,
-    copayAmount: copayAmountSet ? toNumber(rule.copayAmount) : toNumber(form.copayAmount),
-    copayBasis: copayBasisSet ? rule.copayBasis : form.copayBasis,
+    // An admission fee that covers the level is the client's whole cost share
+    // for it: nothing delivered there is charged a deductible, coinsurance or a
+    // copay, and the deductible pool passes through to the next level untouched.
+    admissionFeeCovers: feeCovers,
+    chargeOverridden,
+    copayOverridden: chargeOverridden || treatmentSet || toDeductibleSet || toOopSet,
+    ownTerms: deductibleOverridden || feeCovers || chargeOverridden || treatmentSet || toDeductibleSet || toOopSet,
+    copayAmount: copayAmountSet ? toNumber(rule.copayAmount) : plan.copayAmount,
+    copayBasis: copayBasisSet ? rule.copayBasis : plan.copayBasis,
+    copayTreatment,
+    copayReplacesCoinsurance: copayTreatment === COPAY_TREATMENT.REPLACE,
+    copayToDeductibleAnswer: toDeductibleSet
+      ? rule.copayAppliesToDeductible
+      : plan.copayToDeductibleAnswer,
+    copayToDeductible: toDeductibleSet
+      ? rule.copayAppliesToDeductible === 'Yes'
+      : plan.copayToDeductible,
+    copayToOop: toOopSet ? rule.copayAppliesToOop : plan.copayToOop,
   }
 }
 
-// Whether any level of care in this sequence departs from the plan's terms. The
-// screen and the written output both say so when it does: a deposit computed
-// under mixed rules is not something to discover from a number alone.
+// The levels of care this estimate actually bills at, in the order care is
+// delivered through them. That is the sequence's own levels, plus outpatient
+// where a service billed at the OP level is delivered inside a higher one —
+// psychiatry during IOP is billed as outpatient care, so OP's terms are in
+// force even in a sequence that never names it.
+export function billingLevels(form) {
+  return LEVEL_RULE_LOCS.filter(
+    ({ loc }) =>
+      sequenceIncludes(form.treatmentSequence, loc) ||
+      SERVICE_LINES.some(
+        (line) =>
+          line.billedAt === loc &&
+          line.activatedBy.some((a) => sequenceIncludes(form.treatmentSequence, a))
+      )
+  )
+}
+
+// Whether any level of care this estimate bills at departs from the plan's
+// terms. The screen and the written output both say so when it does: a deposit
+// computed under mixed rules is not something to discover from a number alone.
 export function hasLevelOverrides(form) {
-  return LEVEL_RULE_LOCS.some(({ loc }) => {
-    if (!sequenceIncludes(form.treatmentSequence, loc)) return false
-    const rule = levelRule(form, loc)
-    return rule.deductibleOverridden || rule.copayOverridden
-  })
+  return billingLevels(form).some(({ loc }) => levelRule(form, loc).ownTerms)
 }
 
 export function levelOverrideSummary(form) {
-  return LEVEL_RULE_LOCS.filter(({ loc }) => sequenceIncludes(form.treatmentSequence, loc))
-    .map(({ loc }) => ({ loc, ...levelRule(form, loc) }))
-    .filter((r) => r.deductibleOverridden || r.copayOverridden)
+  return billingLevels(form)
+    .map(({ loc, label }) => ({ label, ...levelRule(form, loc) }))
+    .filter((r) => r.ownTerms)
+}
+
+// The admission fee entered for a level of care, which is what an all-inclusive
+// level charges instead of everything else.
+export function admissionFeeFor(form, loc) {
+  const fee = ADMISSION_FEE_LOCS.find((f) => f.loc === loc)
+  return fee ? toNumber(form.admissionFees?.[fee.key]) : 0
 }
 
 // The copay a level collects, given the units inside it. The basis decides what
@@ -480,14 +588,22 @@ function levelUnitCopay(rule, locLines) {
 
 // A manual-total copay is one charge for a block, not one per level — that is
 // what the workbook collects, and it stays true while every level reads the
-// plan's amount. A level that states its own manual copay is charged separately,
-// and the plan-wide charge survives only if some level is still on it.
-function blockManualCopay(form, rules) {
-  const manual = rules.filter((r) => r.copayBasis === COPAY_BASIS.MANUAL && r.copayAmount > 0)
-  if (manual.length === 0) return 0
-  const overridden = manual.filter((r) => r.copayOverridden)
-  const planWide = manual.some((r) => !r.copayOverridden) ? toNumber(form.copayAmount) : 0
-  return overridden.reduce((sum, r) => sum + r.copayAmount, 0) + planWide
+// plan's amount. A level that states its own manual copay is its own block and
+// is charged separately, under its own answers about what that charge counts
+// toward.
+function levelManualCopay(rule) {
+  return rule.copayBasis === COPAY_BASIS.MANUAL && rule.chargeOverridden && rule.copayAmount > 0
+    ? rule.copayAmount
+    : 0
+}
+
+// The plan's own manual total, charged once for the block and only while some
+// level of care is still reading it.
+function planManualCopay(form, rules) {
+  const onPlan = rules.some(
+    (r) => !r.chargeOverridden && r.copayBasis === COPAY_BASIS.MANUAL && r.copayAmount > 0
+  )
+  return onPlan ? toNumber(form.copayAmount) : 0
 }
 
 // ── Inpatient waterfall (rows 5–16) ──────────────────────────────────────────
@@ -504,7 +620,9 @@ function computeInpatient(form, ctx) {
   })
 
   const totalAllowed = lines.reduce((sum, l) => sum + l.allowed, 0)
-  const rules = lines.filter((l) => l.active).map((l) => levelRule(form, l.loc))
+  const rules = lines
+    .filter((l) => l.active && !levelRule(form, l.loc).admissionFeeCovers)
+    .map((l) => levelRule(form, l.loc))
 
   // F10 / G10 — the deductible is consumed in sequence order: detox takes what
   // it can, residential takes what detox left. A level the plan does not apply
@@ -512,59 +630,67 @@ function computeInpatient(form, ctx) {
   let deductiblePool = deductibleRemaining
   lines.forEach((line) => {
     const rule = levelRule(form, line.loc)
-    const applied = line.active && rule.deductibleApplies ? Math.min(deductiblePool, line.allowed) : 0
+    line.coveredByFee = line.active && rule.admissionFeeCovers
+    const charges = line.active && !line.coveredByFee
+    const applied = charges && rule.deductibleApplies ? Math.min(deductiblePool, line.allowed) : 0
     line.deductibleApplied = applied
-    line.deductibleWaived = line.active && !rule.deductibleApplies
+    line.deductibleWaived = charges && !rule.deductibleApplies
     deductiblePool = clampAtZero(deductiblePool - applied)
   })
   const deductibleApplied = lines.reduce((sum, l) => sum + l.deductibleApplied, 0)
 
-  // F11 / G11 — coinsurance is charged on what the deductible did not absorb.
+  // F11 / G11 — coinsurance is charged on what the deductible did not absorb,
+  // and on nothing an admission fee has already covered.
   lines.forEach((line) => {
-    line.coinsurance = clampAtZero(line.allowed - line.deductibleApplied) * coins
+    line.coinsurance = line.coveredByFee
+      ? 0
+      : clampAtZero(line.allowed - line.deductibleApplied) * coins
   })
   const coinsurance = lines.reduce((sum, l) => sum + l.coinsurance, 0)
 
   // F12 / G12 — a per-night copay is charged level by level under that level's
-  // own terms; a manual total is one charge for the stay.
-  let copay = blockManualCopay(form, rules)
+  // own terms; a manual total is one charge for the stay. Each level's charge
+  // is kept with the rules that decide what it counts toward, because those
+  // are the level's answers and not necessarily the plan's.
   let copayUnits = 0
+  const shares = []
   lines.forEach((line) => {
-    if (!line.active) {
+    if (!line.active || line.coveredByFee) {
       line.copay = 0
       return
     }
-    const { copay: lineCopay, units } = levelUnitCopay(levelRule(form, line.loc), [line])
-    line.copay = lineCopay
-    copay += lineCopay
+    const rule = levelRule(form, line.loc)
+    const { copay: lineCopay, units } = levelUnitCopay(rule, [line])
+    line.copay = lineCopay + levelManualCopay(rule)
     copayUnits += units
+    shares.push(
+      levelShare(rule, {
+        deductible: line.deductibleApplied,
+        coinsurance: line.coinsurance,
+        copay: line.copay,
+      })
+    )
   })
   // "Professional Visit Only" prices individually billed visits. A per diem
   // night is not one, so the inpatient block collects no copay under it.
+
+  const planCopay = planManualCopay(form, rules)
+  if (planCopay > 0) shares.push(levelShare(planRule(form), { copay: planCopay }))
+  const copay = lines.reduce((sum, l) => sum + (l.active ? l.copay : 0), 0) + planCopay
 
   const admissionFees = lines.reduce(
     (sum, l) => sum + (l.active ? toNumber(form.admissionFees[l.key]) : 0),
     0
   )
 
-  const shareInputs = {
-    deductibleApplied,
-    coinsurance,
-    copay,
-    oopRemaining: oopmRemaining,
-    deductibleInOopm: ctx.deductibleInOopm,
-    copayReplacesCoinsurance: ctx.copayReplacesCoinsurance,
-    copayToDeductible: ctx.copayToDeductible,
-    copayToOop: ctx.copayToOop,
-  }
-  const share = applyCostShare(shareInputs)
+  const capInputs = { oopRemaining: oopmRemaining, deductibleInOopm: ctx.deductibleInOopm }
+  const share = applyCostShare(shares, capInputs)
 
   // H16 — an admission fee that counts toward the maximum is capped with
   // everything else; one that does not is simply added on top of the capped
   // responsibility.
-  const withFee = ctx.admissionFeeInOopm
-    ? applyCostShare({ ...shareInputs, extraInsideCap: admissionFees }).afterCap
-    : share.afterCap + admissionFees
+  const withFee = applyCostShare(shares, { ...capInputs, extraInsideCap: admissionFees })
+  const deposit = ctx.admissionFeeInOopm ? withFee.afterCap : share.afterCap + admissionFees
 
   return {
     lines,
@@ -584,19 +710,27 @@ function computeInpatient(form, ctx) {
     coinsuranceDue: share.coinsuranceDue,
     beforeCap: share.beforeCap,
     afterCap: share.afterCap,
-    // J32 / J33 read these to know what the outpatient block inherits.
-    oopConsumed: ctx.admissionFeeInOopm
-      ? Math.min(
-          oopmRemaining,
-          (ctx.deductibleInOopm ? share.netDeductible : 0) +
-            share.coinsuranceDue +
-            (ctx.copayToOop === 'Yes' ? copay : 0) +
-            admissionFees
-        )
-      : share.oopConsumed,
+    // J32 / J33 read these to know what the outpatient block inherits. An
+    // admission fee that counts toward the maximum consumed room here too.
+    oopConsumed: ctx.admissionFeeInOopm ? withFee.oopConsumed : share.oopConsumed,
     revenue: clampAtZero(totalAllowed - share.afterCap),
-    deposit: withFee,
+    deposit,
   }
+}
+
+// What one more unit of a service costs the client once the deductible is met,
+// under the rules of the level it is billed at. The rate beside it is the
+// plan's allowed amount — what the plan is billed, not what the client hands
+// over — and the two part company wherever a copay replaces coinsurance: there
+// the client pays the copay and the allowed amount is between us and the payer.
+function clientUnitCost(line, rule, rate, coins) {
+  if (rate === null) return null
+  const perUnit =
+    rule.copayBasis === COPAY_BASIS.PER_UNIT ||
+    (rule.copayBasis === COPAY_BASIS.PROFESSIONAL_ONLY && line.professional)
+      ? rule.copayAmount
+      : 0
+  return rule.copayReplacesCoinsurance ? perUnit : rate * coins + perUnit
 }
 
 // ── Outpatient service rows ──────────────────────────────────────────────────
@@ -626,10 +760,17 @@ function splitUnits(line, locs, form) {
 
   // What a level falls back to when nothing was typed against it: its share of
   // a total entered for the whole service, or its own default.
+  // A service that is one course for the admission does not have an episode
+  // total equal to the sum of its per-level counts — it is the larger of them
+  // (see defaultUnitsFor). Where such a service is delivered across levels,
+  // that single total is what gets divided between them.
   const total = form.units?.[line.key]
+  const typedTotal = total !== undefined && total !== ''
   const fallback = {}
-  if (total !== undefined && total !== '') {
-    const entered = toNumber(total)
+  if (typedTotal || line.oncePerEpisode) {
+    const entered = typedTotal
+      ? toNumber(total)
+      : defaultUnitsFor(line, form.treatmentSequence)
     let assigned = 0
     locs.forEach((loc, i) => {
       if (i === locs.length - 1) {
@@ -655,23 +796,40 @@ function outpatientLines(form, ctx) {
   const bundled = ctx.network === 'INN' && form.bundledInnIop === 'Yes'
   const activeLocs = OUTPATIENT_LOCS.filter((loc) => sequenceIncludes(sequence, loc))
 
-  const row = (line, loc, units, { inSequence, split }) => {
-    const bundledOut = bundled && line.bundledOutInnIop && sequenceIncludes(sequence, SEQ_LOC.IOP)
+  const row = (line, deliveredIn, units, { inSequence, split }) => {
+    // Where the service is billed, which is where it is delivered unless the
+    // line says otherwise. The bundle is an IOP agreement, so it only folds in
+    // what IOP delivers.
+    const loc = inSequence && line.billedAt ? line.billedAt : deliveredIn
+    const bundledOut = bundled && line.bundledOutInnIop && deliveredIn === SEQ_LOC.IOP
     const active = inSequence && !bundledOut
     const rate = ctx.rateFor(line.code)
+    const rule = loc === null ? planRule(form) : levelRule(form, loc)
+    const coveredByFee =
+      active && deliveredIn !== null && levelRule(form, deliveredIn).admissionFeeCovers
     return {
       ...line,
-      key: split ? `${line.key}:${loc}` : line.key,
+      key: split ? `${line.key}:${deliveredIn}` : line.key,
       lineKey: line.key,
-      label: split ? `${line.label} (${loc})` : line.label,
+      label: split ? `${line.label} (${deliveredIn})` : line.label,
       loc,
+      // Where the client was when it happened, which is what an all-inclusive
+      // admission fee covers — a psychiatric visit during IOP is billed at the
+      // OP level and still covered by the fee the IOP course charged.
+      deliveredIn,
+      coveredByFee,
+      // A service billed somewhere other than the level it is delivered in says
+      // so, because its copay and deductible come from there and not from the
+      // level of care the client is in.
+      billedElsewhere: inSequence && Boolean(line.billedAt) && deliveredIn !== line.billedAt,
       split,
       inSequence,
       bundledOut,
       active,
       units,
       rate,
-      afterDeductibleRate: rate === null ? null : rate * ctx.coins,
+      // Nothing more is charged for one more unit of care the fee already covers.
+      clientPerUnit: coveredByFee ? 0 : clientUnitCost(line, rule, rate, ctx.coins),
       allowed: active && rate !== null ? units * rate : 0,
       rateMissing: active && rate === null,
     }
@@ -684,10 +842,11 @@ function outpatientLines(form, ctx) {
       rows.push(row(line, null, unitsFor(line, form), { inSequence: false, split: false }))
       continue
     }
-    // The intake, the evaluation and the follow-ups are one course for the
-    // admission rather than one per level, so they stay a single row and belong
-    // to the level the client was admitted to.
-    if (locs.length === 1 || line.oncePerEpisode) {
+    // The intake and the evaluation are one course for the admission rather than
+    // one per level, so they stay a single row and belong to the level the
+    // client was admitted to. The follow-ups are one course too, but a course
+    // delivered through every level the client passes through.
+    if (locs.length === 1 || (line.oncePerEpisode && !line.deliveredAcrossLevels)) {
       rows.push(row(line, locs[0], unitsFor(line, form), { inSequence: true, split: false }))
       continue
     }
@@ -707,7 +866,11 @@ function computeOutpatient(form, ctx, inpatient) {
   const lines = outpatientLines(form, ctx)
 
   const totalAllowed = lines.reduce((sum, l) => sum + l.allowed, 0)
-  const activeLocs = OUTPATIENT_LOCS.filter((loc) => sequenceIncludes(sequence, loc))
+  // OP is a level of this estimate whenever something bills there, sequence or
+  // no sequence: psychiatry during an IOP course is charged under OP's terms.
+  const activeLocs = OUTPATIENT_LOCS.filter(
+    (loc) => sequenceIncludes(sequence, loc) || lines.some((l) => l.active && l.loc === loc)
+  )
   const anyActive = activeLocs.length > 0
 
   // J32 / J33 — the outpatient block starts from what the inpatient block left.
@@ -726,13 +889,19 @@ function computeOutpatient(form, ctx, inpatient) {
   // delivered, and a level the plan waives it for passes the pool along
   // untouched. With one set of rules across the episode this is the same
   // subtraction the block did as a whole.
-  const rules = activeLocs.map((loc) => levelRule(form, loc))
+  const rules = activeLocs
+    .map((loc) => levelRule(form, loc))
+    .filter((rule) => !rule.admissionFeeCovers)
   let deductiblePool = deductibleAtEntry
   let copayUnits = 0
-  let unitCopay = 0
+  let levelCopay = 0
   const levels = activeLocs.map((loc) => {
     const rule = levelRule(form, loc)
-    const locLines = lines.filter((l) => l.active && l.loc === loc)
+    // Care an admission fee already covers is not charged again here — and it
+    // is covered by where it was delivered, not where it bills, so a level can
+    // be charging normally while some of its rows are covered by another
+    // level's fee.
+    const locLines = lines.filter((l) => l.active && l.loc === loc && !l.coveredByFee)
     const allowed = locLines.reduce((sum, l) => sum + l.allowed, 0)
     const deductible = rule.deductibleApplies ? Math.min(deductiblePool, allowed) : 0
     deductiblePool = clampAtZero(deductiblePool - deductible)
@@ -748,10 +917,21 @@ function computeOutpatient(form, ctx, inpatient) {
       l.deductibleWaived = !rule.deductibleApplies
     })
 
-    const { copay: levelCopay, units } = levelUnitCopay(rule, locLines)
-    unitCopay += levelCopay
+    const { copay: unitCopay, units } = levelUnitCopay(rule, locLines)
+    const copay = unitCopay + levelManualCopay(rule)
+    levelCopay += copay
     copayUnits += units
-    return { loc, rule, allowed, deductible, coinsurance, copay: levelCopay, lines: locLines }
+    return {
+      loc,
+      rule,
+      allowed,
+      deductible,
+      coinsurance,
+      copay,
+      feeCovered: rule.admissionFeeCovers,
+      fee: admissionFeeFor(form, loc),
+      lines: locLines,
+    }
   })
 
   lines.forEach((l) => {
@@ -763,22 +943,24 @@ function computeOutpatient(form, ctx, inpatient) {
 
   const deductibleApplied = levels.reduce((sum, l) => sum + l.deductible, 0)
   const coinsurance = levels.reduce((sum, l) => sum + l.coinsurance, 0)
-  const copay = anyActive ? unitCopay + blockManualCopay(form, rules) : 0
 
-  const shareInputs = {
-    deductibleApplied,
-    coinsurance,
-    copay,
-    oopRemaining: oopAtEntry,
-    deductibleInOopm: ctx.deductibleInOopm,
-    copayReplacesCoinsurance: ctx.copayReplacesCoinsurance,
-    copayToDeductible: ctx.copayToDeductible,
-    copayToOop: ctx.copayToOop,
-  }
-  const share = applyCostShare(shareInputs)
+  // Each level is charged under its own answers, and the block is the sum of
+  // them: a copay that replaces coinsurance in OP leaves IOP's coinsurance
+  // exactly where it was.
+  const shares = anyActive
+    ? levels.map((l) =>
+        levelShare(l.rule, { deductible: l.deductible, coinsurance: l.coinsurance, copay: l.copay })
+      )
+    : []
+  const planCopay = anyActive ? planManualCopay(form, rules) : 0
+  if (planCopay > 0) shares.push(levelShare(planRule(form), { copay: planCopay }))
+  const copay = anyActive ? levelCopay + planCopay : 0
+
+  const capInputs = { oopRemaining: oopAtEntry, deductibleInOopm: ctx.deductibleInOopm }
+  const share = applyCostShare(shares, capInputs)
 
   const withFee = ctx.admissionFeeInOopm
-    ? applyCostShare({ ...shareInputs, extraInsideCap: admissionFees }).afterCap
+    ? applyCostShare(shares, { ...capInputs, extraInsideCap: admissionFees }).afterCap
     : share.afterCap + admissionFees
 
   return {
@@ -825,20 +1007,17 @@ export function computeEstimate(form) {
 
   const rateFor = (code) => resolveRate(form, code).rate
 
+  // The plan's terms that are the plan's alone. The three copay questions are
+  // not here: they are answered per level of care, through `levelRule`.
   const ctx = {
     sequence,
     network,
     coins,
     rateFor,
-    copayAmount: toNumber(form.copayAmount),
-    basis: form.copayBasis,
     deductibleRemaining: toNumber(form.deductibleRemaining),
     oopmRemaining: toNumber(form.oopmRemaining),
     deductibleInOopm: form.deductibleInOopm === 'Yes',
     admissionFeeInOopm: form.admissionFeeInOopm === 'Yes',
-    copayReplacesCoinsurance: form.copayTreatment === COPAY_TREATMENT.REPLACE,
-    copayToDeductible: form.copayAppliesToDeductible === 'Yes',
-    copayToOop: form.copayAppliesToOop,
   }
 
   const inpatient = computeInpatient(form, ctx)
@@ -924,11 +1103,24 @@ export function estimateBlockers(form) {
   // the plan-wide one: an amount with no basis collects nothing, and a copay
   // whose accumulator treatment was never established drops out of the deposit
   // silently. Neither is something to discover after quoting.
-  const levelCopays = LEVEL_RULE_LOCS.filter(
-    ({ loc }) =>
-      sequenceIncludes(form.treatmentSequence, loc) &&
-      toNumber(form.levelRules?.[loc]?.copayAmount) > 0
-  ).map(({ loc, label }) => ({ label, rule: levelRule(form, loc) }))
+  const levels = billingLevels(form).map(({ loc, label }) => ({
+    label,
+    loc,
+    rule: levelRule(form, loc),
+  }))
+
+  // A level charged as a whole is charged the fee and nothing else, so a fee of
+  // nothing quotes that level at nothing.
+  for (const { label, loc, rule } of levels) {
+    if (rule.admissionFeeCovers && admissionFeeFor(form, loc) <= 0) {
+      blockers.push(
+        `${label}: the admission fee covers the level, but no admission fee is entered for it`
+      )
+    }
+  }
+  const levelCopays = levels.filter(
+    ({ rule }) => rule.chargeOverridden && rule.copayAmount > 0
+  )
 
   for (const { label, rule } of levelCopays) {
     if (rule.copayBasis === COPAY_BASIS.NA) {
@@ -938,17 +1130,22 @@ export function estimateBlockers(form) {
     }
   }
 
-  const copayInForce =
-    toNumber(form.copayAmount) > 0 ||
-    levelCopays.some(({ rule }) => rule.copayAmount > 0 && rule.copayBasis !== COPAY_BASIS.NA)
+  // The accumulator questions are asked wherever a copay is actually collected,
+  // under the answers that level reads. A level that answers for itself settles
+  // them for its own copay; one still on the plan's unanswered terms does not,
+  // and the plan's own fields are where that gets fixed. With no level
+  // collecting yet, the plan's copay is held to the questions on its own.
+  const collecting = levels.filter(
+    ({ rule }) => rule.copayAmount > 0 && rule.copayBasis !== COPAY_BASIS.NA
+  )
+  const asked = collecting.length > 0 ? collecting.map(({ rule }) => rule) : []
+  if (asked.length === 0 && toNumber(form.copayAmount) > 0) asked.push(planRule(form))
 
-  if (copayInForce) {
-    if (form.copayAppliesToDeductible === 'Not Applicable') {
-      blockers.push('State whether the copay applies to the deductible')
-    }
-    if (form.copayAppliesToOop === 'Not Applicable') {
-      blockers.push('State whether the copay applies to the out-of-pocket maximum')
-    }
+  if (asked.some((rule) => rule.copayToDeductibleAnswer === 'Not Applicable')) {
+    blockers.push('State whether the copay applies to the deductible')
+  }
+  if (asked.some((rule) => rule.copayToOop === 'Not Applicable')) {
+    blockers.push('State whether the copay applies to the out-of-pocket maximum')
   }
   return blockers
 }

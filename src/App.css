@@ -993,6 +993,59 @@ textarea {
   opacity: 0.5;
 }
 
+/* One level of care's terms, as a card rather than a row of a very wide table:
+   there are six questions per level, and a table that scrolls sideways hides
+   half of them. */
+
+.level-rule {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  background: var(--surface-2);
+}
+
+.level-rule-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.level-rule-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.level-rule-head .row-off {
+  display: inline;
+}
+
+.row-off-own {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.level-rule-note {
+  margin: -4px 0 12px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+.field-row-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+@media (max-width: 900px) {
+  .field-row-3 {
+    grid-template-columns: 1fr;
+  }
+}
+
 .row-off {
   display: block;
   font-size: 0.7rem;
@@ -1580,6 +1633,96 @@ textarea {
 
 .cost-note-gap {
   height: 12px;
+}
+
+/* The staff detail, laid out. Labels read down one column and amounts down
+   another, so a long line wraps inside its own column instead of dropping back
+   to the left margin the way a <pre> wraps it. The arithmetic behind a priced
+   line sits under its label, where it is available without competing with the
+   number the eye came for. */
+
+.doc {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 16px 18px;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+
+.doc-section + .doc-section {
+  margin-top: 20px;
+}
+
+.doc-heading {
+  margin: 0 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.doc-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 4px 0;
+}
+
+.doc-row + .doc-row {
+  border-top: 1px solid var(--border);
+}
+
+/* No `min-width: 0` here: that is what lets a flex row squeeze a label below
+   the width of its own longest word, one letter to a line. The label wraps
+   between words and no further. */
+.doc-label {
+  flex: 1 1 auto;
+  overflow-wrap: break-word;
+  color: var(--text-2);
+}
+
+.doc-working {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--text-3);
+}
+
+.doc-value {
+  text-align: right;
+  color: var(--text);
+}
+
+/* An amount holds its width: the label beside it wraps instead, so a number is
+   never squeezed into two lines or clipped by the column it sits in. */
+.doc-value-amount {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* A sentence is not a reading. Where the value is prose rather than a figure,
+   the row stacks: the label above it and the sentence left-aligned underneath,
+   because a three-line sentence set flush right is not a column of anything. */
+.doc-row-stacked {
+  display: block;
+}
+
+.doc-row-stacked .doc-value {
+  margin-top: 2px;
+  text-align: left;
+  color: var(--text-2);
+}
+
+.doc-statement {
+  margin: 4px 0;
+  color: var(--text-2);
 }
 
 .explanation-text {

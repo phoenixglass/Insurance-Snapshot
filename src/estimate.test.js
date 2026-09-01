@@ -55,7 +55,13 @@ function formFor(f) {
     previousBalance: String(f.prevBal),
     admissionFees: Object.fromEntries(Object.entries(f.fees).map(([k, v]) => [k, String(v)])),
     nights: { detox: String(f.nights.detox), residential: String(f.nights.resi) },
-    units: Object.fromEntries(Object.entries(f.units).map(([k, v]) => [k, String(v)])),
+    // Every line is pinned, not just the ones a case names: the workbook these
+    // cases were transcribed from has no OP specialty group row, so that line
+    // is held at zero rather than left to pick up the app's own default.
+    units: {
+      ...Object.fromEntries(SERVICE_LINES.map((l) => [l.key, '0'])),
+      ...Object.fromEntries(Object.entries(f.units).map(([k, v]) => [k, String(v)])),
+    },
     rateOverrides: {},
   }
 }
@@ -132,12 +138,36 @@ describe('unit defaults', () => {
   test('an OP course', () => {
     assert.deepEqual(units('OP'), {
       assessment: 1,
-      opGroups: 20,
+      opGroups: 10,
+      opSpecialtyGroup: 10,
       individual: 10,
       psychEval: 1,
       psychFollowUp: 2,
       family: 3,
     })
+  })
+
+  // The two 90853 rows resolve to one rate, so where the twenty OP groups sit
+  // is a scheduling fact, not a pricing one. Splitting the workbook's single
+  // row of 20 into 10 routine and 10 specialty has to leave the estimate where
+  // it was — if it ever moves, the two rows have stopped sharing a rate.
+  test('splitting the OP groups across the two 90853 rows does not move the estimate', () => {
+    const base = {
+      ...INITIAL_ESTIMATE_STATE,
+      carrier: 'UHC',
+      treatmentSequence: 'OP',
+      coinsurancePercent: '20',
+      deductibleRemaining: '1000',
+      oopmRemaining: '4000',
+    }
+    const split = computeEstimate(base)
+    const onOneRow = computeEstimate({
+      ...base,
+      units: { ...base.units, opGroups: '20', opSpecialtyGroup: '0' },
+    })
+    assert.ok(split.outpatient.totalAllowed > 0, 'the OP block is priced at all')
+    assert.ok(near(split.outpatient.totalAllowed, onOneRow.outpatient.totalAllowed))
+    assert.ok(near(split.grandTotal, onOneRow.grandTotal))
   })
 
   test('a step-down accumulates therapy but not the psychiatric course', () => {
