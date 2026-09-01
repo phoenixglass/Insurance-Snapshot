@@ -15,6 +15,7 @@ import {
   SCHOLARSHIP_MODES,
   applyScholarshipPercent,
   computeSelfPay,
+  convertScholarshipMode,
   selfPayBlockers,
   selfPayRate,
 } from './selfPay.js'
@@ -109,14 +110,9 @@ export default function SelfPayTool() {
       else next[key] = value
       return { ...prev, rateOverrides: next }
     })
-  // Switching how the award is expressed clears the entries rather than
-  // reading nights as dollars.
-  const setMode = (value) =>
-    setForm((prev) => ({
-      ...prev,
-      scholarshipMode: value,
-      scholarship: Object.fromEntries(Object.keys(prev.scholarship).map((k) => [k, ''])),
-    }))
+  // Switching how the award is expressed restates the entries in the other
+  // unit — the award is the same award either way.
+  const setMode = (value) => setForm((prev) => convertScholarshipMode(prev, value))
   const applyPercent = () => setForm((prev) => applyScholarshipPercent(prev, percent))
 
   const result = useMemo(() => computeSelfPay(form), [form])
@@ -289,7 +285,10 @@ export default function SelfPayTool() {
           eyebrow="Step 2"
           description="Award the scholarship as the units of care the program is covering, or as the dollar figure agreed."
         >
-          <Field label="How the award is entered">
+          <Field
+            label="How the award is entered"
+            hint="Switching restates the entries already made in the other unit."
+          >
             <SegmentedControl
               name="scholarshipMode"
               options={SCHOLARSHIP_MODES}

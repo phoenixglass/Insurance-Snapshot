@@ -14,6 +14,7 @@ import {
   SELF_PAY_LINES,
   applyScholarshipPercent,
   computeSelfPay,
+  convertScholarshipMode,
   selfPayBlockers,
 } from './selfPay.js'
 
@@ -107,6 +108,61 @@ describe('a scholarship covers units, it does not cut the rate', () => {
     const iop = r.lines.find((l) => l.key === 'iop')
     assert.equal(iop.wholeUnits, false)
     assert.deepEqual(r.partialUnitLines, ['IOP Services'])
+  })
+})
+
+describe('switching how the award is expressed', () => {
+  const iopEpisode = {
+    ...INITIAL_SELF_PAY_STATE,
+    treatmentSequence: 'IOP',
+    scholarship: { ...noScholarship, iop: '15' },
+  }
+
+  test('units become the dollars those units cost', () => {
+    const converted = convertScholarshipMode(iopEpisode, 'amount')
+    assert.equal(converted.scholarshipMode, 'amount')
+    assert.equal(converted.scholarship.iop, '4425')
+    assert.equal(computeSelfPay(converted).totalScholarship, 4425)
+  })
+
+  test('dollars become the units of care they buy', () => {
+    const converted = convertScholarshipMode(
+      { ...iopEpisode, scholarshipMode: 'amount', scholarship: { ...noScholarship, iop: '4425' } },
+      'units',
+    )
+    assert.equal(converted.scholarship.iop, '15')
+    assert.equal(computeSelfPay(converted).totalScholarship, 4425)
+  })
+
+  test('an award that lands mid-session survives the round trip to the cent', () => {
+    const agreed = {
+      ...iopEpisode,
+      scholarshipMode: 'amount',
+      scholarship: { ...noScholarship, iop: '4000' },
+    }
+    const inUnits = convertScholarshipMode(agreed, 'units')
+    assert.equal(computeSelfPay(inUnits).totalScholarship, 4000, 'the award is unchanged')
+    assert.deepEqual(computeSelfPay(inUnits).partialUnitLines, ['IOP Services'], 'and says it is a fraction')
+    assert.equal(convertScholarshipMode(inUnits, 'amount').scholarship.iop, '4000')
+  })
+
+  test('switching to the mode already in use changes nothing', () => {
+    assert.equal(convertScholarshipMode(iopEpisode, 'units'), iopEpisode)
+  })
+
+  test('an empty entry stays empty, and one with no rate to convert through is cleared', () => {
+    const converted = convertScholarshipMode(
+      {
+        ...INITIAL_SELF_PAY_STATE,
+        treatmentSequence: 'IOP',
+        scholarship: { ...INITIAL_SELF_PAY_STATE.scholarship, iop: '15', mats: '2' },
+        rateOverrides: { mats: '0' },
+      },
+      'amount',
+    )
+    assert.equal(converted.scholarship.opGroups, '')
+    assert.equal(converted.scholarship.mats, '', 'no rate, nothing to restate')
+    assert.equal(converted.scholarship.iop, '4425')
   })
 })
 

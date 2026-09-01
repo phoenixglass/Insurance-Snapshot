@@ -94,7 +94,9 @@ export function computeSelfPay(form) {
     // a discount on the rate: 15 of 30 IOP sessions covered is $4,425 of
     // scholarship against 15 sessions still billed at the full $295, not 30
     // sessions repriced to $147.50.
-    const requested = byUnits ? entered * (rate ?? 0) : entered
+    // To the cent: a units entry carrying a converted fraction should not
+    // leave a tenth of a penny lying in the totals.
+    const requested = round2(byUnits ? entered * (rate ?? 0) : entered)
     const scholarship = Math.min(Math.max(requested, 0), programCost)
     const coveredUnits = rate ? scholarship / rate : 0
     // Only a costed line has units on either side of the split: a level of
@@ -210,6 +212,39 @@ export function applyScholarshipPercent(form, percent) {
 
   for (const p of whole) scholarship[p.line.key] = String(p.covered)
   return { ...form, scholarship }
+}
+
+// Switching how the award is expressed restates the same award rather than
+// dropping it: nights become the dollars those nights cost, and dollars become
+// the units of care they buy. A dollar figure rarely lands on a whole session,
+// so the units it converts to are kept precise enough to convert back to the
+// same cent — the fraction is real, and `partialUnitLines` is what says so.
+export function convertScholarshipMode(form, mode) {
+  const from = form.scholarshipMode ?? 'units'
+  if (mode === from) return form
+  const toUnits = mode === 'units'
+
+  const scholarship = { ...form.scholarship }
+  for (const line of SELF_PAY_LINES) {
+    const entry = form.scholarship?.[line.key]
+    if (entry === undefined || entry === '') continue
+    const value = toNumber(entry)
+    const rate = selfPayRate(line, form.rateOverrides)
+    // With no rate there is nothing to convert through, and a stale number in
+    // the other unit would be worse than an empty cell.
+    if (!rate) {
+      scholarship[line.key] = ''
+      continue
+    }
+    scholarship[line.key] = toUnits ? trimUnits(value / rate) : String(round2(value * rate))
+  }
+  return { ...form, scholarshipMode: mode, scholarship }
+}
+
+// Enough decimals that the units convert back to the same cent, with none of
+// the trailing zeros that would make a whole session look like a fraction.
+function trimUnits(n) {
+  return String(Number(n.toFixed(6)))
 }
 
 function round2(n) {
