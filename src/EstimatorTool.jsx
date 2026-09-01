@@ -16,13 +16,17 @@ import {
   defaultUnitsFor,
   estimateBlockers,
   formatMoney,
+  formatPercent,
+  formatUnits,
   isOtherCarrier,
   needsNetworkChoice,
   resolveRate,
   sequenceIncludes,
   sequenceLocs,
+  unitNoun,
 } from './estimate.js'
 import { generateEstimateOutput } from './estimateOutput.js'
+import { computeHardship, hardshipBlockers } from './hardship.js'
 import { TREATMENT_SEQUENCES } from './data/rates.js'
 import { LOCATIONS, getLocation } from './data/contractRates.js'
 import { miscRate } from './data/reimbursement.js'
@@ -234,7 +238,8 @@ export default function EstimatorTool() {
   )
 
   const result = useMemo(() => computeEstimate(form), [form])
-  const blockers = useMemo(() => estimateBlockers(form), [form])
+  const hardship = useMemo(() => computeHardship(result, form), [result, form])
+  const blockers = useMemo(() => [...estimateBlockers(form), ...hardshipBlockers(form)], [form])
   const { inpatient, outpatient } = result
   const locs = sequenceLocs(form.treatmentSequence)
   const copayActive = form.copayBasis !== COPAY_BASIS.NA
@@ -253,8 +258,8 @@ export default function EstimatorTool() {
   // what is on screen is always this estimate rather than an older one, and an
   // edit that reopens a blocker takes the quote back down with it.
   const output = useMemo(
-    () => (showOutput ? generateEstimateOutput(form, result, blockers) : null),
-    [showOutput, form, result, blockers]
+    () => (showOutput ? generateEstimateOutput(form, result, blockers, hardship) : null),
+    [showOutput, form, result, blockers, hardship]
   )
 
   return (
@@ -637,6 +642,47 @@ export default function EstimatorTool() {
             ))}
           </LineTable>
         </Section>
+
+        <Section
+          title="Hardship"
+          eyebrow="Step 7"
+          description="Turn this on only when a client cannot meet the deposit. Everything above stays exactly as it is — hardship splits the deposit, it does not change the estimate."
+        >
+          <Field label="Hardship / scholarship required?">
+            <SegmentedControl
+              name="hardship"
+              options={['No', 'Yes']}
+              value={form.hardship}
+              onChange={set('hardship')}
+            />
+          </Field>
+          {form.hardship === 'Yes' && (
+            <>
+              <Field
+                label="Total the client can afford"
+                htmlFor="clientCanAfford"
+                hint="Applied to the deposit in the order care is delivered: the earliest level of care takes what it can, and hardship covers everything the money does not reach."
+                required
+              >
+                <CurrencyInput
+                  id="clientCanAfford"
+                  value={form.clientCanAfford}
+                  onChange={set('clientCanAfford')}
+                />
+              </Field>
+              <div className="result-detail">
+                <div className="result-detail-row">
+                  <span>Deposit under review</span>
+                  <span className="strong">{formatMoney(hardship.deposit)}</span>
+                </div>
+                <div className="result-detail-row">
+                  <span>Hardship required</span>
+                  <span className="strong">{formatMoney(hardship.scholarship)}</span>
+                </div>
+              </div>
+            </>
+          )}
+        </Section>
       </div>
 
       {/* ── The estimate ─────────────────────────────────────────────── */}
@@ -656,10 +702,27 @@ export default function EstimatorTool() {
             />
 
             <StatRow>
-              <StatTile label="Inpatient deposit" value={formatMoney(inpatient.deposit, { decimals: 0 })} />
-              <StatTile label="Outpatient deposit" value={formatMoney(outpatient.deposit, { decimals: 0 })} />
-              {result.previousBalance > 0 && (
-                <StatTile label="Prior balance" value={formatMoney(result.previousBalance, { decimals: 0 })} />
+              {hardship.active ? (
+                <>
+                  <StatTile
+                    label="Client pays"
+                    value={formatMoney(hardship.clientPays, { decimals: 0 })}
+                    tone="accent"
+                  />
+                  <StatTile
+                    label="Hardship covers"
+                    value={formatMoney(hardship.scholarship, { decimals: 0 })}
+                    caption={formatPercent(hardship.scholarshipPercent, 1)}
+                  />
+                </>
+              ) : (
+                <>
+                  <StatTile label="Inpatient deposit" value={formatMoney(inpatient.deposit, { decimals: 0 })} />
+                  <StatTile label="Outpatient deposit" value={formatMoney(outpatient.deposit, { decimals: 0 })} />
+                  {result.previousBalance > 0 && (
+                    <StatTile label="Prior balance" value={formatMoney(result.previousBalance, { decimals: 0 })} />
+                  )}
+                </>
               )}
             </StatRow>
 
@@ -674,6 +737,85 @@ export default function EstimatorTool() {
               </button>
             </div>
           </div>
+
+          {hardship.active && (
+            <div className="result-card">
+              <h3 className="result-heading">Hardship allocation</h3>
+              <p className="result-note">
+                What the client can afford is applied to the deposit in the order care is
+                delivered. The level of care where the money runs out is the one that splits;
+                everything after it is carried by hardship.
+              </p>
+              <Meter
+                label="Carried by hardship"
+                value={hardship.scholarship}
+                total={hardship.deposit}
+                valueText={formatMoney(hardship.scholarship, { decimals: 0 })}
+                totalText={`${formatMoney(hardship.deposit, { decimals: 0 })} deposit`}
+                tone="warn"
+              />
+              <Meter
+                label="Paid by the client"
+                value={hardship.clientPays}
+                total={hardship.deposit}
+                valueText={formatMoney(hardship.clientPays, { decimals: 0 })}
+                totalText={`${formatMoney(hardship.deposit, { decimals: 0 })} deposit`}
+                tone="accent"
+              />
+              {hardship.rows.length > 0 && (
+                <table className="line-table line-table-compact">
+                  <thead>
+                    <tr>
+                      <th>Applied to</th>
+                      <th className="num">Client pays</th>
+                      <th className="num">Hardship</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {hardship.rows.map((row) => (
+                      <tr key={row.key} className={row.clientPays === 0 ? 'row-inactive' : ''}>
+                        <td>
+                          {row.label}
+                          <span className="cell-sub">
+                            owes {formatMoney(row.responsibility, { decimals: 0 })}
+                            {row.units > 0 &&
+                              row.scholarship > 0 &&
+                              ` · ${formatUnits(row.coveredUnits)} of ${formatUnits(row.units)} ${unitNoun(row.units, row.unitNoun)} covered`}
+                            {row.split && ' · splits here'}
+                          </span>
+                        </td>
+                        <td className="num strong">{formatMoney(row.clientPays, { decimals: 0 })}</td>
+                        <td className="num">{formatMoney(row.scholarship, { decimals: 0 })}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td>Totals</td>
+                      <td className="num strong">{formatMoney(hardship.clientPays, { decimals: 0 })}</td>
+                      <td className="num strong">{formatMoney(hardship.scholarship, { decimals: 0 })}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              )}
+            </div>
+          )}
+
+          {hardship.surplus > 0 && (
+            <Banner tone="info">
+              The client can afford {formatMoney(hardship.canAfford, { decimals: 0 })}, which is{' '}
+              {formatMoney(hardship.surplus, { decimals: 0 })} more than this deposit asks for. No
+              hardship is required — the surplus is not credited against anything here.
+            </Banner>
+          )}
+
+          {hardship.coversPreviousBalance > 0 && (
+            <Banner tone="warn">
+              Hardship is covering {formatMoney(hardship.coversPreviousBalance)} of the balance
+              already owed on the account. Forgiving an old balance is a separate decision from
+              covering this admission — confirm it is intended before quoting.
+            </Banner>
+          )}
 
           {output && <OutputPanel output={output} />}
 

@@ -1434,6 +1434,19 @@ textarea {
   font-size: 1rem;
 }
 
+/* A line table in the narrow result column: fewer columns, tighter type, and
+   the detail that would be a column of its own tucked under the label. */
+.line-table-compact {
+  margin-top: 14px;
+}
+
+.line-table-compact th,
+.line-table-compact td {
+  padding-left: 6px;
+  padding-right: 6px;
+  font-size: 0.82rem;
+}
+
 /* A second figure under a total — the same number restated as a share. */
 .cell-sub {
   display: block;

@@ -8,7 +8,7 @@
 // covered at the same rate, and the dollars on each side.
 
 import { useMemo, useState } from 'react'
-import { formatMoney, formatPercent, sequenceLocs } from './estimate.js'
+import { formatMoney, formatPercent, sequenceLocs, unitNoun } from './estimate.js'
 import { TREATMENT_SEQUENCES } from './data/rates.js'
 import {
   INITIAL_SELF_PAY_STATE,
@@ -36,13 +36,11 @@ import {
   StatTile,
 } from './ui.jsx'
 
-// Units are whole where they can be. A dollar scholarship that lands mid-night
-// is shown to a decimal rather than rounded into looking tidy.
+// A dollar scholarship that lands mid-night is shown as the fraction it is
+// rather than rounded into looking tidy, so this keeps two decimals where the
+// shared formatter keeps one.
 const unitText = (n) => (Math.abs(n - Math.round(n)) < 1e-9 ? String(Math.round(n)) : n.toFixed(2))
-
-// "1 session", not "1 sessions" — the copied summary goes straight into a note
-// to a client, so it has to read like a sentence someone wrote.
-const noun = (n, unitNoun) => (Math.abs(n - 1) < 1e-9 ? unitNoun.replace(/s$/, '') : unitNoun)
+const noun = unitNoun
 
 function LineRows({ lines, form, byUnits, onUnits, onScholarship, onRate }) {
   return lines.map((line) => (

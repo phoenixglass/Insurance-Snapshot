@@ -250,6 +250,18 @@ export function formatMoney(value, { decimals = 2 } = {}) {
   })}`
 }
 
+// A count of nights, sessions or visits. Whole where it is whole — a fraction
+// appears only when the number really is one, which is the case worth seeing.
+export function formatUnits(value) {
+  const n = toNumber(value)
+  return Math.abs(n - Math.round(n)) < 0.05 ? String(Math.round(n)) : n.toFixed(1)
+}
+
+// "1 session", not "1 sessions" — these strings are read by clients.
+export function unitNoun(count, noun) {
+  return Math.abs(toNumber(count) - 1) < 1e-9 ? noun.replace(/s$/, '') : noun
+}
+
 export function formatPercent(fraction, decimals = 1) {
   return `${(toNumber(fraction) * 100).toFixed(decimals)}%`
 }
@@ -273,6 +285,11 @@ export const INITIAL_ESTIMATE_STATE = {
   admissionFeeInOopm: 'No',
   treatmentSequence: '',
   previousBalance: '',
+  // Hardship is off until someone turns it on: a deposit estimate is the same
+  // estimate whether or not the client can pay it, and the panel that splits it
+  // stays out of the way until it is asked for.
+  hardship: 'No',
+  clientCanAfford: '',
   nights: { detox: String(INPATIENT_LINES[0].nights), residential: String(INPATIENT_LINES[1].nights) },
   // Only what the user typed. A blank falls back to the sequence's own default,
   // so changing the pathway re-bases every count that was never overridden.
