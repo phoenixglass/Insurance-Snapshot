@@ -250,6 +250,18 @@ export function formatMoney(value, { decimals = 2 } = {}) {
   })}`
 }
 
+// A count of nights, sessions or visits. Whole where it is whole — a fraction
+// appears only when the number really is one, which is the case worth seeing.
+export function formatUnits(value) {
+  const n = toNumber(value)
+  return Math.abs(n - Math.round(n)) < 0.05 ? String(Math.round(n)) : n.toFixed(1)
+}
+
+// "1 session", not "1 sessions" — these strings are read by clients.
+export function unitNoun(count, noun) {
+  return Math.abs(toNumber(count) - 1) < 1e-9 ? noun.replace(/s$/, '') : noun
+}
+
 export function formatPercent(fraction, decimals = 1) {
   return `${(toNumber(fraction) * 100).toFixed(decimals)}%`
 }
@@ -269,10 +281,18 @@ export const INITIAL_ESTIMATE_STATE = {
   copayTreatment: COPAY_TREATMENT.NA,
   copayAppliesToDeductible: 'Not Applicable',
   copayAppliesToOop: 'Not Applicable',
+  // Per level of care, only where a plan departs from its own terms:
+  // { IOP: { deductibleApplies: 'No', copayAmount: '50', copayBasis: '…' } }
+  levelRules: {},
   admissionFees: { detox: '', residential: '', opwm: '', php: '', iop: '', op: '' },
   admissionFeeInOopm: 'No',
   treatmentSequence: '',
   previousBalance: '',
+  // Hardship is off until someone turns it on: a deposit estimate is the same
+  // estimate whether or not the client can pay it, and the panel that splits it
+  // stays out of the way until it is asked for.
+  hardship: 'No',
+  clientCanAfford: '',
   nights: { detox: String(INPATIENT_LINES[0].nights), residential: String(INPATIENT_LINES[1].nights) },
   // Only what the user typed. A blank falls back to the sequence's own default,
   // so changing the pathway re-bases every count that was never overridden.
@@ -386,10 +406,94 @@ function applyCostShare({
   }
 }
 
+// ── Level-of-care rules ──────────────────────────────────────────────────────
+// The workbook states the plan's terms once and applies them to the whole
+// episode. Real benefit checks are not always that tidy: a plan can waive the
+// deductible for IOP and charge it in OP, or attach a different copay to each
+// level of care, inside one `IOP > OP` sequence.
+//
+// So the plan terms are the default and a level may override them. Only what a
+// verification call actually established is entered; every level left alone
+// reads the plan-wide answer, which is why an estimate with no overrides is the
+// same estimate the workbook computes.
+
+export const LEVEL_RULE_LOCS = [
+  { loc: SEQ_LOC.DETOX, label: 'Detox' },
+  { loc: SEQ_LOC.RESIDENTIAL, label: 'Residential' },
+  { loc: SEQ_LOC.OPWM, label: 'OPWM' },
+  { loc: SEQ_LOC.PHP, label: 'PHP' },
+  { loc: SEQ_LOC.IOP, label: 'IOP' },
+  { loc: SEQ_LOC.OP, label: 'OP' },
+]
+
+// The rules in force for one level of care: the plan's terms, with whatever
+// this level overrides laid over them. `deductibleOverridden` and
+// `copayOverridden` matter downstream — a manual-total copay is charged once
+// for a block, and a level that states its own is charged separately from it.
+export function levelRule(form, loc) {
+  const rule = form.levelRules?.[loc] || {}
+  const deductibleOverridden = rule.deductibleApplies === 'No'
+  const copayAmountSet = rule.copayAmount !== undefined && rule.copayAmount !== ''
+  const copayBasisSet = Boolean(rule.copayBasis)
+  return {
+    loc,
+    deductibleApplies: !deductibleOverridden,
+    deductibleOverridden,
+    copayOverridden: copayAmountSet || copayBasisSet,
+    copayAmount: copayAmountSet ? toNumber(rule.copayAmount) : toNumber(form.copayAmount),
+    copayBasis: copayBasisSet ? rule.copayBasis : form.copayBasis,
+  }
+}
+
+// Whether any level of care in this sequence departs from the plan's terms. The
+// screen and the written output both say so when it does: a deposit computed
+// under mixed rules is not something to discover from a number alone.
+export function hasLevelOverrides(form) {
+  return LEVEL_RULE_LOCS.some(({ loc }) => {
+    if (!sequenceIncludes(form.treatmentSequence, loc)) return false
+    const rule = levelRule(form, loc)
+    return rule.deductibleOverridden || rule.copayOverridden
+  })
+}
+
+export function levelOverrideSummary(form) {
+  return LEVEL_RULE_LOCS.filter(({ loc }) => sequenceIncludes(form.treatmentSequence, loc))
+    .map(({ loc }) => ({ loc, ...levelRule(form, loc) }))
+    .filter((r) => r.deductibleOverridden || r.copayOverridden)
+}
+
+// The copay a level collects, given the units inside it. The basis decides what
+// it is charged against; a manual total is not charged here because it is one
+// charge for a block rather than a per-unit one, and blockCopay settles it.
+function levelUnitCopay(rule, locLines) {
+  if (rule.copayAmount <= 0 || rule.copayBasis === COPAY_BASIS.NA) return { copay: 0, units: 0 }
+  if (rule.copayBasis === COPAY_BASIS.PER_UNIT) {
+    const units = locLines.reduce((sum, l) => sum + (l.units ?? l.nights ?? 0), 0)
+    return { copay: units * rule.copayAmount, units }
+  }
+  if (rule.copayBasis === COPAY_BASIS.PROFESSIONAL_ONLY) {
+    const units = locLines.reduce((sum, l) => sum + (l.professional ? l.units ?? 0 : 0), 0)
+    return { copay: units * rule.copayAmount, units }
+  }
+  return { copay: 0, units: 0 }
+}
+
+// A manual-total copay is one charge for a block, not one per level — that is
+// what the workbook collects, and it stays true while every level reads the
+// plan's amount. A level that states its own manual copay is charged separately,
+// and the plan-wide charge survives only if some level is still on it.
+function blockManualCopay(form, rules) {
+  const manual = rules.filter((r) => r.copayBasis === COPAY_BASIS.MANUAL && r.copayAmount > 0)
+  if (manual.length === 0) return 0
+  const overridden = manual.filter((r) => r.copayOverridden)
+  const planWide = manual.some((r) => !r.copayOverridden) ? toNumber(form.copayAmount) : 0
+  return overridden.reduce((sum, r) => sum + r.copayAmount, 0) + planWide
+}
+
 // ── Inpatient waterfall (rows 5–16) ──────────────────────────────────────────
 
 function computeInpatient(form, ctx) {
-  const { sequence, coins, copayAmount, basis, deductibleRemaining, oopmRemaining } = ctx
+  const { sequence, coins, deductibleRemaining, oopmRemaining } = ctx
 
   const lines = INPATIENT_LINES.map((line) => {
     const active = sequenceIncludes(sequence, line.loc)
@@ -400,13 +504,17 @@ function computeInpatient(form, ctx) {
   })
 
   const totalAllowed = lines.reduce((sum, l) => sum + l.allowed, 0)
+  const rules = lines.filter((l) => l.active).map((l) => levelRule(form, l.loc))
 
   // F10 / G10 — the deductible is consumed in sequence order: detox takes what
-  // it can, residential takes what detox left.
+  // it can, residential takes what detox left. A level the plan does not apply
+  // the deductible to takes none of it and passes the whole pool on.
   let deductiblePool = deductibleRemaining
   lines.forEach((line) => {
-    const applied = line.active ? Math.min(deductiblePool, line.allowed) : 0
+    const rule = levelRule(form, line.loc)
+    const applied = line.active && rule.deductibleApplies ? Math.min(deductiblePool, line.allowed) : 0
     line.deductibleApplied = applied
+    line.deductibleWaived = line.active && !rule.deductibleApplies
     deductiblePool = clampAtZero(deductiblePool - applied)
   })
   const deductibleApplied = lines.reduce((sum, l) => sum + l.deductibleApplied, 0)
@@ -417,14 +525,20 @@ function computeInpatient(form, ctx) {
   })
   const coinsurance = lines.reduce((sum, l) => sum + l.coinsurance, 0)
 
-  // F12 / G12 — a manual-total copay is one charge across the whole inpatient
-  // stay, so residential only carries it when detox is not in the sequence.
-  let copay = 0
-  if (basis === COPAY_BASIS.MANUAL) {
-    copay = lines.some((l) => l.active) ? copayAmount : 0
-  } else if (basis === COPAY_BASIS.PER_UNIT) {
-    copay = lines.reduce((sum, l) => sum + (l.active ? l.nights * copayAmount : 0), 0)
-  }
+  // F12 / G12 — a per-night copay is charged level by level under that level's
+  // own terms; a manual total is one charge for the stay.
+  let copay = blockManualCopay(form, rules)
+  let copayUnits = 0
+  lines.forEach((line) => {
+    if (!line.active) {
+      line.copay = 0
+      return
+    }
+    const { copay: lineCopay, units } = levelUnitCopay(levelRule(form, line.loc), [line])
+    line.copay = lineCopay
+    copay += lineCopay
+    copayUnits += units
+  })
   // "Professional Visit Only" prices individually billed visits. A per diem
   // night is not one, so the inpatient block collects no copay under it.
 
@@ -433,7 +547,7 @@ function computeInpatient(form, ctx) {
     0
   )
 
-  const share = applyCostShare({
+  const shareInputs = {
     deductibleApplied,
     coinsurance,
     copay,
@@ -442,23 +556,14 @@ function computeInpatient(form, ctx) {
     copayReplacesCoinsurance: ctx.copayReplacesCoinsurance,
     copayToDeductible: ctx.copayToDeductible,
     copayToOop: ctx.copayToOop,
-  })
+  }
+  const share = applyCostShare(shareInputs)
 
   // H16 — an admission fee that counts toward the maximum is capped with
   // everything else; one that does not is simply added on top of the capped
   // responsibility.
   const withFee = ctx.admissionFeeInOopm
-    ? applyCostShare({
-        deductibleApplied,
-        coinsurance,
-        copay,
-        oopRemaining: oopmRemaining,
-        deductibleInOopm: ctx.deductibleInOopm,
-        copayReplacesCoinsurance: ctx.copayReplacesCoinsurance,
-        copayToDeductible: ctx.copayToDeductible,
-        copayToOop: ctx.copayToOop,
-        extraInsideCap: admissionFees,
-      }).afterCap
+    ? applyCostShare({ ...shareInputs, extraInsideCap: admissionFees }).afterCap
     : share.afterCap + admissionFees
 
   return {
@@ -470,6 +575,7 @@ function computeInpatient(form, ctx) {
     deductibleApplied,
     coinsurance,
     copay,
+    copayUnits,
     // What the waterfall actually charged, as against what it was handed: a
     // copay credited to the deductible is not collected twice, and a copay that
     // replaces coinsurance leaves no coinsurance behind it. The outputs quote
@@ -493,33 +599,116 @@ function computeInpatient(form, ctx) {
   }
 }
 
-// ── Outpatient waterfall (rows 20–41) ────────────────────────────────────────
+// ── Outpatient service rows ──────────────────────────────────────────────────
+// A service shared between IOP and OP is one row while only one of them is in
+// the sequence, and one row per level when both are — because two levels can
+// carry different rules, and "nineteen individual sessions" cannot be split
+// between them after the fact. The counts were always defined per level of
+// care; this is where that becomes visible.
+//
+// A count typed against the whole service (which is what the row was before it
+// split, and what a saved estimate carries) is divided between the levels in
+// the proportion their defaults describe, so the total the user entered is the
+// total that gets priced.
+function splitUnits(line, locs, form) {
+  const explicit = {}
+  let anyExplicit = false
+  for (const loc of locs) {
+    const entered = form.units?.[`${line.key}:${loc}`]
+    if (entered !== undefined && entered !== '') {
+      explicit[loc] = toNumber(entered)
+      anyExplicit = true
+    }
+  }
 
-function computeOutpatient(form, ctx, inpatient) {
-  const { sequence, coins, copayAmount, basis } = ctx
+  const defaults = Object.fromEntries(locs.map((loc) => [loc, line.defaultUnits[loc] || 0]))
+  const defaultTotal = locs.reduce((sum, loc) => sum + defaults[loc], 0)
+
+  // What a level falls back to when nothing was typed against it: its share of
+  // a total entered for the whole service, or its own default.
+  const total = form.units?.[line.key]
+  const fallback = {}
+  if (total !== undefined && total !== '') {
+    const entered = toNumber(total)
+    let assigned = 0
+    locs.forEach((loc, i) => {
+      if (i === locs.length - 1) {
+        // The last level takes the remainder, so the split is exact rather than
+        // a rounding of the number somebody typed.
+        fallback[loc] = entered - assigned
+        return
+      }
+      const portion = defaultTotal > 0 ? (defaults[loc] / defaultTotal) * entered : 0
+      fallback[loc] = portion
+      assigned += portion
+    })
+  } else {
+    for (const loc of locs) fallback[loc] = defaults[loc]
+  }
+
+  if (!anyExplicit) return fallback
+  return Object.fromEntries(locs.map((loc) => [loc, explicit[loc] ?? fallback[loc]]))
+}
+
+function outpatientLines(form, ctx) {
+  const { sequence } = ctx
   const bundled = ctx.network === 'INN' && form.bundledInnIop === 'Yes'
+  const activeLocs = OUTPATIENT_LOCS.filter((loc) => sequenceIncludes(sequence, loc))
 
-  const lines = SERVICE_LINES.map((line) => {
-    const inSequence = line.activatedBy.some((loc) => sequenceIncludes(sequence, loc))
+  const row = (line, loc, units, { inSequence, split }) => {
     const bundledOut = bundled && line.bundledOutInnIop && sequenceIncludes(sequence, SEQ_LOC.IOP)
     const active = inSequence && !bundledOut
-    const units = unitsFor(line, form)
     const rate = ctx.rateFor(line.code)
     return {
       ...line,
+      key: split ? `${line.key}:${loc}` : line.key,
+      lineKey: line.key,
+      label: split ? `${line.label} (${loc})` : line.label,
+      loc,
+      split,
       inSequence,
       bundledOut,
       active,
       units,
       rate,
-      afterDeductibleRate: rate === null ? null : rate * coins,
+      afterDeductibleRate: rate === null ? null : rate * ctx.coins,
       allowed: active && rate !== null ? units * rate : 0,
       rateMissing: active && rate === null,
     }
-  })
+  }
+
+  const rows = []
+  for (const line of SERVICE_LINES) {
+    const locs = line.activatedBy.filter((loc) => activeLocs.includes(loc))
+    if (locs.length === 0) {
+      rows.push(row(line, null, unitsFor(line, form), { inSequence: false, split: false }))
+      continue
+    }
+    // The intake, the evaluation and the follow-ups are one course for the
+    // admission rather than one per level, so they stay a single row and belong
+    // to the level the client was admitted to.
+    if (locs.length === 1 || line.oncePerEpisode) {
+      rows.push(row(line, locs[0], unitsFor(line, form), { inSequence: true, split: false }))
+      continue
+    }
+    const share = splitUnits(line, locs, form)
+    for (const loc of locs) {
+      rows.push(row(line, loc, share[loc], { inSequence: true, split: true }))
+    }
+  }
+  return rows
+}
+
+// ── Outpatient waterfall (rows 20–41) ────────────────────────────────────────
+
+function computeOutpatient(form, ctx, inpatient) {
+  const { sequence, coins } = ctx
+  const bundled = ctx.network === 'INN' && form.bundledInnIop === 'Yes'
+  const lines = outpatientLines(form, ctx)
 
   const totalAllowed = lines.reduce((sum, l) => sum + l.allowed, 0)
-  const anyActive = OUTPATIENT_LOCS.some((loc) => sequenceIncludes(sequence, loc))
+  const activeLocs = OUTPATIENT_LOCS.filter((loc) => sequenceIncludes(sequence, loc))
+  const anyActive = activeLocs.length > 0
 
   // J32 / J33 — the outpatient block starts from what the inpatient block left.
   const deductibleAtEntry = clampAtZero(ctx.deductibleRemaining - inpatient.deductibleApplied)
@@ -533,22 +722,50 @@ function computeOutpatient(form, ctx, inpatient) {
         )
     : 0
 
-  const deductibleApplied = anyActive ? Math.min(deductibleAtEntry, totalAllowed) : 0
-  const coinsurance = anyActive ? clampAtZero(totalAllowed - deductibleApplied) * coins : 0
-
-  // J37 — how many units the copay is charged against.
+  // J35 / J36 — the deductible is spent level by level in the order care is
+  // delivered, and a level the plan waives it for passes the pool along
+  // untouched. With one set of rules across the episode this is the same
+  // subtraction the block did as a whole.
+  const rules = activeLocs.map((loc) => levelRule(form, loc))
+  let deductiblePool = deductibleAtEntry
   let copayUnits = 0
-  if (basis === COPAY_BASIS.PER_UNIT) {
-    copayUnits = lines.reduce((sum, l) => sum + (l.active ? l.units : 0), 0)
-  } else if (basis === COPAY_BASIS.PROFESSIONAL_ONLY) {
-    copayUnits = lines.reduce((sum, l) => sum + (l.active && l.professional ? l.units : 0), 0)
-  }
-  let copay = 0
-  if (anyActive) {
-    copay = basis === COPAY_BASIS.MANUAL ? copayAmount : copayUnits * copayAmount
-  }
+  let unitCopay = 0
+  const levels = activeLocs.map((loc) => {
+    const rule = levelRule(form, loc)
+    const locLines = lines.filter((l) => l.active && l.loc === loc)
+    const allowed = locLines.reduce((sum, l) => sum + l.allowed, 0)
+    const deductible = rule.deductibleApplies ? Math.min(deductiblePool, allowed) : 0
+    deductiblePool = clampAtZero(deductiblePool - deductible)
+    const coinsurance = clampAtZero(allowed - deductible) * coins
 
-  const share = applyCostShare({
+    // The level's deductible spread across its own rows, in the order they are
+    // listed. Nothing downstream has to guess what a single line costs.
+    let linePool = deductible
+    locLines.forEach((l) => {
+      l.deductibleApplied = Math.min(linePool, l.allowed)
+      linePool = clampAtZero(linePool - l.deductibleApplied)
+      l.coinsurance = clampAtZero(l.allowed - l.deductibleApplied) * coins
+      l.deductibleWaived = !rule.deductibleApplies
+    })
+
+    const { copay: levelCopay, units } = levelUnitCopay(rule, locLines)
+    unitCopay += levelCopay
+    copayUnits += units
+    return { loc, rule, allowed, deductible, coinsurance, copay: levelCopay, lines: locLines }
+  })
+
+  lines.forEach((l) => {
+    if (l.deductibleApplied === undefined) {
+      l.deductibleApplied = 0
+      l.coinsurance = 0
+    }
+  })
+
+  const deductibleApplied = levels.reduce((sum, l) => sum + l.deductible, 0)
+  const coinsurance = levels.reduce((sum, l) => sum + l.coinsurance, 0)
+  const copay = anyActive ? unitCopay + blockManualCopay(form, rules) : 0
+
+  const shareInputs = {
     deductibleApplied,
     coinsurance,
     copay,
@@ -557,24 +774,16 @@ function computeOutpatient(form, ctx, inpatient) {
     copayReplacesCoinsurance: ctx.copayReplacesCoinsurance,
     copayToDeductible: ctx.copayToDeductible,
     copayToOop: ctx.copayToOop,
-  })
+  }
+  const share = applyCostShare(shareInputs)
 
   const withFee = ctx.admissionFeeInOopm
-    ? applyCostShare({
-        deductibleApplied,
-        coinsurance,
-        copay,
-        oopRemaining: oopAtEntry,
-        deductibleInOopm: ctx.deductibleInOopm,
-        copayReplacesCoinsurance: ctx.copayReplacesCoinsurance,
-        copayToDeductible: ctx.copayToDeductible,
-        copayToOop: ctx.copayToOop,
-        extraInsideCap: admissionFees,
-      }).afterCap
+    ? applyCostShare({ ...shareInputs, extraInsideCap: admissionFees }).afterCap
     : share.afterCap + admissionFees
 
   return {
     lines,
+    levels,
     active: anyActive,
     bundled,
     totalAllowed,
@@ -711,7 +920,29 @@ export function estimateBlockers(form) {
   if (toNumber(form.copayAmount) > 0 && form.copayBasis === COPAY_BASIS.NA) {
     blockers.push('A copay amount is entered but its basis is "Not Applicable" — it will not be collected')
   }
-  if (toNumber(form.copayAmount) > 0) {
+  // A level of care that states its own copay is held to the same questions as
+  // the plan-wide one: an amount with no basis collects nothing, and a copay
+  // whose accumulator treatment was never established drops out of the deposit
+  // silently. Neither is something to discover after quoting.
+  const levelCopays = LEVEL_RULE_LOCS.filter(
+    ({ loc }) =>
+      sequenceIncludes(form.treatmentSequence, loc) &&
+      toNumber(form.levelRules?.[loc]?.copayAmount) > 0
+  ).map(({ loc, label }) => ({ label, rule: levelRule(form, loc) }))
+
+  for (const { label, rule } of levelCopays) {
+    if (rule.copayBasis === COPAY_BASIS.NA) {
+      blockers.push(
+        `${label} has a copay amount but its basis is "Not Applicable" — it will not be collected`
+      )
+    }
+  }
+
+  const copayInForce =
+    toNumber(form.copayAmount) > 0 ||
+    levelCopays.some(({ rule }) => rule.copayAmount > 0 && rule.copayBasis !== COPAY_BASIS.NA)
+
+  if (copayInForce) {
     if (form.copayAppliesToDeductible === 'Not Applicable') {
       blockers.push('State whether the copay applies to the deductible')
     }

@@ -10,19 +10,26 @@ import {
   COPAY_TREATMENT,
   INITIAL_ESTIMATE_STATE,
   CARRIER_OPTIONS,
+  LEVEL_RULE_LOCS,
   SERVICE_LINES,
   carriersWithRate,
   computeEstimate,
-  defaultUnitsFor,
   estimateBlockers,
   formatMoney,
+  formatPercent,
+  formatUnits,
+  hasLevelOverrides,
   isOtherCarrier,
+  levelRule,
   needsNetworkChoice,
   resolveRate,
   sequenceIncludes,
   sequenceLocs,
+  toNumber,
+  unitNoun,
 } from './estimate.js'
 import { generateEstimateOutput } from './estimateOutput.js'
+import { computeHardship, hardshipBlockers } from './hardship.js'
 import { TREATMENT_SEQUENCES } from './data/rates.js'
 import { LOCATIONS, getLocation } from './data/contractRates.js'
 import { miscRate } from './data/reimbursement.js'
@@ -228,16 +235,36 @@ export default function EstimatorTool() {
       return { ...prev, rateOverrides: next }
     })
 
+  // A level's own terms. Clearing a field puts that level back on the plan's
+  // answer rather than storing a second copy of it.
+  const setLevelRule = (loc, field) => (value) =>
+    setForm((prev) => {
+      const rule = { ...(prev.levelRules[loc] || {}) }
+      if (value === '' || value === undefined) delete rule[field]
+      else rule[field] = value
+      const levelRules = { ...prev.levelRules }
+      if (Object.keys(rule).length === 0) delete levelRules[loc]
+      else levelRules[loc] = rule
+      return { ...prev, levelRules }
+    })
+
   const resetUnits = () => setForm((prev) => ({ ...prev, units: {} }))
-  const unitsEdited = SERVICE_LINES.some(
-    (l) => form.units[l.key] !== undefined && form.units[l.key] !== ''
-  )
+  // Any count the user typed, whether against a service or against one level
+  // of care inside it.
+  const unitsEdited = Object.values(form.units).some((v) => v !== undefined && v !== '')
 
   const result = useMemo(() => computeEstimate(form), [form])
-  const blockers = useMemo(() => estimateBlockers(form), [form])
+  const hardship = useMemo(() => computeHardship(result, form), [result, form])
+  const blockers = useMemo(() => [...estimateBlockers(form), ...hardshipBlockers(form)], [form])
   const { inpatient, outpatient } = result
   const locs = sequenceLocs(form.treatmentSequence)
   const copayActive = form.copayBasis !== COPAY_BASIS.NA
+  // The levels this sequence actually names, in the order care is delivered
+  // through them. Nothing to override until a sequence is chosen.
+  const sequenceLevels = LEVEL_RULE_LOCS.filter((l) =>
+    sequenceIncludes(form.treatmentSequence, l.loc)
+  )
+  const levelsDiffer = hasLevelOverrides(form)
 
   // The client's side of the estimate, split by what created each dollar. Four
   // categories, each direct-labeled with its own value in the legend.
@@ -253,8 +280,8 @@ export default function EstimatorTool() {
   // what is on screen is always this estimate rather than an older one, and an
   // edit that reopens a blocker takes the quote back down with it.
   const output = useMemo(
-    () => (showOutput ? generateEstimateOutput(form, result, blockers) : null),
-    [showOutput, form, result, blockers]
+    () => (showOutput ? generateEstimateOutput(form, result, blockers, hardship) : null),
+    [showOutput, form, result, blockers, hardship]
   )
 
   return (
@@ -615,14 +642,14 @@ export default function EstimatorTool() {
                   {line.label}
                   {line.bundledOut && <span className="row-off row-off-bundled">bundled into IOP</span>}
                   {!line.inSequence && <span className="row-off">not in sequence</span>}
-                  {line.inSequence && LINE_NOTES[line.key] && (
-                    <span className="row-off">{LINE_NOTES[line.key]}</span>
+                  {line.inSequence && LINE_NOTES[line.lineKey ?? line.key] && (
+                    <span className="row-off">{LINE_NOTES[line.lineKey ?? line.key]}</span>
                   )}
                 </td>
                 <td className="mono">{line.code}</td>
                 <td className="num">
                   <NumberInput
-                    value={form.units[line.key] ?? String(defaultUnitsFor(line, form.treatmentSequence))}
+                    value={form.units[line.key] ?? formatUnits(line.units)}
                     onChange={setNested('units', line.key)}
                   />
                 </td>
@@ -636,6 +663,119 @@ export default function EstimatorTool() {
               </tr>
             ))}
           </LineTable>
+        </Section>
+
+        <Section
+          title="Level of Care Rules"
+          eyebrow="Step 7"
+          description="Where a plan does not treat every level of care the same way. Leave a cell blank and that level uses the plan terms above — this is only for what the verification call actually established."
+        >
+          {sequenceLevels.length === 0 ? (
+            <Banner tone="info">
+              Select a treatment sequence to set rules for the levels of care in it.
+            </Banner>
+          ) : (
+            <>
+              <div className="line-table-scroll">
+                <table className="line-table">
+                  <thead>
+                    <tr>
+                      <th>Level of care</th>
+                      <th>Deductible applies?</th>
+                      <th className="num">Copay</th>
+                      <th>Copay basis</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sequenceLevels.map(({ loc, label }) => {
+                      const rule = form.levelRules[loc] || {}
+                      const effective = levelRule(form, loc)
+                      return (
+                        <tr key={loc}>
+                          <td>
+                            {label}
+                            {(effective.deductibleOverridden || effective.copayOverridden) && (
+                              <span className="row-off">own terms</span>
+                            )}
+                          </td>
+                          <td>
+                            <SegmentedControl
+                              name={`deductibleApplies-${loc}`}
+                              options={['Yes', 'No']}
+                              value={rule.deductibleApplies || 'Yes'}
+                              onChange={setLevelRule(loc, 'deductibleApplies')}
+                            />
+                          </td>
+                          <td className="num">
+                            <CurrencyInput
+                              value={rule.copayAmount ?? ''}
+                              onChange={setLevelRule(loc, 'copayAmount')}
+                              placeholder={toNumber(form.copayAmount).toFixed(2)}
+                              size="sm"
+                            />
+                          </td>
+                          <td>
+                            <Select
+                              value={rule.copayBasis || ''}
+                              onChange={setLevelRule(loc, 'copayBasis')}
+                              options={Object.values(COPAY_BASIS)}
+                              placeholder={`Plan default — ${form.copayBasis}`}
+                            />
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <Banner tone={levelsDiffer ? 'warn' : 'info'}>
+                {levelsDiffer
+                  ? 'This estimate runs on mixed rules. The deductible is spent in the order care is delivered, skipping any level that waives it, and each level collects its own copay.'
+                  : 'Every level of care is on the plan terms above. An estimate with nothing overridden here is the estimate the workbook computes.'}
+              </Banner>
+            </>
+          )}
+        </Section>
+
+        <Section
+          title="Hardship"
+          eyebrow="Step 8"
+          description="Turn this on only when a client cannot meet the deposit. Everything above stays exactly as it is — hardship splits the deposit, it does not change the estimate."
+        >
+          <Field label="Hardship / scholarship required?">
+            <SegmentedControl
+              name="hardship"
+              options={['No', 'Yes']}
+              value={form.hardship}
+              onChange={set('hardship')}
+            />
+          </Field>
+          {form.hardship === 'Yes' && (
+            <>
+              <Field
+                label="Total the client can afford"
+                htmlFor="clientCanAfford"
+                hint="Applied to the deposit in the order care is delivered: the earliest level of care takes what it can, and hardship covers everything the money does not reach."
+                required
+              >
+                <CurrencyInput
+                  id="clientCanAfford"
+                  value={form.clientCanAfford}
+                  onChange={set('clientCanAfford')}
+                />
+              </Field>
+              <div className="result-detail">
+                <div className="result-detail-row">
+                  <span>Deposit under review</span>
+                  <span className="strong">{formatMoney(hardship.deposit)}</span>
+                </div>
+                <div className="result-detail-row">
+                  <span>Hardship required</span>
+                  <span className="strong">{formatMoney(hardship.scholarship)}</span>
+                </div>
+              </div>
+            </>
+          )}
         </Section>
       </div>
 
@@ -656,10 +796,27 @@ export default function EstimatorTool() {
             />
 
             <StatRow>
-              <StatTile label="Inpatient deposit" value={formatMoney(inpatient.deposit, { decimals: 0 })} />
-              <StatTile label="Outpatient deposit" value={formatMoney(outpatient.deposit, { decimals: 0 })} />
-              {result.previousBalance > 0 && (
-                <StatTile label="Prior balance" value={formatMoney(result.previousBalance, { decimals: 0 })} />
+              {hardship.active ? (
+                <>
+                  <StatTile
+                    label="Client pays"
+                    value={formatMoney(hardship.clientPays, { decimals: 0 })}
+                    tone="accent"
+                  />
+                  <StatTile
+                    label="Hardship covers"
+                    value={formatMoney(hardship.scholarship, { decimals: 0 })}
+                    caption={formatPercent(hardship.scholarshipPercent, 1)}
+                  />
+                </>
+              ) : (
+                <>
+                  <StatTile label="Inpatient deposit" value={formatMoney(inpatient.deposit, { decimals: 0 })} />
+                  <StatTile label="Outpatient deposit" value={formatMoney(outpatient.deposit, { decimals: 0 })} />
+                  {result.previousBalance > 0 && (
+                    <StatTile label="Prior balance" value={formatMoney(result.previousBalance, { decimals: 0 })} />
+                  )}
+                </>
               )}
             </StatRow>
 
@@ -674,6 +831,85 @@ export default function EstimatorTool() {
               </button>
             </div>
           </div>
+
+          {hardship.active && (
+            <div className="result-card">
+              <h3 className="result-heading">Hardship allocation</h3>
+              <p className="result-note">
+                What the client can afford is applied to the deposit in the order care is
+                delivered. The level of care where the money runs out is the one that splits;
+                everything after it is carried by hardship.
+              </p>
+              <Meter
+                label="Carried by hardship"
+                value={hardship.scholarship}
+                total={hardship.deposit}
+                valueText={formatMoney(hardship.scholarship, { decimals: 0 })}
+                totalText={`${formatMoney(hardship.deposit, { decimals: 0 })} deposit`}
+                tone="warn"
+              />
+              <Meter
+                label="Paid by the client"
+                value={hardship.clientPays}
+                total={hardship.deposit}
+                valueText={formatMoney(hardship.clientPays, { decimals: 0 })}
+                totalText={`${formatMoney(hardship.deposit, { decimals: 0 })} deposit`}
+                tone="accent"
+              />
+              {hardship.rows.length > 0 && (
+                <table className="line-table line-table-compact">
+                  <thead>
+                    <tr>
+                      <th>Applied to</th>
+                      <th className="num">Client pays</th>
+                      <th className="num">Hardship</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {hardship.rows.map((row) => (
+                      <tr key={row.key} className={row.clientPays === 0 ? 'row-inactive' : ''}>
+                        <td>
+                          {row.label}
+                          <span className="cell-sub">
+                            owes {formatMoney(row.responsibility, { decimals: 0 })}
+                            {row.units > 0 &&
+                              row.scholarship > 0 &&
+                              ` · ${formatUnits(row.coveredUnits)} of ${formatUnits(row.units)} ${unitNoun(row.units, row.unitNoun)} covered`}
+                            {row.split && ' · splits here'}
+                          </span>
+                        </td>
+                        <td className="num strong">{formatMoney(row.clientPays, { decimals: 0 })}</td>
+                        <td className="num">{formatMoney(row.scholarship, { decimals: 0 })}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td>Totals</td>
+                      <td className="num strong">{formatMoney(hardship.clientPays, { decimals: 0 })}</td>
+                      <td className="num strong">{formatMoney(hardship.scholarship, { decimals: 0 })}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              )}
+            </div>
+          )}
+
+          {hardship.surplus > 0 && (
+            <Banner tone="info">
+              The client can afford {formatMoney(hardship.canAfford, { decimals: 0 })}, which is{' '}
+              {formatMoney(hardship.surplus, { decimals: 0 })} more than this deposit asks for. No
+              hardship is required — the surplus is not credited against anything here.
+            </Banner>
+          )}
+
+          {hardship.coversPreviousBalance > 0 && (
+            <Banner tone="warn">
+              Hardship is covering {formatMoney(hardship.coversPreviousBalance)} of the balance
+              already owed on the account. Forgiving an old balance is a separate decision from
+              covering this admission — confirm it is intended before quoting.
+            </Banner>
+          )}
 
           {output && <OutputPanel output={output} />}
 

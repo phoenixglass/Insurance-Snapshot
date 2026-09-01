@@ -140,17 +140,29 @@ function costNote(form, result) {
 
   const inpatientLocs = locsIn(form.treatmentSequence, ['detox', 'residential'])
   const outpatientLocs = locsIn(form.treatmentSequence, ['opwm', 'php', 'iop', 'op'])
+  const award = result.hardship?.active ? result.hardship : null
+  // With an award in play the split has to say what the client's money reached,
+  // not just what each block costs — otherwise the lines under a $6,000 figure
+  // add up to something else entirely.
+  const paidOf = (block) =>
+    award ? ` — client pays ${dollars(block.clientPays)}, hardship covers ${dollars(block.scholarship)}` : ''
   const split = []
   if (inpatient.active) {
     split.push(
-      `  ${joinList(inpatientLocs)}, ${plural(inpatient.totalNights, 'night', 'nights')}: ${dollars(inpatient.deposit)}.`
+      `  ${joinList(inpatientLocs)}, ${plural(inpatient.totalNights, 'night', 'nights')}: ${dollars(inpatient.deposit)}${paidOf(award?.inpatient ?? {})}.`
     )
   }
   if (outpatient.active) {
-    split.push(`  ${joinList(outpatientLocs)}: ${dollars(outpatient.deposit)}.`)
+    split.push(`  ${joinList(outpatientLocs)}: ${dollars(outpatient.deposit)}${paidOf(award?.outpatient ?? {})}.`)
   }
   if (result.previousBalance > 0) {
-    split.push(`  Balance already owed: ${dollars(result.previousBalance)}.`)
+    split.push(
+      `  Balance already owed: ${dollars(result.previousBalance)}${
+        award && award.coversPreviousBalance > 0
+          ? ` — hardship covers ${dollars(award.coversPreviousBalance)} of it`
+          : ''
+      }.`
+    )
   }
 
   const parts = componentLines(form, result)
@@ -159,14 +171,20 @@ function costNote(form, result) {
   // rather than left as a gap between a list and the number over it.
   const capped = components(form, result).total - (inpatient.deposit + outpatient.deposit)
 
+  const hardship = result.hardship
+  // A hardship award changes what the client is asked for, so the note leads
+  // with the figure they actually pay and keeps the full deposit beside it —
+  // the award is a decision the program made, not a lower price.
   return lines(
     headline(form, result),
     '',
-    `Deposit before care begins: ${dollars(result.grandTotal)}.`,
+    hardship?.active && hardship.scholarship > 0
+      ? `Deposit before care begins: ${dollars(hardship.clientPays)}, after a hardship award of ${dollars(hardship.scholarship)} against a ${dollars(result.grandTotal)} deposit.`
+      : `Deposit before care begins: ${dollars(result.grandTotal)}.`,
     // One level of care and no prior balance is already the whole story; the
     // split would only restate the number above it.
-    split.length > 1 ? '' : null,
-    split.length > 1 ? split.join('\n') : null,
+    split.length > 1 || award ? '' : null,
+    split.length > 1 || award ? split.join('\n') : null,
     parts.length > 0 ? '' : null,
     parts.length > 0 ? 'What makes that up:' : null,
     parts.length > 0 ? parts.join('\n') : null,
@@ -309,6 +327,25 @@ function staffDetail(form, result) {
     result.previousBalance > 0 ? `  Previous balance: ${formatMoney(result.previousBalance)}` : null,
     `  Estimated total deposit: ${formatMoney(result.grandTotal)}`,
     `  Estimated revenue after the client's responsibility: ${formatMoney(result.totalRevenue)}`,
+    result.hardship?.active ? '' : null,
+    result.hardship?.active ? 'HARDSHIP ALLOCATION' : null,
+    result.hardship?.active
+      ? lines(
+          `  Total the client can afford: ${formatMoney(result.hardship.canAfford)}`,
+          ...result.hardship.rows.map(
+            (r) =>
+              `  ${r.label}: owes ${formatMoney(r.responsibility)}, pays ${formatMoney(r.clientPays)}, hardship ${formatMoney(r.scholarship)}`
+          ),
+          `  Client pays: ${formatMoney(result.hardship.clientPays)}`,
+          `  Hardship award: ${formatMoney(result.hardship.scholarship)} (${(result.hardship.scholarshipPercent * 100).toFixed(1)}% of the deposit)`,
+          result.hardship.coversPreviousBalance > 0
+            ? `  Includes ${formatMoney(result.hardship.coversPreviousBalance)} of the balance already owed`
+            : null,
+          result.hardship.surplus > 0
+            ? `  Affordability exceeds the deposit by ${formatMoney(result.hardship.surplus)} — no hardship required`
+            : null
+        )
+      : null,
     result.missingRates.length > 0 ? '' : null,
     result.missingRates.length > 0 ? 'NO RATE ON FILE — THE TOTAL ABOVE IS UNDERSTATED' : null,
     result.missingRates.length > 0
@@ -377,6 +414,10 @@ function clientExplanation(form, result) {
         ? ` That figure includes the ${dollars(result.previousBalance)} still outstanding on your account.`
         : ''
     }`,
+    result.hardship?.active && result.hardship.scholarship > 0 ? '' : null,
+    result.hardship?.active && result.hardship.scholarship > 0
+      ? `We have applied a hardship award of ${dollars(result.hardship.scholarship)} to that deposit, so what we are asking you for before care begins is ${dollars(result.hardship.clientPays)}. The award covers our charges for the rest of the care in this plan; it is not a change to what your plan is billed or to the rates behind it.`
+      : null,
     '',
     'This is an estimate, not a bill. It is built from what your plan told us today, and the final amount depends on the care you actually receive. If your plan pays differently than it told us it would, we will go through the difference with you rather than simply billing it.'
   )
@@ -385,8 +426,8 @@ function clientExplanation(form, result) {
 // One estimate, three ways of saying it. `blockers` is what `estimateBlockers`
 // returned for the same form: the cost note refuses to quote over them rather
 // than printing a total nobody should read out.
-export function generateEstimateOutput(form, result, blockers = []) {
-  const withBlockers = { ...result, blockers }
+export function generateEstimateOutput(form, result, blockers = [], hardship = null) {
+  const withBlockers = { ...result, blockers, hardship }
   return {
     costNote: costNote(form, withBlockers),
     staffDetail: staffDetail(form, withBlockers),

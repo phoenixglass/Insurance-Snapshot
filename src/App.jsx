@@ -26,7 +26,7 @@ const TOOLS = [
     key: 'selfpay',
     label: 'Self-Pay',
     title: 'Self-Pay & Scholarship',
-    blurb: 'Price the same episode without insurance, against what the client can pay.',
+    blurb: 'Price the same episode without insurance, and split it between the client and a scholarship.',
     width: 'wide',
   },
   {
