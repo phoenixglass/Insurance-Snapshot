@@ -41,7 +41,7 @@ import {
 } from './estimate.js'
 import { RATE_CORRECTIONS } from './data/rateCorrections.js'
 import { chargeMasterRate, percentOfChargeRate } from './data/percentOfCharge.js'
-import { OTHER_CARRIER } from './data/reimbursement.js'
+import { OTHER_CARRIER, payerGroupFor, reimbursementRate } from './data/reimbursement.js'
 
 const CASES = JSON.parse(
   readFileSync(new URL('./__fixtures__/workbook-cases.json', import.meta.url))
@@ -360,6 +360,54 @@ describe('the carrier dropdown', () => {
   test('every option is selectable exactly once', () => {
     const values = CARRIER_OPTIONS.map((o) => o.value)
     assert.equal(new Set(values).size, values.length)
+  })
+})
+
+// Optum administers Oxford, UHC, UBH and Connecticare on one set of rates, and
+// the 2026 workbook consolidated all four onto the carriers named for it. The
+// claims history is still filed under the four old names, so a carrier the
+// sheet now calls Optum has to be able to reach it.
+describe('the Optum carriers and the claims filed under their old names', () => {
+  const rateFor = (carrier, code) =>
+    resolveRate({ ...INITIAL_ESTIMATE_STATE, carrier }, code)
+
+  test('a carrier with no bucket of its own reaches the Optum claims history', () => {
+    // Optum Chappaqua has no OPWM rate on file; before the consolidation the
+    // line cost $0 and the estimate quietly understated the deposit.
+    const r = rateFor('Optum Chappaqua', 'H0014')
+    assert.equal(r.source, 'payer-average')
+    assert.equal(r.group, 'Optum')
+    assert.ok(r.rate > 0)
+  })
+
+  test('the group is the average of the names one payer reports under', () => {
+    // 90791: Oxford 38.90, UBH 50.56, Connecticare 51.96, UMR 84.32.
+    const mean = (38.9 + 50.56 + 51.96 + 84.32) / 4
+    assert.equal(reimbursementRate('Optum Chappaqua', '90791'), Math.round(mean * 100) / 100)
+    // H0014 is reported under Oxford alone, so the average is Oxford's number.
+    assert.equal(reimbursementRate('Optum Chappaqua', 'H0014'), 482.14)
+  })
+
+  test('a carrier that has a bucket of its own keeps the narrower reading', () => {
+    // UBH-HP is UBH, and UBH's own claims are a better answer than a blend
+    // across the whole administrator.
+    assert.equal(payerGroupFor('UBH-HP').group, 'UBH')
+    assert.equal(payerGroupFor('UMR (Optum)').group, 'UMR')
+    assert.equal(reimbursementRate('UBH-HP', '90791'), 50.56)
+  })
+
+  test('it never displaces a rate the plan actually states', () => {
+    // Optum Canaan prices every code the estimator needs, so nothing here is
+    // reached at all.
+    for (const code of ['H0010', 'H0015', '90837', '90853']) {
+      assert.equal(rateFor('Optum Canaan', code).source, 'carrier')
+    }
+  })
+
+  test('a carrier Optum does not administer is untouched', () => {
+    assert.equal(payerGroupFor('Aetna -').group, 'Aetna -')
+    assert.equal(payerGroupFor('BCBS - Anthem NY').group, 'Anthem')
+    assert.equal(payerGroupFor('Teamsters'), null, 'no group is still no group')
   })
 })
 

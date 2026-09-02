@@ -25,7 +25,7 @@ Two things the app keeps past the workbook are held outside the generated file, 
 
 A rate the workbook is merely *missing* is never corrected there; it is left missing so the app can say so.
 
-The 2026 revision also **dropped five in-network carriers** — Oxford, UHC, UBH, Connecticare and Connecticare - Molina — consolidating onto the per-site `Optum …` rows, which carry the same rates. The app follows the sheet. Their claims history stays in `reimbursement.js` and still feeds the payer-group fallback for anything that maps to it.
+The 2026 revision also **dropped five in-network carriers** — Oxford, UHC, UBH, Connecticare and Connecticare - Molina — consolidating onto the per-site `Optum …` rows. Optum administers all of them on one set of contracted rates, which is why the rows are identical and why the consolidation is a rename rather than a loss. The app follows the sheet, and the claims history filed under the old names is still reachable from the carriers that replaced them (see below).
 
 The carrier dropdown is **alphabetical**, not sheet order: the workbook's list is alphabetical only down to the point where new carriers began being appended to the bottom, which made the two dozen most recently added plans the hardest ones to find. `Other — not listed` stays last, because it is a fallback rather than a carrier.
 
@@ -35,6 +35,8 @@ A carrier that has no rate for a code is *absent* from that carrier's row rather
 
 `src/data/reimbursement.js` holds the average amount actually reimbursed per code for **13 payer groups**, drawn from past claims, alongside the average charge amount.
 
+A carrier reaches a group by name, then by family: the Anthem-administered BCBS plans report under `Anthem` and the rest under `BCBS`. **Optum** is the one group not read straight from the export. Optum administers Oxford, UHC, UBH and Connecticare on one set of rates, and the 2026 revision folded all four into the carriers named for it — so a carrier the sheet now calls Optum is asking about claims filed under four older names. Picking one of the four to stand for the rest would be arbitrary, so the group averages the ones carrying the code: stable rather than a compromise, since the four sit within 13% of each other on every facility code and within 5% on the detox, IOP and PHP per diems. A carrier with a bucket of its own keeps the narrower reading — `UBH-HP` is UBH, `UMR (Optum)` is UMR — so this only reaches the carriers that had no payer group at all. It fills 23 lines that were costing $0 (OPWM and PHP at four Optum sites, and everything an IOP or OP episode needs for `GEHA-ASA (Optum)` and `UHC Student Resource -`) and moves no rate that was already priced.
+
 This is the weakest source and the last one consulted. A contracted schedule is a signed number and the carrier table is a plan's stated allowed amount; this is neither. Measured against the carrier table where both exist, it tracks closely in the middle (median ratio **0.96**) but ranges from roughly half to two-thirds above — an estimate, not a quote. Every line drawn from it is tagged `payer avg` on its row, and the result panel names those lines and says the total is an estimate.
 
 **`Misc` is not a fallback.** It is the bucket a plan the app does not carry reports under, so a listed carrier never silently inherits it — a named plan with no rate of its own gets no rate, not somebody else's average. Two things reach it, both deliberately:
@@ -42,7 +44,7 @@ This is the weakest source and the last one consulted. A contracted schedule is 
 - The carrier list ends with **"Other — not listed"**, for a plan the app does not carry. It prices entirely off Misc, states plainly that nothing is specific to the client, and asks for the network status, since an unlisted carrier has none on file.
 - A missing rate on a listed carrier shows a one-click **`misc`** button beside its field, alongside the option to type the number the verification call established. Either way the choice is the user's and the source is visible.
 
-With Misc held back this way, **16 of the 176** carrier-table gaps on a priced code fill automatically from the carrier's own payer group and **12 more** from Diversified Group's percentage of billed charges; the other 148 offer the quick-fill. 31 carriers map to no payer group and no percentage basis at all, and rely on a typed rate or the Misc button.
+With Misc held back this way, **39 of the 176** carrier-table gaps on a priced code fill automatically from the carrier's own payer group and **12 more** from Diversified Group's percentage of billed charges; the other 125 offer the quick-fill. 20 carriers map to no payer group and no percentage basis at all, and rely on a typed rate or the Misc button.
 
 ### Payers priced off our own charge master
 

@@ -126,10 +126,12 @@ describe('the cost note refuses to quote what it cannot stand behind', () => {
   })
 
   test('a service with no rate on file is named, with what it does to the total', () => {
-    // GEHA-ASA prices the two inpatient codes and nothing else, so an IOP
-    // sequence against it leaves several outpatient codes unpriced.
+    // GEHA-ASA prices a handful of codes and maps to no payer group, so an IOP
+    // sequence against it leaves several outpatient codes with no rate from any
+    // source. Its Optum-administered sibling no longer does: that one reaches
+    // the Optum claims history and prices every line.
     const { costNote } = outputFor({
-      carrier: 'GEHA-ASA (Optum)',
+      carrier: 'GEHA-ASA',
       treatmentSequence: 'IOP',
     })
     assert.match(costNote, /Do not quote yet/)
