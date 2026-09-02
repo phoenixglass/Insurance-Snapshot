@@ -259,9 +259,13 @@ export function unitsFor(line, form) {
   return defaultUnitsFor(line, form.treatmentSequence)
 }
 
+// The nights a stay is expected to run, as the workbook's own night inputs
+// state them (Insurance Calculator_v2 F6 and G6). Both are editable on the
+// form — a stay is quoted for the nights authorized, not the nights typical —
+// so these are only where the estimate starts.
 export const INPATIENT_LINES = [
   { key: 'detox', label: 'Detox', code: 'H0010', nights: 6, loc: SEQ_LOC.DETOX },
-  { key: 'residential', label: 'Residential', code: 'H0018', nights: 14, loc: SEQ_LOC.RESIDENTIAL },
+  { key: 'residential', label: 'Residential', code: 'H0018', nights: 35, loc: SEQ_LOC.RESIDENTIAL },
 ]
 
 export const ADMISSION_FEE_LOCS = [

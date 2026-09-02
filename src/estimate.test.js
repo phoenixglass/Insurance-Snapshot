@@ -185,6 +185,14 @@ describe('unit defaults', () => {
     assert.ok(near(split.grandTotal, onOneRow.grandTotal))
   })
 
+  // The form's own starting point, which is the workbook's (Insurance
+  // Calculator_v2 F6 and G6). Pinned because a default that drifts changes
+  // every estimate nobody edited, quietly.
+  test('the inpatient nights start where the workbook starts them', () => {
+    assert.equal(INITIAL_ESTIMATE_STATE.nights.detox, '6')
+    assert.equal(INITIAL_ESTIMATE_STATE.nights.residential, '35')
+  })
+
   test('a step-down accumulates therapy but not the psychiatric course', () => {
     const both = units('IOP > OP')
     assert.equal(both.individual, 19, 'individual therapy is 9 + 10')

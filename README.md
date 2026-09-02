@@ -226,7 +226,7 @@ The suite is built around one question — **does the output say what was entere
 2. **Accumulators** — What is left of the plan year as of today: deductible remaining, out-of-pocket maximum remaining, the coinsurance percentage, and whether the deductible sits inside the maximum or on top of it. Any previous outstanding balance goes here too.
 3. **Copay** — Four separate questions, each of which moves money on its own: how the copay is counted, where it stops, whether it displaces coinsurance, and which accumulators it feeds. A copay whose accumulator behavior has not been established is a blocker, not a default — it would otherwise drop out of the deposit entirely.
 4. **Admission Fees** — Charged once on entry to a level of care, and only for the levels the sequence names.
-5. **Inpatient Nights and Outpatient Services** — Counts start from the typical episode for the sequence and every one is editable, as is every rate: a number from the verification call outranks both the contracted schedule and the carrier table, and is tagged as an override.
+5. **Inpatient Nights and Outpatient Services** — Counts start from the typical episode for the sequence — the workbook's own night inputs, 6 detox and 35 residential — and every one is editable, as is every rate: a number from the verification call outranks both the contracted schedule and the carrier table, and is tagged as an override. A stay is quoted for the nights authorized, not the nights typical, so these are only where the estimate starts.
 6. **Generate the output** — Once nothing is left in *Resolve before quoting*, the deposit is quotable. **Generate output** produces the three views:
    - **Cost Note** — the default. The deposit and what makes it up, in the shape the billing team already reads out. This is the part that gets read to the client.
    - **Staff Detail** — the plan terms as entered, every priced line, and both waterfalls line by line.
@@ -243,16 +243,16 @@ What that costs is prose, so the prose is on a switch rather than gone. Every st
 ### What the Cost Note looks like
 
 ```
-Oxford (in network) — Detox > Residential > IOP > OP.
+Optum Canaan (in network) — Detox > Residential > IOP > OP.
 
-Deposit: $8,228.
+Deposit: $12,598.
 
-  Detox and Residential, 20 nights: $5,569.
+  Detox and Residential, 41 nights: $9,938.
   IOP and OP: $2,660.
 
 What makes that up:
   Deductible: $1,500.
-  Coinsurance, 20% of the cost after the deductible: $6,728.
+  Coinsurance, 20% of the cost after the deductible: $11,098.
 
 This is an estimate of the plan's cost share for the care listed above, not a bill. What is owed in the end follows the care actually delivered.
 ```
