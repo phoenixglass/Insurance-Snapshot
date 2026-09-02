@@ -212,6 +212,14 @@ The suite is built around one question — **does the output say what was entere
    - **Staff Detail** — the plan terms as entered, every priced line, and both waterfalls line by line.
    - **Client Explanation** — long-form plain-language wording for when the client asks how their plan works.
 
+### Reading the screen
+
+The point of the workbook this replaces is that the whole calculation is in front of you at once, so the app is laid out the same way: the short answer sets sit two to a row, only the line tables take the full column, and the estimate stays in the rail beside them rather than below them. A typical estimate is one screen.
+
+What that costs is prose, so the prose is on a switch rather than gone. Every step's header carries an **ⓘ** that opens the note explaining what the step is for, and every header is a toggle that folds the step away. *Level of Care Rules* and *Hardship* start folded, because both are exceptions rather than the normal path — when either one is holding something, its header says so in a badge, so a folded step never hides a rule that is moving money.
+
+**Clear**, in the top bar, empties the tool you are looking at so you can start the next client. It asks once before it does — the first click turns the button into the question, the second answers it — and it clears only the active tool: an estimate in progress survives clearing a rate search.
+
 ### What the Cost Note looks like
 
 ```

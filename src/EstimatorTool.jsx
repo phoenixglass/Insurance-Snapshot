@@ -364,7 +364,10 @@ export default function EstimatorTool() {
 
   return (
     <div className="tool-layout">
+      {/* Steps 1–4 are short answer sets and pair two to a row; the line tables
+          and the per-level rules take the full width of the form column. */}
       <div className="tool-form">
+        <div className="form-grid">
         <Section
           title="Plan & Pathway"
           eyebrow="Step 1"
@@ -675,6 +678,7 @@ export default function EstimatorTool() {
         </Section>
 
         <Section
+          wide
           title="Inpatient Nights"
           eyebrow="Step 5"
           description="Detox and residential are billed per night at the carrier's contracted rate."
@@ -711,6 +715,7 @@ export default function EstimatorTool() {
         </Section>
 
         <Section
+          wide
           title="Outpatient Services"
           eyebrow="Step 6"
           description="Counts start from the typical episode for the levels of care in this sequence, and every one of them is editable. The rate is the plan’s allowed amount — what the plan is billed, not what the client pays. A copay is not a rate: enter it in Level of Care Rules below, and the client-per-unit column will show it."
@@ -772,9 +777,15 @@ export default function EstimatorTool() {
           </LineTable>
         </Section>
 
+        {/* Steps 7 and 8 are the exceptions rather than the normal path, so both
+            start closed — and both badge their header whenever they are holding
+            something, so a collapsed panel never hides a rule that moves money. */}
         <Section
+          wide
           title="Level of Care Rules"
           eyebrow="Step 7"
+          defaultOpen={false}
+          badge={levelsDiffer ? { label: 'mixed rules', tone: 'warn' } : undefined}
           description="Where a plan does not treat every level of care the same way. Leave a field on the plan default and that level uses the plan terms above — this is only for what the verification call actually established."
         >
           {sequenceLevels.length === 0 ? (
@@ -783,6 +794,7 @@ export default function EstimatorTool() {
             </Banner>
           ) : (
             <>
+              <div className="level-rules-grid">
               {sequenceLevels.map(({ loc, label }) => {
                 const rule = form.levelRules[loc] || {}
                 const effective = levelRule(form, loc)
@@ -925,6 +937,7 @@ export default function EstimatorTool() {
                   </div>
                 )
               })}
+              </div>
               <Banner tone={levelsDiffer ? 'warn' : 'info'}>
                 {levelsDiffer
                   ? 'This estimate runs on mixed rules. The deductible is spent in the order care is delivered, skipping any level that waives it, and each level collects its own copay under its own answers — a copay that replaces coinsurance in one level leaves the other levels\u2019 coinsurance alone.'
@@ -935,8 +948,15 @@ export default function EstimatorTool() {
         </Section>
 
         <Section
+          wide
           title="Hardship"
           eyebrow="Step 8"
+          defaultOpen={false}
+          badge={
+            hardship.active
+              ? { label: `${formatMoney(hardship.scholarship, { decimals: 0 })} covered`, tone: 'warn' }
+              : undefined
+          }
           description="Turn this on only when a client cannot meet the deposit. Everything above stays exactly as it is — hardship splits the deposit, it does not change the estimate."
         >
           <Field label="Hardship / scholarship required?">
@@ -974,6 +994,7 @@ export default function EstimatorTool() {
             </>
           )}
         </Section>
+        </div>
       </div>
 
       {/* ── The estimate ─────────────────────────────────────────────── */}
