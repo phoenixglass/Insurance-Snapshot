@@ -183,7 +183,7 @@ describe('the staff detail carries what the note leaves out', () => {
 
   test('a bundled INN agreement says which lines it zeroed', () => {
     const { staffDetail } = outputFor({
-      carrier: 'Oxford',
+      carrier: 'Optum Canaan',
       treatmentSequence: 'IOP',
       bundledInnIop: 'Yes',
     })
@@ -268,7 +268,7 @@ describe('reading the staff detail back for the screen', () => {
 
   test('a bundled line keeps the note that explains its zero', () => {
     const { staffDetail } = outputFor({
-      carrier: 'Oxford',
+      carrier: 'Optum Canaan',
       treatmentSequence: 'IOP',
       bundledInnIop: 'Yes',
     })

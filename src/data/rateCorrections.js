@@ -12,16 +12,13 @@
 // whether this list is still right.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const RATE_CORRECTIONS = [
-  {
-    carrier: 'Self Pay',
-    code: '90792',
-    rate: 675,
-    was: 650,
-    noted: '2026-08-31',
-    reason: 'Current self-pay rate for the psychiatric evaluation; the workbook is out of date.',
-  },
-]
+// Empty is the healthy state: it means the workbook and the app agree.
+//
+// The last entry here was the self-pay psychiatric evaluation, corrected from
+// $650 to $675 on 2026-08-31. The 2026 revision of the workbook carries $675,
+// so the correction has been retired rather than left to sit as a no-op — an
+// entry that no longer changes anything is one nobody can tell is still needed.
+export const RATE_CORRECTIONS = []
 
 const BY_CARRIER = RATE_CORRECTIONS.reduce((acc, c) => {
   acc[c.carrier] = acc[c.carrier] || {}

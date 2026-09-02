@@ -10,12 +10,22 @@
 // code: the workbook treats a blank rate as zero and the app falls back to
 // observed claims, so mixing them in would test rate sourcing rather than the
 // waterfall arithmetic these cases exist to pin down.
+//
+// Eleven cases were captured against a carrier the 2026 revision of the
+// workbook dropped, and carry `capturedAs` naming it. Each now runs against a
+// surviving carrier whose rates are identical on every code the case prices,
+// so the captured cell values are exactly as valid as when they were taken —
+// the carrier in a case is a rate source, not part of the arithmetic under
+// test. Three of them price the residential night, which the site schedule
+// carries at 1,045 rather than the 1,052 they were captured at, so those pin
+// it back with `rates` rather than quietly changing what the case measures.
 
 import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
 import { test, describe } from 'node:test'
 
 import {
+  CARRIER_OPTIONS,
   COPAY_BASIS,
   INITIAL_ESTIMATE_STATE,
   SERVICE_LINES,
@@ -26,9 +36,12 @@ import {
   lookupRate,
   scheduleInEffect,
   resolveRate,
+  searchCodes,
   sequenceIncludes,
 } from './estimate.js'
 import { RATE_CORRECTIONS } from './data/rateCorrections.js'
+import { chargeMasterRate, percentOfChargeRate } from './data/percentOfCharge.js'
+import { OTHER_CARRIER } from './data/reimbursement.js'
 
 const CASES = JSON.parse(
   readFileSync(new URL('./__fixtures__/workbook-cases.json', import.meta.url))
@@ -62,7 +75,9 @@ function formFor(f) {
       ...Object.fromEntries(SERVICE_LINES.map((l) => [l.key, '0'])),
       ...Object.fromEntries(Object.entries(f.units).map(([k, v]) => [k, String(v)])),
     },
-    rateOverrides: {},
+    rateOverrides: Object.fromEntries(
+      Object.entries(f.rates || {}).map(([code, rate]) => [code, String(rate)])
+    ),
   }
 }
 
@@ -154,7 +169,7 @@ describe('unit defaults', () => {
   test('splitting the OP groups across the two 90853 rows does not move the estimate', () => {
     const base = {
       ...INITIAL_ESTIMATE_STATE,
-      carrier: 'UHC',
+      carrier: 'United Healthcare Shared Services (Optum)',
       treatmentSequence: 'OP',
       coinsurancePercent: '20',
       deductibleRemaining: '1000',
@@ -180,10 +195,14 @@ describe('unit defaults', () => {
 })
 
 describe('rate resolution', () => {
-  const form = (over) => ({ ...INITIAL_ESTIMATE_STATE, carrier: 'UHC', ...over })
+  const form = (over) => ({
+    ...INITIAL_ESTIMATE_STATE,
+    carrier: 'United Healthcare Shared Services (Optum)',
+    ...over,
+  })
 
   test('a contracted schedule outranks the carrier table in network', () => {
-    // UHC is INN, so the Connecticut contract applies.
+    // The carrier is INN, so the Connecticut contract applies.
     assert.equal(resolveRate(form({ location: 'canaan' }), 'H0015').source, 'contract')
     assert.equal(resolveRate(form({ location: 'canaan' }), 'H0015').rate, 328)
   })
@@ -310,5 +329,108 @@ describe('submit blockers', () => {
       estimateBlockers({ ...ready, carrier: 'Other — not listed', networkOverride: 'OON' }),
       []
     )
+  })
+})
+
+// The carrier list is what everyone touches first, and the workbook's own order
+// stopped being alphabetical the day somebody appended a carrier to the bottom
+// of the sheet rather than inserting it.
+describe('the carrier dropdown', () => {
+  test('it reads in alphabetical order', () => {
+    const carriers = CARRIER_OPTIONS.filter((o) => o.value !== OTHER_CARRIER).map((o) => o.value)
+    const sorted = [...carriers].sort((a, b) =>
+      a.localeCompare(b, 'en', { numeric: true, sensitivity: 'base' })
+    )
+    assert.deepEqual(carriers, sorted)
+  })
+
+  test('"not listed" stays at the end, where a fallback belongs', () => {
+    assert.equal(CARRIER_OPTIONS.at(-1).value, OTHER_CARRIER)
+    assert.equal(CARRIER_OPTIONS.filter((o) => o.value === OTHER_CARRIER).length, 1)
+  })
+
+  test('every option is selectable exactly once', () => {
+    const values = CARRIER_OPTIONS.map((o) => o.value)
+    assert.equal(new Set(values).size, values.length)
+  })
+})
+
+// A plan with no allowed amounts of its own, whose claims come back at a known
+// percentage of what we billed. The number is real enough to quote and derived
+// enough that it must never look stated.
+describe('a payer priced as a percentage of our charge', () => {
+  const form = (over) => ({
+    ...INITIAL_ESTIMATE_STATE,
+    carrier: 'Diversified Group -',
+    coinsurancePercent: '20',
+    deductibleRemaining: '0',
+    oopmRemaining: '50000',
+    ...over,
+  })
+
+  test('the rate is the percentage of what we bill, rounded up to the next $5', () => {
+    // 5,450 billed for a detox night, processing at 30%.
+    assert.equal(chargeMasterRate('H0010'), 5450)
+    assert.deepEqual(percentOfChargeRate('Diversified Group -', 'H0010'), {
+      rate: 1635,
+      percent: 0.3,
+      billed: 5450,
+    })
+    // 875 × 0.3 is 262.50, and an out-of-network rate rounds up to the next $5.
+    assert.equal(percentOfChargeRate('Diversified Group -', '90791').rate, 265)
+  })
+
+  test('it says where the number came from', () => {
+    const r = resolveRate(form(), 'H0010')
+    assert.equal(r.source, 'percent-of-charge')
+    assert.equal(r.rate, 1635)
+    assert.equal(r.percent, 0.3)
+    assert.equal(r.billed, 5450)
+  })
+
+  test('a stated allowed amount outranks it', () => {
+    // Every other carrier prices from its own table; nothing here leaks across.
+    const other = resolveRate(form({ carrier: 'Aetna -' }), 'H0010')
+    assert.equal(other.source, 'carrier')
+    assert.equal(other.rate, lookupRate('Aetna -', 'H0010'))
+    assert.equal(percentOfChargeRate('Aetna -', 'H0010'), null)
+  })
+
+  test('a code we do not have a charge for stays unpriced', () => {
+    // Inventing the base would make the whole line invented.
+    assert.equal(chargeMasterRate('80305'), null)
+    assert.equal(percentOfChargeRate('Diversified Group -', '80305'), null)
+    assert.equal(resolveRate(form(), '80305').source, 'missing')
+  })
+
+  test('the estimate names the lines it derived rather than burying them', () => {
+    const r = computeEstimate(form({ treatmentSequence: 'Detox' }))
+    assert.ok(r.inpatient.totalAllowed > 0, 'the detox nights are priced')
+    assert.deepEqual(
+      r.chargePercentRates.map((x) => x.code),
+      ['H0010']
+    )
+    assert.equal(r.chargePercentRates[0].percent, 0.3)
+    assert.equal(r.chargePercentRates[0].billed, 5450)
+    assert.deepEqual(r.missingRates, [], 'a derived rate is a rate, not a gap')
+    assert.equal(r.chargePercentPayer.percent, 0.3)
+  })
+
+  test('the rate lookup shows it as derived, not as an allowed amount', () => {
+    const row = searchCodes('H0010', 'Diversified Group -').find((r) => r.code === 'H0010')
+    assert.equal(row.rate, 1635)
+    assert.equal(row.source, 'percent-of-charge')
+    assert.equal(row.percent, 0.3)
+    assert.equal(row.billed, 5450)
+
+    const stated = searchCodes('H0010', 'Aetna -').find((r) => r.code === 'H0010')
+    assert.equal(stated.source, 'carrier')
+    assert.equal(stated.percent, null)
+  })
+
+  test('an override still wins, because someone read the number off a contract', () => {
+    const r = resolveRate(form({ rateOverrides: { H0010: '1800' } }), 'H0010')
+    assert.equal(r.source, 'override')
+    assert.equal(r.rate, 1800)
   })
 })

@@ -59,13 +59,26 @@ const RATE_TAGS = {
   override: { className: 'rate-tag-override', label: 'override' },
   contract: { className: 'rate-tag-contract', label: 'contracted' },
   'payer-average': { className: 'rate-tag-estimate', label: 'payer avg' },
+  // Labelled with the percentage rather than generically: "30% of billed" is
+  // the whole of what the number is, and a reader who knows that can check it.
+  'percent-of-charge': { className: 'rate-tag-estimate', label: '% of billed' },
   uncontracted: { className: 'rate-tag-missing', label: 'not contracted' },
   missing: { className: 'rate-tag-missing', label: 'not on file' },
 }
 
 function RateCell({ form, code, onOverride }) {
-  const { rate, source } = resolveRate(form, code)
-  const tag = RATE_TAGS[source]
+  const { rate, source, percent, billed } = resolveRate(form, code)
+  const base = RATE_TAGS[source]
+  // The rate column is narrow, so the tag carries the percentage and the charge
+  // it is a percentage of goes in the tooltip.
+  const tag =
+    source === 'percent-of-charge'
+      ? {
+          ...base,
+          label: `${formatPercent(percent, 0)} of billed`,
+          title: `${formatPercent(percent, 0)} of the ${formatMoney(billed, { decimals: 0 })} we bill for ${code}`,
+        }
+      : base
   const misc = source === 'missing' ? miscRate(code) : null
   return (
     <div className="rate-cell">
@@ -75,7 +88,11 @@ function RateCell({ form, code, onOverride }) {
         placeholder={rate === null ? 'no rate' : rate.toFixed(2)}
         size="sm"
       />
-      {tag && <span className={`rate-tag ${tag.className}`}>{tag.label}</span>}
+      {tag && (
+        <span className={`rate-tag ${tag.className}`} title={tag.title}>
+          {tag.label}
+        </span>
+      )}
       {misc !== null && (
         <button
           type="button"
@@ -1144,6 +1161,21 @@ export default function EstimatorTool() {
               {[...new Set(result.estimatedRates.map((r) => r.group))].join(' and ')} claims were
               actually paid on average. That is an estimate, not a quote — verify before committing
               a client to this deposit.
+            </Banner>
+          )}
+
+          {result.chargePercentRates.length > 0 && (
+            <Banner tone="info">
+              <strong>
+                {result.chargePercentRates.length} line
+                {result.chargePercentRates.length === 1 ? ' is' : 's are'} priced at{' '}
+                {formatPercent(result.chargePercentRates[0].percent, 0)} of what we bill
+              </strong>{' '}
+              — {result.chargePercentRates.map((r) => `${r.label} (${r.code})`).join(', ')}. This
+              plan has no allowed amounts on file; the rate is our charge master times the rate its
+              claims have been processing at, rounded up to the next $5 the way an out-of-network
+              rate is. That is an observed pattern, not a number the plan has agreed to — verify on
+              the call and overwrite any rate it establishes.
             </Banner>
           )}
 
