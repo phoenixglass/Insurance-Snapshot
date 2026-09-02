@@ -381,318 +381,324 @@ export default function EstimatorTool() {
 
   return (
     <div className="tool-layout">
-      {/* Steps 1–4 are short answer sets and pair two to a row; the line tables
-          and the per-level rules take the full width of the form column. */}
+      {/* Steps 1–4 are short answer sets and pair two to a row — one column each,
+          so a step sits under the step above it rather than under the taller of
+          the pair beside it. The line tables and the per-level rules take the
+          full width of the form column. */}
       <div className="tool-form">
         <div className="form-grid">
-        <Section
-          title="Plan & Pathway"
-          eyebrow="Step 1"
-          description="The carrier sets every contracted rate below. The treatment sequence decides which levels of care are in the estimate at all."
-        >
-          <div className="field-row">
-            <Field label="Insurance Carrier" htmlFor="carrier" required>
-              <Select
-                id="carrier"
-                value={form.carrier}
-                onChange={set('carrier')}
-                options={CARRIER_OPTIONS}
-                placeholder="Select a carrier…"
-              />
-            </Field>
-            <Field
-              label="Network Status"
-              required={needsNetworkChoice(form.carrier)}
-              hint={
-                needsNetworkChoice(form.carrier)
-                  ? 'This carrier has no network on file, so it has to be stated.'
-                  : undefined
-              }
-            >
-              {needsNetworkChoice(form.carrier) ? (
-                <SegmentedControl
-                  name="networkOverride"
-                  options={['INN', 'OON']}
-                  value={form.networkOverride}
-                  onChange={set('networkOverride')}
+        <div className="form-col">
+          <Section
+            title="Plan & Pathway"
+            eyebrow="Step 1"
+            description="The carrier sets every contracted rate below. The treatment sequence decides which levels of care are in the estimate at all."
+          >
+            <div className="field-row">
+              <Field label="Insurance Carrier" htmlFor="carrier" required>
+                <Select
+                  id="carrier"
+                  value={form.carrier}
+                  onChange={set('carrier')}
+                  options={CARRIER_OPTIONS}
+                  placeholder="Select a carrier…"
                 />
-              ) : (
-                <div className={`network-pill network-${(result.network || 'none').toLowerCase().replace(/\s+/g, '-')}`}>
-                  {result.network || 'Select a carrier'}
-                </div>
-              )}
-            </Field>
-          </div>
-
-          <Field
-            label="Location"
-            htmlFor="location"
-            hint={(() => {
-              const loc = getLocation(form.location)
-              if (result.schedule) {
-                return `${loc?.label} bills on the ${result.schedule.label} schedule, effective ${result.schedule.effective}. Those signed rates outrank the carrier table; a code the schedule does not cover falls back to it.`
-              }
-              // A contracted schedule is an in-network agreement, so an OON
-              // plan gets the carrier's own allowed amounts no matter which
-              // site the client walks into.
-              if (result.scheduleSuppressed) {
-                return `${loc?.label} has a ${result.scheduleSuppressed.label} contract, but this plan is ${result.network} — there is no agreement with an out-of-network payer, so every rate below is the carrier's own allowed amount.`
-              }
-              if (loc) {
-                return `No contracted rate schedule on file for ${loc.label} — there is no ${loc.state} rate sheet — so every rate here comes from the carrier table.`
-              }
-              return 'Which site the client is admitting to. In network it sets the contracted rates; out of network the carrier’s own allowed amounts apply either way.'
-            })()}
-          >
-            <Select
-              id="location"
-              value={form.location}
-              onChange={set('location')}
-              options={LOCATIONS.map((loc) => ({
-                value: loc.id,
-                label: `${loc.label}, ${loc.state}`,
-              }))}
-              placeholder="No location — carrier table only"
-            />
-          </Field>
-
-          {result.schedule?.alternates.map((alt) => (
-            <Banner key={`${alt.code}-${alt.contracted}`} tone="info">
-              <strong>{alt.code}</strong> is contracted at a second rate here —{' '}
-              {formatMoney(alt.contracted)} for {alt.note}. The residential line prices at the
-              other one; enter {formatMoney(alt.contracted)} in its Rate column when the stay bills
-              under that revenue code.
-            </Banner>
-          ))}
-
-          <Field
-            label="Treatment Sequence"
-            htmlFor="treatmentSequence"
-            required
-            hint="Only the levels of care named here are priced. Everything else stays at zero."
-          >
-            <Select
-              id="treatmentSequence"
-              value={form.treatmentSequence}
-              onChange={set('treatmentSequence')}
-              options={TREATMENT_SEQUENCES}
-              placeholder="Select a sequence…"
-            />
-          </Field>
-
-          {locs.length > 0 && (
-            <div className="pathway-chips">
-              {locs.map((loc, i) => (
-                <span key={`${loc}-${i}`} className="pathway-chip">
-                  {loc}
-                </span>
-              ))}
-            </div>
-          )}
-
-          {result.network === 'INN' && (
-            <Field label="Bundled Agreement (INN IOP)?">
-              <SegmentedControl
-                name="bundledInnIop"
-                options={['Yes', 'No']}
-                value={form.bundledInnIop}
-                onChange={set('bundledInnIop')}
-              />
-              {form.bundledInnIop === 'Yes' && (
-                <Banner tone="info">
-                  The intake, individual therapy and family therapy delivered in IOP are folded into
-                  the IOP rate — they add no cost and no copay units to this estimate. Therapy after
-                  a step-down to OP is still billed, and psychiatric services are never in the
-                  bundle: they bill at the OP level under OP&rsquo;s terms.
-                </Banner>
-              )}
-            </Field>
-          )}
-          {isOtherCarrier(form.carrier) && (
-            <Banner tone="info">
-              Rates come from the Misc claims bucket — the average across every plan the app does
-              not carry. Nothing here is specific to this client's plan, so treat the whole estimate
-              as provisional and overwrite any rate the verification call establishes.
-            </Banner>
-          )}
-          {result.network === 'Self Pay' && (
-            <Banner tone="warn">
-              This carrier is the self-pay rate sheet. Cost sharing does not apply to it — use the
-              Self-Pay tool instead, which prices the same episode against a scholarship.
-            </Banner>
-          )}
-        </Section>
-
-        <Section
-          title="Accumulators"
-          eyebrow="Step 2"
-          description="What is left of the plan year, as of today. The inpatient stay consumes these first; the outpatient estimate works against what remains."
-        >
-          <div className="field-row">
-            <Field label="Deductible Remaining" htmlFor="deductibleRemaining" required>
-              <CurrencyInput
-                id="deductibleRemaining"
-                value={form.deductibleRemaining}
-                onChange={set('deductibleRemaining')}
-              />
-            </Field>
-            <Field label="OOP Max Remaining" htmlFor="oopmRemaining" required>
-              <CurrencyInput id="oopmRemaining" value={form.oopmRemaining} onChange={set('oopmRemaining')} />
-            </Field>
-          </div>
-
-          <div className="field-row">
-            <Field label="Coinsurance" htmlFor="coinsurancePercent" required>
-              <PercentInput
-                id="coinsurancePercent"
-                value={form.coinsurancePercent}
-                onChange={set('coinsurancePercent')}
-              />
-            </Field>
-            <Field
-              label="Deductible Counts Toward OOP Max?"
-              hint="No means the deductible is collected on top of the maximum, not inside it."
-            >
-              <SegmentedControl
-                name="deductibleInOopm"
-                options={['Yes', 'No']}
-                value={form.deductibleInOopm}
-                onChange={set('deductibleInOopm')}
-              />
-            </Field>
-          </div>
-
-          <Field label="Previous Outstanding Balance" htmlFor="previousBalance" optional>
-            <CurrencyInput id="previousBalance" value={form.previousBalance} onChange={set('previousBalance')} />
-          </Field>
-        </Section>
-
-        <Section
-          title="Copay"
-          eyebrow="Step 3"
-          description="Four separate questions, each of which moves money on its own: how the copay is counted, where it stops, whether it displaces coinsurance, and which accumulators it feeds. These are the plan's answers; a level of care can give its own in Step 7."
-        >
-          <div className="field-row">
-            <Field label="Copay Amount" htmlFor="copayAmount">
-              <CurrencyInput id="copayAmount" value={form.copayAmount} onChange={set('copayAmount')} />
-            </Field>
-            <Field
-              label="Copay Basis"
-              htmlFor="copayBasis"
-              hint={
-                {
-                  [COPAY_BASIS.NA]: 'No copay is collected.',
-                  [COPAY_BASIS.PER_UNIT]: 'Charged once per unit of every active service line.',
-                  [COPAY_BASIS.PROFESSIONAL_ONLY]:
-                    'Charged only on individually billed visits — assessment, therapy, psychiatry, MATs. Not on a program day.',
-                  [COPAY_BASIS.MANUAL]: 'The amount entered is the whole copay, charged once.',
-                }[form.copayBasis]
-              }
-            >
-              <Select
-                id="copayBasis"
-                value={form.copayBasis}
-                onChange={set('copayBasis')}
-                options={Object.values(COPAY_BASIS)}
-                placeholder="Select…"
-              />
-            </Field>
-          </div>
-
-          {copayActive && (
-            <>
+              </Field>
               <Field
-                label="Copay Maximum"
-                htmlFor="copayMax"
-                optional
+                label="Network Status"
+                required={needsNetworkChoice(form.carrier)}
                 hint={
-                  form.copayBasis === COPAY_BASIS.MANUAL
-                    ? 'A manual total is already the whole copay — a maximum only trims it.'
-                    : 'The most this copay can add up to — the “up to $2,000” in “$200 a day up to $2,000”. Leave it blank when the plan states no ceiling. Entered here it is one ceiling for the whole episode, spent in the order care is delivered; a level of care can state its own in Step 7.'
+                  needsNetworkChoice(form.carrier)
+                    ? 'This carrier has no network on file, so it has to be stated.'
+                    : undefined
                 }
               >
-                <CurrencyInput id="copayMax" value={form.copayMax} onChange={set('copayMax')} />
+                {needsNetworkChoice(form.carrier) ? (
+                  <SegmentedControl
+                    name="networkOverride"
+                    options={['INN', 'OON']}
+                    value={form.networkOverride}
+                    onChange={set('networkOverride')}
+                  />
+                ) : (
+                  <div className={`network-pill network-${(result.network || 'none').toLowerCase().replace(/\s+/g, '-')}`}>
+                    {result.network || 'Select a carrier'}
+                  </div>
+                )}
+              </Field>
+            </div>
+
+            <Field
+              label="Location"
+              htmlFor="location"
+              hint={(() => {
+                const loc = getLocation(form.location)
+                if (result.schedule) {
+                  return `${loc?.label} bills on the ${result.schedule.label} schedule, effective ${result.schedule.effective}. Those signed rates outrank the carrier table; a code the schedule does not cover falls back to it.`
+                }
+                // A contracted schedule is an in-network agreement, so an OON
+                // plan gets the carrier's own allowed amounts no matter which
+                // site the client walks into.
+                if (result.scheduleSuppressed) {
+                  return `${loc?.label} has a ${result.scheduleSuppressed.label} contract, but this plan is ${result.network} — there is no agreement with an out-of-network payer, so every rate below is the carrier's own allowed amount.`
+                }
+                if (loc) {
+                  return `No contracted rate schedule on file for ${loc.label} — there is no ${loc.state} rate sheet — so every rate here comes from the carrier table.`
+                }
+                return 'Which site the client is admitting to. In network it sets the contracted rates; out of network the carrier’s own allowed amounts apply either way.'
+              })()}
+            >
+              <Select
+                id="location"
+                value={form.location}
+                onChange={set('location')}
+                options={LOCATIONS.map((loc) => ({
+                  value: loc.id,
+                  label: `${loc.label}, ${loc.state}`,
+                }))}
+                placeholder="No location — carrier table only"
+              />
+            </Field>
+
+            {result.schedule?.alternates.map((alt) => (
+              <Banner key={`${alt.code}-${alt.contracted}`} tone="info">
+                <strong>{alt.code}</strong> is contracted at a second rate here —{' '}
+                {formatMoney(alt.contracted)} for {alt.note}. The residential line prices at the
+                other one; enter {formatMoney(alt.contracted)} in its Rate column when the stay bills
+                under that revenue code.
+              </Banner>
+            ))}
+
+            <Field
+              label="Treatment Sequence"
+              htmlFor="treatmentSequence"
+              required
+              hint="Only the levels of care named here are priced. Everything else stays at zero."
+            >
+              <Select
+                id="treatmentSequence"
+                value={form.treatmentSequence}
+                onChange={set('treatmentSequence')}
+                options={TREATMENT_SEQUENCES}
+                placeholder="Select a sequence…"
+              />
+            </Field>
+
+            {locs.length > 0 && (
+              <div className="pathway-chips">
+                {locs.map((loc, i) => (
+                  <span key={`${loc}-${i}`} className="pathway-chip">
+                    {loc}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {result.network === 'INN' && (
+              <Field label="Bundled Agreement (INN IOP)?">
+                <SegmentedControl
+                  name="bundledInnIop"
+                  options={['Yes', 'No']}
+                  value={form.bundledInnIop}
+                  onChange={set('bundledInnIop')}
+                />
+                {form.bundledInnIop === 'Yes' && (
+                  <Banner tone="info">
+                    The intake, individual therapy and family therapy delivered in IOP are folded into
+                    the IOP rate — they add no cost and no copay units to this estimate. Therapy after
+                    a step-down to OP is still billed, and psychiatric services are never in the
+                    bundle: they bill at the OP level under OP&rsquo;s terms.
+                  </Banner>
+                )}
+              </Field>
+            )}
+            {isOtherCarrier(form.carrier) && (
+              <Banner tone="info">
+                Rates come from the Misc claims bucket — the average across every plan the app does
+                not carry. Nothing here is specific to this client's plan, so treat the whole estimate
+                as provisional and overwrite any rate the verification call establishes.
+              </Banner>
+            )}
+            {result.network === 'Self Pay' && (
+              <Banner tone="warn">
+                This carrier is the self-pay rate sheet. Cost sharing does not apply to it — use the
+                Self-Pay tool instead, which prices the same episode against a scholarship.
+              </Banner>
+            )}
+          </Section>
+
+          <Section
+            title="Copay"
+            eyebrow="Step 3"
+            description="Four separate questions, each of which moves money on its own: how the copay is counted, where it stops, whether it displaces coinsurance, and which accumulators it feeds. These are the plan's answers; a level of care can give its own in Step 7."
+          >
+            <div className="field-row">
+              <Field label="Copay Amount" htmlFor="copayAmount">
+                <CurrencyInput id="copayAmount" value={form.copayAmount} onChange={set('copayAmount')} />
               </Field>
               <Field
-                label="Copay Treatment"
-                htmlFor="copayTreatment"
-                hint="Replace Coinsurance means the copay is the whole cost share — no coinsurance is charged alongside it."
+                label="Copay Basis"
+                htmlFor="copayBasis"
+                hint={
+                  {
+                    [COPAY_BASIS.NA]: 'No copay is collected.',
+                    [COPAY_BASIS.PER_UNIT]: 'Charged once per unit of every active service line.',
+                    [COPAY_BASIS.PROFESSIONAL_ONLY]:
+                      'Charged only on individually billed visits — assessment, therapy, psychiatry, MATs. Not on a program day.',
+                    [COPAY_BASIS.MANUAL]: 'The amount entered is the whole copay, charged once.',
+                  }[form.copayBasis]
+                }
               >
-                <SegmentedControl
-                  name="copayTreatment"
-                  options={Object.values(COPAY_TREATMENT)}
-                  value={form.copayTreatment}
-                  onChange={set('copayTreatment')}
+                <Select
+                  id="copayBasis"
+                  value={form.copayBasis}
+                  onChange={set('copayBasis')}
+                  options={Object.values(COPAY_BASIS)}
+                  placeholder="Select…"
                 />
               </Field>
+            </div>
 
-              <div className="field-row">
+            {copayActive && (
+              <>
                 <Field
-                  label="Copay Applies to Deductible?"
-                  required
-                  hint="Yes credits the copay against the deductible, so the same dollars are not collected twice. No means it is charged on top of the deductible — it does not waive it. To waive the deductible itself, answer “Deductible applies? No” for that level of care in Step 7."
+                  label="Copay Maximum"
+                  htmlFor="copayMax"
+                  optional
+                  hint={
+                    form.copayBasis === COPAY_BASIS.MANUAL
+                      ? 'A manual total is already the whole copay — a maximum only trims it.'
+                      : 'The most this copay can add up to — the “up to $2,000” in “$200 a day up to $2,000”. Leave it blank when the plan states no ceiling. Entered here it is one ceiling for the whole episode, spent in the order care is delivered; a level of care can state its own in Step 7.'
+                  }
+                >
+                  <CurrencyInput id="copayMax" value={form.copayMax} onChange={set('copayMax')} />
+                </Field>
+                <Field
+                  label="Copay Treatment"
+                  htmlFor="copayTreatment"
+                  hint="Replace Coinsurance means the copay is the whole cost share — no coinsurance is charged alongside it."
                 >
                   <SegmentedControl
-                    name="copayAppliesToDeductible"
-                    options={['Not Applicable', 'Yes', 'No']}
-                    value={form.copayAppliesToDeductible}
-                    onChange={set('copayAppliesToDeductible')}
+                    name="copayTreatment"
+                    options={Object.values(COPAY_TREATMENT)}
+                    value={form.copayTreatment}
+                    onChange={set('copayTreatment')}
                   />
                 </Field>
-                <Field label="Copay Applies to OOP Max?" required>
-                  <SegmentedControl
-                    name="copayAppliesToOop"
-                    options={['Not Applicable', 'Yes', 'No']}
-                    value={form.copayAppliesToOop}
-                    onChange={set('copayAppliesToOop')}
-                  />
-                </Field>
-              </div>
-              {(form.copayAppliesToOop === 'Not Applicable' ||
-                form.copayAppliesToDeductible === 'Not Applicable') && (
-                <Banner tone="warn">
-                  Until both answers are established the copay has no accumulator behavior, and a
-                  copay that feeds neither accumulator drops out of the capped responsibility
-                  entirely. Confirm them with the plan rather than leaving the estimate to guess.
-                </Banner>
-              )}
-            </>
-          )}
-        </Section>
 
-        <Section
-          title="Admission Fees"
-          eyebrow="Step 4"
-          description="Charged once on entry to a level of care, and only for the levels the sequence names."
-        >
-          <div className="fee-grid">
-            {ADMISSION_FEE_LOCS.map((loc) => {
-              const active = sequenceIncludes(form.treatmentSequence, loc.loc)
-              return (
-                <div key={loc.key} className={`fee-cell${active ? '' : ' fee-cell-inactive'}`}>
-                  <label className="fee-label" htmlFor={`fee-${loc.key}`}>
-                    {loc.label}
-                    {!active && <span className="fee-off">not in sequence</span>}
-                  </label>
-                  <CurrencyInput
-                    id={`fee-${loc.key}`}
-                    value={form.admissionFees[loc.key]}
-                    onChange={setNested('admissionFees', loc.key)}
-                    size="sm"
-                  />
+                <div className="field-row">
+                  <Field
+                    label="Copay Applies to Deductible?"
+                    required
+                    hint="Yes credits the copay against the deductible, so the same dollars are not collected twice. No means it is charged on top of the deductible — it does not waive it. To waive the deductible itself, answer “Deductible applies? No” for that level of care in Step 7."
+                  >
+                    <SegmentedControl
+                      name="copayAppliesToDeductible"
+                      options={['Not Applicable', 'Yes', 'No']}
+                      value={form.copayAppliesToDeductible}
+                      onChange={set('copayAppliesToDeductible')}
+                    />
+                  </Field>
+                  <Field label="Copay Applies to OOP Max?" required>
+                    <SegmentedControl
+                      name="copayAppliesToOop"
+                      options={['Not Applicable', 'Yes', 'No']}
+                      value={form.copayAppliesToOop}
+                      onChange={set('copayAppliesToOop')}
+                    />
+                  </Field>
                 </div>
-              )
-            })}
-          </div>
-          <Field label="Admission Fee Counts Toward OOP Max?">
-            <SegmentedControl
-              name="admissionFeeInOopm"
-              options={['Yes', 'No']}
-              value={form.admissionFeeInOopm}
-              onChange={set('admissionFeeInOopm')}
-            />
-          </Field>
-        </Section>
+                {(form.copayAppliesToOop === 'Not Applicable' ||
+                  form.copayAppliesToDeductible === 'Not Applicable') && (
+                  <Banner tone="warn">
+                    Until both answers are established the copay has no accumulator behavior, and a
+                    copay that feeds neither accumulator drops out of the capped responsibility
+                    entirely. Confirm them with the plan rather than leaving the estimate to guess.
+                  </Banner>
+                )}
+              </>
+            )}
+          </Section>
+        </div>
+
+        <div className="form-col">
+          <Section
+            title="Accumulators"
+            eyebrow="Step 2"
+            description="What is left of the plan year, as of today. The inpatient stay consumes these first; the outpatient estimate works against what remains."
+          >
+            <div className="field-row">
+              <Field label="Deductible Remaining" htmlFor="deductibleRemaining" required>
+                <CurrencyInput
+                  id="deductibleRemaining"
+                  value={form.deductibleRemaining}
+                  onChange={set('deductibleRemaining')}
+                />
+              </Field>
+              <Field label="OOP Max Remaining" htmlFor="oopmRemaining" required>
+                <CurrencyInput id="oopmRemaining" value={form.oopmRemaining} onChange={set('oopmRemaining')} />
+              </Field>
+            </div>
+
+            <div className="field-row">
+              <Field label="Coinsurance" htmlFor="coinsurancePercent" required>
+                <PercentInput
+                  id="coinsurancePercent"
+                  value={form.coinsurancePercent}
+                  onChange={set('coinsurancePercent')}
+                />
+              </Field>
+              <Field
+                label="Deductible Counts Toward OOP Max?"
+                hint="No means the deductible is collected on top of the maximum, not inside it."
+              >
+                <SegmentedControl
+                  name="deductibleInOopm"
+                  options={['Yes', 'No']}
+                  value={form.deductibleInOopm}
+                  onChange={set('deductibleInOopm')}
+                />
+              </Field>
+            </div>
+
+            <Field label="Previous Outstanding Balance" htmlFor="previousBalance" optional>
+              <CurrencyInput id="previousBalance" value={form.previousBalance} onChange={set('previousBalance')} />
+            </Field>
+          </Section>
+
+          <Section
+            title="Admission Fees"
+            eyebrow="Step 4"
+            description="Charged once on entry to a level of care, and only for the levels the sequence names."
+          >
+            <div className="fee-grid">
+              {ADMISSION_FEE_LOCS.map((loc) => {
+                const active = sequenceIncludes(form.treatmentSequence, loc.loc)
+                return (
+                  <div key={loc.key} className={`fee-cell${active ? '' : ' fee-cell-inactive'}`}>
+                    <label className="fee-label" htmlFor={`fee-${loc.key}`}>
+                      {loc.label}
+                      {!active && <span className="fee-off">not in sequence</span>}
+                    </label>
+                    <CurrencyInput
+                      id={`fee-${loc.key}`}
+                      value={form.admissionFees[loc.key]}
+                      onChange={setNested('admissionFees', loc.key)}
+                      size="sm"
+                    />
+                  </div>
+                )
+              })}
+            </div>
+            <Field label="Admission Fee Counts Toward OOP Max?">
+              <SegmentedControl
+                name="admissionFeeInOopm"
+                options={['Yes', 'No']}
+                value={form.admissionFeeInOopm}
+                onChange={set('admissionFeeInOopm')}
+              />
+            </Field>
+          </Section>
+        </div>
 
         <Section
           wide

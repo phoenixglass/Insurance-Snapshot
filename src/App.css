@@ -376,6 +376,42 @@ textarea {
   grid-column: 1 / -1;
 }
 
+/* Two short steps in the same grid row are as tall as the taller of them, so a
+   step that ends early leaves dead space its neighbour below starts under
+   rather than at the end of its own column. A column of its own lets each card
+   sit directly beneath the one above it, and the wide steps below rise by
+   whatever that saves. */
+.form-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* One column over: the wrappers dissolve so every step stacks in a single run.
+   That leaves them in column order — 1, 3, 2, 4 — so each is given its step
+   number back as its order, and the full-width steps sort after all of them. */
+@container (max-width: 739.98px) {
+  .form-col {
+    display: contents;
+  }
+  .form-col:nth-child(1) > :nth-child(1) {
+    order: 1;
+  }
+  .form-col:nth-child(2) > :nth-child(1) {
+    order: 2;
+  }
+  .form-col:nth-child(1) > :nth-child(2) {
+    order: 3;
+  }
+  .form-col:nth-child(2) > :nth-child(2) {
+    order: 4;
+  }
+  .form-grid > .section-wide {
+    order: 5;
+  }
+}
+
 .tool-result {
   min-width: 0;
 }
