@@ -129,7 +129,17 @@ export default function RateLookupTool() {
                     <td>{r.description}</td>
                     <td className="num strong">
                       {r.onFile ? (
-                        formatMoney(r.rate)
+                        <>
+                          {formatMoney(r.rate)}
+                          {/* A rate worked out from our charge master is not an
+                              allowed amount the plan has stated, and the column
+                              it shares with real ones has to say so. */}
+                          {r.source === 'percent-of-charge' && (
+                            <span className="cell-sub">
+                              {Math.round(r.percent * 100)}% of {formatMoney(r.billed, { decimals: 0 })} billed
+                            </span>
+                          )}
+                        </>
                       ) : (
                         <span className="rate-tag rate-tag-missing">not on file</span>
                       )}

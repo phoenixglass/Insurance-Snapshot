@@ -30,6 +30,7 @@ import {
   payerGroupFor,
   reimbursementRate,
 } from './data/reimbursement.js'
+import { percentOfChargePayer, percentOfChargeRate } from './data/percentOfCharge.js'
 
 // ── Copay handling ───────────────────────────────────────────────────────────
 // The workbook asks three separate questions about a copay, and each one moves
@@ -98,9 +99,24 @@ export function carrierNetwork(carrier) {
 // The rate table's carriers, the payers only the claims data knows about, and
 // the explicit "not listed" option — which is the only thing that draws on the
 // Misc claims bucket.
+//
+// Alphabetical, not sheet order. The workbook's list is alphabetical down to
+// the point where new carriers started being appended to the bottom, so the
+// twenty-odd most recently added plans are exactly the ones nobody can find.
+// `numeric` keeps "BCBS - Other 2" after "BCBS - Other 10" from ever mattering,
+// and `base` sensitivity means a stray capital does not sort a name away from
+// its neighbours. "Other — not listed" is not a carrier and stays at the end.
+const byName = (a, b) =>
+  a.value.localeCompare(b.value, 'en', { numeric: true, sensitivity: 'base' })
+
 export const CARRIER_OPTIONS = [
-  ...CARRIERS.map((c) => ({ value: c.name, label: `${c.name} — ${c.network}` })),
-  ...SUPPLEMENTAL_CARRIERS.map((name) => ({ value: name, label: `${name} — network not on file` })),
+  ...[
+    ...CARRIERS.map((c) => ({ value: c.name, label: `${c.name} — ${c.network}` })),
+    ...SUPPLEMENTAL_CARRIERS.map((name) => ({
+      value: name,
+      label: `${name} — network not on file`,
+    })),
+  ].sort(byName),
   { value: OTHER_CARRIER, label: `${OTHER_CARRIER} — Misc claims average` },
 ]
 
@@ -243,9 +259,13 @@ export function unitsFor(line, form) {
   return defaultUnitsFor(line, form.treatmentSequence)
 }
 
+// The nights a stay is expected to run, as the workbook's own night inputs
+// state them (Insurance Calculator_v2 F6 and G6). Both are editable on the
+// form — a stay is quoted for the nights authorized, not the nights typical —
+// so these are only where the estimate starts.
 export const INPATIENT_LINES = [
   { key: 'detox', label: 'Detox', code: 'H0010', nights: 6, loc: SEQ_LOC.DETOX },
-  { key: 'residential', label: 'Residential', code: 'H0018', nights: 14, loc: SEQ_LOC.RESIDENTIAL },
+  { key: 'residential', label: 'Residential', code: 'H0018', nights: 35, loc: SEQ_LOC.RESIDENTIAL },
 ]
 
 export const ADMISSION_FEE_LOCS = [
@@ -333,16 +353,17 @@ export const INITIAL_ESTIMATE_STATE = {
 }
 
 // ── Rate resolution ──────────────────────────────────────────────────────────
-// Four sources, in descending authority:
+// Five sources, in descending authority:
 //
 //   1. an override the user typed — they are looking at the contract
 //   2. the location's contract schedule, in network only — a signed rate
 //   3. the carrier table — this plan's stated allowed amount
-//   4. the payer group's average reimbursement — what claims like this got paid
+//   4. a percentage of our billed charge, for a payer that processes that way
+//   5. the payer group's average reimbursement — what claims like this got paid
 //
-// The last one is an estimate rather than a rate, so it is reported with its
-// own source and never presented as a contracted number. A code none of the
-// four covers stays null rather than becoming zero.
+// The last two are derived rather than stated, so each is reported with its own
+// source and never presented as a contracted number. A code none of the five
+// covers stays null rather than becoming zero.
 
 export function resolveRate(form, code) {
   const override = form.rateOverrides?.[code]
@@ -358,6 +379,15 @@ export function resolveRate(form, code) {
 
   const carrier = lookupRate(form.carrier, code)
   if (carrier !== null) return { rate: carrier, source: 'carrier' }
+
+  // A plan with no allowed amounts of its own, whose claims come back at a
+  // known percentage of what we billed. Arithmetic on our charge master rather
+  // than anything the plan has stated, so it ranks under the carrier table and
+  // carries the percentage with it.
+  const ofCharge = percentOfChargeRate(form.carrier, code)
+  if (ofCharge !== null) {
+    return { rate: ofCharge.rate, source: 'percent-of-charge', percent: ofCharge.percent, billed: ofCharge.billed }
+  }
 
   // Nothing has this code priced for the plan itself. An average over the
   // payer group's own paid claims beats leaving the service at $0, as long as
@@ -1135,6 +1165,22 @@ export function computeEstimate(form) {
       }))
   )
 
+  // Lines priced as a percentage of our own charge rather than from anything
+  // the plan has stated. Quotable — but the panel says so, the same way it does
+  // for a line priced from claims history.
+  const chargePercentRates = byCode(
+    scheduled
+      .map((l) => ({ line: l, resolved: resolveRate(form, l.code) }))
+      .filter((x) => x.resolved.source === 'percent-of-charge')
+      .map((x) => ({
+        key: x.line.key,
+        label: x.line.label,
+        code: x.line.code,
+        percent: x.resolved.percent,
+        billed: x.resolved.billed,
+      }))
+  )
+
   const missingRates = byCode(
     [...inpatient.lines, ...outpatient.lines]
       .filter((l) => l.rateMissing && (l.units ?? l.nights) > 0)
@@ -1156,6 +1202,8 @@ export function computeEstimate(form) {
     previousBalance,
     missingRates,
     estimatedRates,
+    chargePercentRates,
+    chargePercentPayer: percentOfChargePayer(form.carrier),
     schedule: scheduleInEffect(form),
     // A schedule the location names but the network rules out. The estimator
     // says why rather than leaving the field looking ignored.
@@ -1277,11 +1325,18 @@ export function searchCodes(query, carrier, { limit = 40 } = {}) {
     else if (code.includes(q)) score = 40
     if (score < 0) continue
 
-    const rate = lookupRate(carrier, entry.code)
+    const stated = lookupRate(carrier, entry.code)
+    const ofCharge = stated === null ? percentOfChargeRate(carrier, entry.code) : null
+    const rate = stated !== null ? stated : (ofCharge?.rate ?? null)
     scored.push({
       code: entry.code,
       description: entry.description,
       rate,
+      // Where the number came from, so the lookup can say "30% of billed"
+      // rather than showing a derived figure as an allowed amount.
+      source: stated !== null ? 'carrier' : ofCharge ? 'percent-of-charge' : null,
+      percent: ofCharge?.percent ?? null,
+      billed: ofCharge?.billed ?? null,
       benchmark: benchmarkRate(entry.code),
       // A carrier with no rate on file is the workbook's amber cell: estimate
       // from a similar plan rather than treating the service as free.

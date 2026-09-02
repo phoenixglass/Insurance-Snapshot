@@ -256,6 +256,7 @@ export default function SelfPayTool() {
       </div>
 
       <div className="tool-form">
+        <div className="form-grid">
         <Section
           title="Episode"
           eyebrow="Step 1"
@@ -336,6 +337,7 @@ export default function SelfPayTool() {
         </Section>
 
         <Section
+          wide
           title="Line Items"
           eyebrow="Step 3"
           description="Every count starts at zero — enter what this client is actually buying. The rate is the sheet rate unless you type your own over it, and the scholarship covers whole units at whatever rate the row carries."
@@ -397,8 +399,8 @@ export default function SelfPayTool() {
             </table>
           </div>
         </Section>
+        </div>
       </div>
-
     </div>
   )
 }

@@ -68,6 +68,47 @@ export const OTHER_CARRIER = 'Other — not listed'
 // stays out until someone confirms them.
 export const SUPPLEMENTAL_CARRIERS = []
 
+// Optum administers Oxford, UHC, UBH and Connecticare on one set of contracted
+// rates, and the 2026 revision of the workbook consolidated all four onto the
+// carriers named for it. The claims export still reports them under their four
+// old names, so a carrier the sheet now calls Optum is asking about claims
+// filed as Oxford, UBH, Connecticare and UMR.
+//
+// Picking one of the four to stand for the rest would be arbitrary, so the
+// group is the average of the ones carrying the code. That is stable rather
+// than a compromise between sources that disagree: on every facility code —
+// the ones that actually move a deposit — the four sit within 13% of each
+// other, and within 5% on the detox, IOP and PHP per diems.
+const OPTUM_SOURCE_GROUPS = ['Oxford', 'UBH', 'Connecticare -', 'UMR']
+export const OPTUM_GROUP = 'Optum'
+
+// Carriers Optum administers that are not themselves one of the reported
+// names. Checked last, so a carrier that maps to a bucket of its own — UBH-HP
+// to UBH, UMR (Optum) to UMR — keeps that narrower reading; this only reaches
+// the ones that had no payer group at all.
+const OPTUM_ADMINISTERED = /\(Optum\)|^Optum |^UHC\b/i
+
+const blend = (table) => {
+  const byCode = {}
+  for (const group of OPTUM_SOURCE_GROUPS) {
+    for (const [code, value] of Object.entries(table[group] || {})) {
+      byCode[code] = byCode[code] || []
+      byCode[code].push(value)
+    }
+  }
+  return Object.fromEntries(
+    Object.entries(byCode).map(([code, values]) => [
+      code,
+      Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 100) / 100,
+    ])
+  )
+}
+
+// The generated tables plus the derived Optum one, which is the only entry not
+// read straight from the claims export.
+const GROUP_REIMBURSEMENT = { ...PAYER_REIMBURSEMENT, [OPTUM_GROUP]: blend(PAYER_REIMBURSEMENT) }
+const GROUP_CHARGES = { ...PAYER_CHARGES, [OPTUM_GROUP]: blend(PAYER_CHARGES) }
+
 const EXACT_GROUPS = new Set(Object.keys(PAYER_REIMBURSEMENT))
 
 // Which group a carrier's claims were reported under. Most groups are a carrier
@@ -88,6 +129,7 @@ export function payerGroupFor(carrier) {
       if (EXACT_GROUPS.has(group)) return { group, exact: false }
     }
   }
+  if (OPTUM_ADMINISTERED.test(carrier)) return { group: OPTUM_GROUP, exact: false }
   return null
 }
 
@@ -102,19 +144,23 @@ export function miscRate(code) {
 export function reimbursementRate(carrier, code) {
   const match = payerGroupFor(carrier)
   if (!match) return null
-  const rate = PAYER_REIMBURSEMENT[match.group]?.[String(code)]
+  const rate = GROUP_REIMBURSEMENT[match.group]?.[String(code)]
   return typeof rate === 'number' ? rate : null
 }
 
 export function reimbursementDetail(carrier, code) {
   const match = payerGroupFor(carrier)
   if (!match) return null
-  const rate = PAYER_REIMBURSEMENT[match.group]?.[String(code)]
+  const rate = GROUP_REIMBURSEMENT[match.group]?.[String(code)]
   if (typeof rate !== 'number') return null
   return {
     group: match.group,
     exact: match.exact,
     rate,
-    charge: PAYER_CHARGES[match.group]?.[String(code)] ?? null,
+    charge: GROUP_CHARGES[match.group]?.[String(code)] ?? null,
+    // Where the number is a blend of the names one payer reports under, the
+    // names are carried with it — a reader checking a rate against a claims
+    // report needs to know which reports it came from.
+    blendedFrom: match.group === OPTUM_GROUP ? OPTUM_SOURCE_GROUPS : null,
   }
 }

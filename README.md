@@ -14,15 +14,28 @@ Each tool keeps its own state for the session, so switching tabs to check a rate
 
 ## Reference data
 
-`src/data/rates.js` is generated from the 2026 Deposit Calculator workbook's `Vlookup` sheet: **63 carriers** with their INN / OON / self-pay status, **122 CPT and HCPCS codes** with descriptions, the **carrier × code rate matrix**, the cross-carrier benchmark average per code, and the **47 treatment sequences**.
+`src/data/rates.js` is generated from the Deposit Calculator 2026 Revised workbook's `Vlookup` sheet: **58 carriers** with their INN / OON / self-pay status, **122 CPT and HCPCS codes** with descriptions, the **carrier × code rate matrix**, the workbook's own cross-carrier benchmark average per code, and the **47 treatment sequences**.
 
-`rates.js` is generated and is overwritten whenever the workbook is re-exported, so a rate the workbook has **wrong** is corrected in `src/data/rateCorrections.js` instead — an overlay applied at lookup time, where a hand edit cannot be silently reverted. Each entry records the old value, the date and the reason. A rate the workbook is merely *missing* is not corrected there; it is left missing so the app can say so.
+Regenerate it with `python3 scripts/extract-rates.py <workbook.xlsx>` (needs `pip install openpyxl`). The script reads the sheet through the workbook's own named ranges — `CarrierList`, `CPTCodeList`, `TreatmentSequences` — so a resized sheet is followed rather than guessed at, and it refuses to run if the Grand Total row it takes the benchmarks from is not where it expects.
+
+Two things the app keeps past the workbook are held outside the generated file, so a re-export cannot take them away without somebody deciding to:
+
+- **Four treatment sequences.** The 2026 revision offers 43; the app offers 47, keeping `Residential > PHP`, `Residential > OP`, `OPWM > Residential > IOP` and `OPWM > Residential > IOP > OP`. A step-down you cannot select is a worse failure than an extra option in a list, and the estimator prices any pathway built from these levels. They live in `EXTRA_TREATMENT_SEQUENCES` in the script.
+- **Rates the workbook has wrong**, corrected in `src/data/rateCorrections.js` — an overlay applied at lookup time, where a hand edit cannot be silently reverted. Each entry records the old value, the date and the reason. The list is currently empty, which is the healthy state: the revision adopted the one correction that was in it (self-pay psychiatric evaluation, $650 → $675), so it was retired rather than left sitting as a no-op.
+
+A rate the workbook is merely *missing* is never corrected there; it is left missing so the app can say so.
+
+The 2026 revision also **dropped five in-network carriers** — Oxford, UHC, UBH, Connecticare and Connecticare - Molina — consolidating onto the per-site `Optum …` rows. Optum administers all of them on one set of contracted rates, which is why the rows are identical and why the consolidation is a rename rather than a loss. The app follows the sheet, and the claims history filed under the old names is still reachable from the carriers that replaced them (see below).
+
+The carrier dropdown is **alphabetical**, not sheet order: the workbook's list is alphabetical only down to the point where new carriers began being appended to the bottom, which made the two dozen most recently added plans the hardest ones to find. `Other — not listed` stays last, because it is a fallback rather than a carrier.
 
 A carrier that has no rate for a code is *absent* from that carrier's row rather than stored as `0`. The workbook marks those cells amber and tells you to estimate from a similar plan; the app does the same thing out loud — it names every priced service whose rate is missing, shows the cross-carrier average and the nearest comparable plans, and warns that the total is understated until a rate is entered. Nothing is silently priced at zero.
 
 ### Observed reimbursement — the fallback of last resort
 
 `src/data/reimbursement.js` holds the average amount actually reimbursed per code for **13 payer groups**, drawn from past claims, alongside the average charge amount.
+
+A carrier reaches a group by name, then by family: the Anthem-administered BCBS plans report under `Anthem` and the rest under `BCBS`. **Optum** is the one group not read straight from the export. Optum administers Oxford, UHC, UBH and Connecticare on one set of rates, and the 2026 revision folded all four into the carriers named for it — so a carrier the sheet now calls Optum is asking about claims filed under four older names. Picking one of the four to stand for the rest would be arbitrary, so the group averages the ones carrying the code: stable rather than a compromise, since the four sit within 13% of each other on every facility code and within 5% on the detox, IOP and PHP per diems. A carrier with a bucket of its own keeps the narrower reading — `UBH-HP` is UBH, `UMR (Optum)` is UMR — so this only reaches the carriers that had no payer group at all. It fills 23 lines that were costing $0 (OPWM and PHP at four Optum sites, and everything an IOP or OP episode needs for `GEHA-ASA (Optum)` and `UHC Student Resource -`) and moves no rate that was already priced.
 
 This is the weakest source and the last one consulted. A contracted schedule is a signed number and the carrier table is a plan's stated allowed amount; this is neither. Measured against the carrier table where both exist, it tracks closely in the middle (median ratio **0.96**) but ranges from roughly half to two-thirds above — an estimate, not a quote. Every line drawn from it is tagged `payer avg` on its row, and the result panel names those lines and says the total is an estimate.
 
@@ -31,7 +44,15 @@ This is the weakest source and the last one consulted. A contracted schedule is 
 - The carrier list ends with **"Other — not listed"**, for a plan the app does not carry. It prices entirely off Misc, states plainly that nothing is specific to the client, and asks for the network status, since an unlisted carrier has none on file.
 - A missing rate on a listed carrier shows a one-click **`misc`** button beside its field, alongside the option to type the number the verification call established. Either way the choice is the user's and the source is visible.
 
-With Misc held back this way, **16 of the 176** carrier-table gaps fill automatically from the carrier's own payer group; the other 160 offer the quick-fill. 23 carriers map to no payer group at all and rely on a typed rate or the Misc button.
+With Misc held back this way, **39 of the 176** carrier-table gaps on a priced code fill automatically from the carrier's own payer group and **12 more** from Diversified Group's percentage of billed charges; the other 125 offer the quick-fill. 20 carriers map to no payer group and no percentage basis at all, and rely on a typed rate or the Misc button.
+
+### Payers priced off our own charge master
+
+`src/data/percentOfCharge.js` covers the case where a plan has **no allowed amounts on file at all** but its claims come back at a stable percentage of what we billed. That percentage is a rate: 30% of a $5,450 detox night is $1,635, and $1,635 is a far better number to quote than the $0 an unpriced line costs.
+
+**Diversified Group** is the current entry, at **30% of billed charges**. The base is the charge master itself — the `billed` column of the signed contract schedules — so a change to what we charge moves these rates with it instead of leaving them at last year's figure, and the result is rounded up to the next $5 the way the workbook says an out-of-network rate is. That gives $1,635 a detox night, $1,485 residential, $1,350 OPWM, $945 PHP, $465 an IOP day, $225 for individual and family therapy, $160 an OP group.
+
+It is not the same kind of fact as a contracted rate or a stated allowed amount, so it never displaces either, and it is labelled with the percentage wherever it appears: `30% of billed` on the estimator's rate row, `30% of $5,450 billed` under the figure in the rate lookup, and a banner on the estimate naming every line that came from it. A code with no charge on file gets no derived rate — inventing the base would make the whole line invented.
 
 ### In-network contracted rate schedules
 
@@ -42,9 +63,10 @@ These are a different axis from the carrier table. That table answers *"what doe
 1. **Override** — a rate typed in by hand, because the user is looking at the contract
 2. **Contracted schedule** — a signed rate for this site, **in network only**
 3. **Carrier table** — this plan's stated allowed amount
-4. **The carrier's own payer-group average** — what claims like this were actually paid
+4. **A percentage of our billed charge**, for a payer that processes claims that way
+5. **The carrier's own payer-group average** — what claims like this were actually paid
 
-A code none of the four covers stays missing rather than becoming zero. A contracted schedule is an in-network agreement, so it prices nothing for an out-of-network plan however the location is set — there is no contract with a payer we are out of network with, and the allowed amount is that plan's own. The Location field says so rather than looking ignored. Only Connecticut carries facility per diems; the NJ and NY sheets are professional rates only, so detox, residential, PHP and OPWM fall back to the carrier table there. Codes a schedule lists as *billed but not contracted* (Utox, Case Management, Medical Team Conference, telephone codes) are flagged as **not contracted** rather than merely unpriced — the plan may not pay them at all.
+A code none of the five covers stays missing rather than becoming zero. A contracted schedule is an in-network agreement, so it prices nothing for an out-of-network plan however the location is set — there is no contract with a payer we are out of network with, and the allowed amount is that plan's own. The Location field says so rather than looking ignored. Only Connecticut carries facility per diems; the NJ and NY sheets are professional rates only, so detox, residential, PHP and OPWM fall back to the carrier table there. Codes a schedule lists as *billed but not contracted* (Utox, Case Management, Medical Team Conference, telephone codes) are flagged as **not contracted** rather than merely unpriced — the plan may not pay them at all.
 
 Connecticut contracts **H0018 at two rates** against two revenue codes — $1,186.00 under rev 1000 (Residential 3.7 / Residential Eval) and $1,045.00 under rev 1002 (Residential 3.5 / Residential). The residential line prices at the 1002 rate, matching how the workbook's own table labels H0018, and the app surfaces the other rate on screen so it can be entered when a stay bills that way.
 
@@ -194,7 +216,7 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 The suite is built around one question — **does the output say what was entered?** — and answers it three ways:
 
-- **Against the workbook.** 60 scenarios captured from a literal transcription of the original cell formulas, each carrying all 21 intermediate cells, so a regression is located rather than merely detected. The self-pay sheet's own saved scenario is asserted to the cent.
+- **Against the workbook.** 60 scenarios captured from a literal transcription of the original cell formulas, each carrying all 21 intermediate cells, so a regression is located rather than merely detected. The self-pay sheet's own saved scenario is asserted to the cent. Eleven of the 60 were captured against a carrier the 2026 revision dropped; each now runs against a surviving carrier whose rates are identical on every code that case prices, and carries `capturedAs` naming the original — the carrier in a case is a rate source, not part of the arithmetic under test.
 - **At named points.** Sequence gating, the sequence-aware unit defaults, rate sourcing and its four levels of authority, the contracted schedules, and every state the estimator must refuse to quote.
 - **Through the generated output.** The cost note's deposit is asserted to be the computed one, its breakdown to reconcile to that deposit, and a charge the plan does not have to be absent rather than printed as $0 — a copay that replaces coinsurance is never quoted alongside coinsurance, and an unpriced code always reaches the note.
 
@@ -204,27 +226,35 @@ The suite is built around one question — **does the output say what was entere
 
 1. **Plan & Pathway** — Select the carrier, its network status where the carrier has none on file, the location the client is admitting to, and the treatment sequence. The sequence decides which levels of care are priced at all; everything else stays at zero.
 2. **Accumulators** — What is left of the plan year as of today: deductible remaining, out-of-pocket maximum remaining, the coinsurance percentage, and whether the deductible sits inside the maximum or on top of it. Any previous outstanding balance goes here too.
-3. **Copay** — Three separate questions, each of which moves money on its own: how the copay is counted, whether it displaces coinsurance, and which accumulators it feeds. A copay whose accumulator behavior has not been established is a blocker, not a default — it would otherwise drop out of the deposit entirely.
+3. **Copay** — Four separate questions, each of which moves money on its own: how the copay is counted, where it stops, whether it displaces coinsurance, and which accumulators it feeds. A copay whose accumulator behavior has not been established is a blocker, not a default — it would otherwise drop out of the deposit entirely.
 4. **Admission Fees** — Charged once on entry to a level of care, and only for the levels the sequence names.
-5. **Inpatient Nights and Outpatient Services** — Counts start from the typical episode for the sequence and every one is editable, as is every rate: a number from the verification call outranks both the contracted schedule and the carrier table, and is tagged as an override.
+5. **Inpatient Nights and Outpatient Services** — Counts start from the typical episode for the sequence — the workbook's own night inputs, 6 detox and 35 residential — and every one is editable, as is every rate: a number from the verification call outranks both the contracted schedule and the carrier table, and is tagged as an override. A stay is quoted for the nights authorized, not the nights typical, so these are only where the estimate starts.
 6. **Generate the output** — Once nothing is left in *Resolve before quoting*, the deposit is quotable. **Generate output** produces the three views:
    - **Cost Note** — the default. The deposit and what makes it up, in the shape the billing team already reads out. This is the part that gets read to the client.
    - **Staff Detail** — the plan terms as entered, every priced line, and both waterfalls line by line.
    - **Client Explanation** — long-form plain-language wording for when the client asks how their plan works.
 
+### Reading the screen
+
+The point of the workbook this replaces is that the whole calculation is in front of you at once, so the app is laid out the same way: the short answer sets sit two to a row, only the line tables take the full column, and the estimate stays in the rail beside them rather than below them. A typical estimate is one screen.
+
+What that costs is prose, so the prose is on a switch rather than gone. Every step's header carries an **ⓘ** that opens the note explaining what the step is for, and every header is a toggle that folds the step away. *Level of Care Rules* and *Hardship* start folded, because both are exceptions rather than the normal path — when either one is holding something, its header says so in a badge, so a folded step never hides a rule that is moving money.
+
+**Clear**, in the top bar, empties the tool you are looking at so you can start the next client. It asks once before it does — the first click turns the button into the question, the second answers it — and it clears only the active tool: an estimate in progress survives clearing a rate search.
+
 ### What the Cost Note looks like
 
 ```
-Oxford (in network) — Detox > Residential > IOP > OP.
+Optum Canaan (in network) — Detox > Residential > IOP > OP.
 
-Deposit: $8,228.
+Deposit: $12,598.
 
-  Detox and Residential, 20 nights: $5,569.
+  Detox and Residential, 41 nights: $9,938.
   IOP and OP: $2,660.
 
 What makes that up:
   Deductible: $1,500.
-  Coinsurance, 20% of the cost after the deductible: $6,728.
+  Coinsurance, 20% of the cost after the deductible: $11,098.
 
 This is an estimate of the plan's cost share for the care listed above, not a bill. What is owed in the end follows the care actually delivered.
 ```

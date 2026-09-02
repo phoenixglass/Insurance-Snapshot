@@ -1,6 +1,7 @@
 // Shared form and display primitives. Every tool in the app is built from
 // these, so a control behaves and reads the same way wherever it appears.
 
+import { useState } from 'react'
 import { formatMoney } from './estimate.js'
 
 // A segmented control for short, mutually exclusive answers. A radio group
@@ -133,18 +134,93 @@ export function Field({ label, htmlFor, hint, required, optional, badge, childre
   )
 }
 
-export function Section({ title, eyebrow, description, actions, children }) {
+// A step of the form. The header is one row — step chip, title, whatever badge
+// the step is carrying, and the controls — because on a screen meant to be read
+// without scrolling, a heading that costs three lines is a heading that costs a
+// section.
+//
+// The prose that explains a step is real, but it is reference: it answers a
+// question asked once, and then sits there taking up the room the fields need.
+// So it lives behind the ⓘ, and a step that is an exception rather than the
+// normal path (`defaultOpen={false}`) starts closed with a badge saying what it
+// is holding, so nothing is hidden without being announced.
+export function Section({
+  title,
+  eyebrow,
+  description,
+  actions,
+  badge,
+  wide,
+  collapsible = true,
+  defaultOpen = true,
+  children,
+}) {
+  const [open, setOpen] = useState(collapsible ? defaultOpen : true)
+  const [showInfo, setShowInfo] = useState(false)
+
+  const heading = (
+    <>
+      {eyebrow && <span className="section-eyebrow">{eyebrow}</span>}
+      <span className="section-name">{title}</span>
+    </>
+  )
+
   return (
-    <section className="form-section">
+    <section
+      className={`form-section${wide ? ' section-wide' : ''}${open ? '' : ' form-section-closed'}`}
+    >
       <div className="section-head">
-        <div>
-          {eyebrow && <span className="section-eyebrow">{eyebrow}</span>}
-          <h2 className="section-title">{title}</h2>
-          {description && <p className="section-description">{description}</p>}
+        <h2 className="section-title">
+          {collapsible ? (
+            <button
+              type="button"
+              className="section-toggle"
+              aria-expanded={open}
+              onClick={() => setOpen((v) => !v)}
+            >
+              <span className="section-chevron" aria-hidden="true">
+                ▸
+              </span>
+              {heading}
+            </button>
+          ) : (
+            <span className="section-toggle section-toggle-static">{heading}</span>
+          )}
+        </h2>
+
+        {badge && (
+          <span className={`section-badge${badge.tone ? ` section-badge-${badge.tone}` : ''}`}>
+            {badge.label}
+          </span>
+        )}
+
+        <div className="section-head-actions">
+          {description && (
+            <button
+              type="button"
+              className={`section-info${showInfo ? ' section-info-on' : ''}`}
+              aria-expanded={showInfo}
+              aria-label={showInfo ? `Hide the note on ${title}` : `What ${title} is for`}
+              title={showInfo ? 'Hide the note' : 'What this step is for'}
+              onClick={() => {
+                // Opening the note on a closed section would put it nowhere.
+                setShowInfo((v) => !v)
+                setOpen(true)
+              }}
+            >
+              i
+            </button>
+          )}
+          {actions}
         </div>
-        {actions}
       </div>
-      {children}
+
+      {open && (
+        <div className="section-body">
+          {showInfo && description && <p className="section-description">{description}</p>}
+          {children}
+        </div>
+      )}
     </section>
   )
 }

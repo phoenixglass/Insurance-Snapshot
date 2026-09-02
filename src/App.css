@@ -162,9 +162,9 @@ body {
   font-family: var(--font);
   background: var(--bg);
   color: var(--text);
-  line-height: 1.55;
+  line-height: 1.45;
   -webkit-font-smoothing: antialiased;
-  font-size: 15px;
+  font-size: 14px;
 }
 
 button,
@@ -222,12 +222,12 @@ textarea {
 }
 
 .app-bar-inner {
-  max-width: 1360px;
+  max-width: 1600px;
   margin: 0 auto;
-  padding: 10px 20px;
+  padding: 7px 16px;
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 16px;
 }
 
 .brand {
@@ -271,9 +271,9 @@ textarea {
   border: 0;
   background: transparent;
   color: var(--text-2);
-  padding: 6px 14px;
+  padding: 4px 12px;
   border-radius: 7px;
-  font-size: 0.86rem;
+  font-size: 0.84rem;
   font-weight: 560;
   cursor: pointer;
   white-space: nowrap;
@@ -291,9 +291,8 @@ textarea {
 }
 
 .theme-toggle {
-  margin-left: auto;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
   border-radius: 50%;
   border: 1px solid var(--border);
@@ -312,51 +311,69 @@ textarea {
 
 .app-body {
   margin: 0 auto;
-  padding: 28px 20px 72px;
+  padding: 12px 16px 36px;
 }
 
 .app-body-narrow {
-  max-width: 820px;
+  max-width: 880px;
 }
 
 .app-body-medium {
-  max-width: 1080px;
+  max-width: 1240px;
 }
 
 .app-body-wide {
-  max-width: 1360px;
+  max-width: 1600px;
 }
 
-.page-head {
-  margin-bottom: 22px;
-}
-
-.page-head h1 {
-  font-size: 1.6rem;
-  font-weight: 700;
-  letter-spacing: -0.022em;
-}
-
-.page-head p {
-  color: var(--text-2);
-  font-size: 0.93rem;
-  margin-top: 2px;
+/* The tab bar names the tool on screen, so the page heading is for heading
+   navigation only. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* ── Two-column tool layout ───────────────────────────────────────────── */
 
 .tool-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 400px;
-  gap: 22px;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 12px;
   align-items: start;
 }
 
+/* The form column is its own container, so the grid inside splits on the width
+   the form actually has — which is not the window's: the same form is 1170px
+   wide on a monitor and 660px once the result rail is beside it. */
 .tool-form {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
   min-width: 0;
+  container-type: inline-size;
+}
+
+/* Steps that are a handful of short answers sit two to a row; a step carrying a
+   line table or a set of per-level cards takes the whole column. */
+.form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+@container (min-width: 740px) {
+  .form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.form-grid > .section-wide {
+  grid-column: 1 / -1;
 }
 
 .tool-result {
@@ -365,16 +382,16 @@ textarea {
 
 .result-sticky {
   position: sticky;
-  top: 76px;
+  top: 52px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
 }
 
 .lookup-layout {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 10px;
 }
 
 /* A wide line-by-line grid gets the full page width, with its summary as a
@@ -382,13 +399,13 @@ textarea {
 .tool-stack {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 10px;
 }
 
 .result-band {
   display: grid;
-  grid-template-columns: minmax(300px, 400px) minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  gap: 10px;
   align-items: start;
 }
 
@@ -422,58 +439,181 @@ textarea {
 .form-section {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  padding: 22px 22px 20px;
+  border-radius: var(--r);
+  padding: 9px 12px 11px;
   box-shadow: var(--shadow-sm);
 }
 
-.section-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  margin-bottom: 18px;
+.form-section-closed {
+  padding-bottom: 9px;
+  background: var(--surface-2);
 }
 
-.section-eyebrow {
-  display: block;
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-  color: var(--accent);
-  margin-bottom: 3px;
+/* One row: chevron, step chip, name, badge, controls. A heading that costs
+   three lines costs a section on a screen meant to be read at a glance. */
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
 }
 
 .section-title {
-  font-size: 1.05rem;
-  font-weight: 660;
-  letter-spacing: -0.014em;
+  min-width: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.section-toggle-static {
+  cursor: default;
+}
+
+.section-chevron {
+  color: var(--text-3);
+  font-size: 0.72rem;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+.section-toggle[aria-expanded='true'] .section-chevron {
+  transform: rotate(90deg);
+}
+
+.section-eyebrow {
+  flex-shrink: 0;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+.section-name {
+  font-size: 0.94rem;
+  font-weight: 650;
+  letter-spacing: -0.012em;
   color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.section-toggle:hover .section-name {
+  color: var(--accent);
+}
+
+/* What a closed step is carrying. A panel may be folded away; what it is doing
+   to the estimate may not be. */
+.section-badge {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-size: 0.66rem;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.section-badge-warn {
+  color: var(--warn);
+  border-color: var(--warn-line);
+  background: var(--warn-soft);
+}
+
+.section-head-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.section-head-actions .btn-secondary {
+  padding: 3px 9px;
+  font-size: 0.74rem;
+}
+
+/* The prose behind a step is reference — read once, then in the way. */
+.section-info {
+  width: 19px;
+  height: 19px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-3);
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-style: italic;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.section-info:hover {
+  color: var(--accent);
+  border-color: var(--accent-line);
+}
+
+.section-info-on {
+  color: var(--accent);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.section-body {
+  margin-top: 9px;
 }
 
 .section-description {
   color: var(--text-2);
-  font-size: 0.86rem;
-  margin-top: 4px;
-  max-width: 62ch;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  margin-bottom: 10px;
+  padding-left: 9px;
+  border-left: 2px solid var(--accent-line);
+  max-width: 78ch;
 }
 
 /* ── Fields ───────────────────────────────────────────────────────────── */
 
 .field-group {
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
 
 .field-group:last-child {
   margin-bottom: 0;
 }
 
+/* auto-fit rather than a fixed pair, so a two-field row inside a narrow card
+   wraps on the card's width instead of the window's. */
 .field-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-bottom: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
 }
 
 .field-row > .field-group {
@@ -486,27 +626,21 @@ textarea {
   min-width: 0;
 }
 
-@media (max-width: 620px) {
-  .field-row {
-    grid-template-columns: 1fr;
-  }
-}
-
 .field-label {
   display: block;
-  font-size: 0.76rem;
+  font-size: 0.7rem;
   font-weight: 650;
   color: var(--text-2);
-  margin-bottom: 7px;
+  margin-bottom: 4px;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
 }
 
 .field-hint {
-  font-size: 0.8rem;
+  font-size: 0.74rem;
   color: var(--text-3);
-  margin-top: 6px;
-  line-height: 1.5;
+  margin-top: 4px;
+  line-height: 1.45;
 }
 
 .required-star {
@@ -550,7 +684,7 @@ textarea {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r);
-  padding: 3px;
+  padding: 2px;
   gap: 2px;
   max-width: 100%;
   flex-wrap: wrap;
@@ -558,9 +692,9 @@ textarea {
 
 .segmented-option {
   position: relative;
-  padding: 5px 13px;
-  border-radius: 7px;
-  font-size: 0.85rem;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
   font-weight: 540;
   color: var(--text-2);
   cursor: pointer;
@@ -620,7 +754,7 @@ textarea {
 .percent-symbol,
 .number-suffix,
 .search-icon {
-  padding: 0 9px;
+  padding: 0 7px;
   background: var(--surface-2);
   color: var(--text-3);
   font-weight: 600;
@@ -644,8 +778,8 @@ textarea {
   border: 0;
   outline: none;
   background: transparent;
-  padding: 8px 10px;
-  font-size: 0.9rem;
+  padding: 5px 8px;
+  font-size: 0.85rem;
   color: var(--text);
 }
 
@@ -672,9 +806,9 @@ textarea {
 }
 
 .input-sm .currency-input {
-  padding: 5px 7px;
-  font-size: 0.84rem;
-  max-width: 92px;
+  padding: 3px 6px;
+  font-size: 0.8rem;
+  max-width: 84px;
 }
 
 .input-sm .currency-symbol {
@@ -683,7 +817,7 @@ textarea {
 }
 
 .number-input {
-  max-width: 84px;
+  max-width: 76px;
   text-align: right;
 }
 
@@ -694,7 +828,7 @@ textarea {
 /* A money or percent field is as wide as the number it holds. Stretching one
    across the column reads as a text field and makes the row harder to scan. */
 .field-group > .currency-input-wrapper{
-  max-width: 230px;
+  max-width: 210px;
 }
 
 .percent-input-wrapper,
@@ -716,15 +850,15 @@ textarea {
   border: 0;
   outline: none;
   background: transparent;
-  padding: 8px 34px 8px 10px;
-  font-size: 0.9rem;
+  padding: 5px 26px 5px 8px;
+  font-size: 0.85rem;
   cursor: pointer;
 }
 
 .select-wrapper::after {
   content: '⌄';
   position: absolute;
-  right: 12px;
+  right: 10px;
   top: 42%;
   transform: translateY(-50%);
   pointer-events: none;
@@ -740,13 +874,13 @@ textarea {
 
 .banner{
   display: flex;
-  gap: 9px;
-  font-size: 0.84rem;
-  line-height: 1.55;
-  padding: 10px 13px;
+  gap: 8px;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  padding: 7px 10px;
   border-radius: var(--r-sm);
   border: 1px solid;
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 .banner-icon {
@@ -802,14 +936,14 @@ textarea {
   background: var(--danger-soft);
   border: 1px solid var(--danger-line);
   border-radius: var(--r);
-  padding: 14px 16px;
+  padding: 9px 12px;
 }
 
 .submit-blockers-title {
   font-weight: 680;
   color: var(--danger);
-  font-size: 0.85rem;
-  margin-bottom: 7px;
+  font-size: 0.8rem;
+  margin-bottom: 5px;
 }
 
 .submit-blockers ul {
@@ -827,9 +961,9 @@ textarea {
 .network-pill {
   display: inline-flex;
   align-items: center;
-  padding: 6px 14px;
+  padding: 4px 12px;
   border-radius: 999px;
-  font-size: 0.8rem;
+  font-size: 0.76rem;
   font-weight: 660;
   letter-spacing: 0.03em;
   border: 1px solid var(--border);
@@ -861,11 +995,11 @@ textarea {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
 
 .pathway-chip {
-  padding: 3px 11px;
+  padding: 2px 10px;
   background: var(--accent-soft);
   border: 1px solid var(--accent-line);
   color: var(--accent);
@@ -951,8 +1085,8 @@ textarea {
 .line-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.86rem;
-  min-width: 560px;
+  font-size: 0.82rem;
+  min-width: 540px;
 }
 
 .line-table-wide {
@@ -961,19 +1095,19 @@ textarea {
 
 .line-table th {
   text-align: left;
-  font-size: 0.7rem;
+  font-size: 0.66rem;
   font-weight: 680;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   color: var(--text-3);
-  padding: 10px 12px;
+  padding: 6px 9px;
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
 }
 
 .line-table td {
-  padding: 8px 12px;
+  padding: 4px 9px;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
 }
@@ -1004,12 +1138,12 @@ textarea {
    two that no longer share column widths. */
 .group-row td {
   background: var(--surface-2);
-  font-size: 0.7rem;
+  font-size: 0.66rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: var(--text-3);
-  padding: 8px 12px;
+  padding: 5px 9px;
 }
 
 .row-inactive {
@@ -1020,26 +1154,47 @@ textarea {
    there are six questions per level, and a table that scrolls sideways hides
    half of them. */
 
+/* Every level of care in the sequence, side by side rather than stacked: the
+   point of the panel is that these are the same six questions answered
+   differently, which is a comparison, not a list. */
+.level-rules-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: 8px;
+  align-items: start;
+}
+
 .level-rule {
   border: 1px solid var(--border);
-  border-radius: var(--r);
-  padding: 14px 16px;
-  margin-bottom: 12px;
+  border-radius: var(--r-sm);
+  padding: 9px 11px 10px;
   background: var(--surface-2);
+}
+
+/* Inside a card the rows wrap on the card, not the window. */
+.level-rule .field-row,
+.level-rule .field-row-3 {
+  grid-template-columns: repeat(auto-fit, minmax(122px, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.level-rule .field-group > .currency-input-wrapper {
+  max-width: none;
 }
 
 .level-rule-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 10px;
+  margin-bottom: 8px;
 }
 
 .level-rule-title {
   margin: 0;
-  font-size: 0.95rem;
-  font-weight: 650;
+  font-size: 0.86rem;
+  font-weight: 660;
   color: var(--text);
 }
 
@@ -1055,8 +1210,8 @@ textarea {
 }
 
 .btn-tiny {
-  padding: 4px 10px;
-  font-size: 0.74rem;
+  padding: 2px 8px;
+  font-size: 0.7rem;
 }
 
 .row-off-own {
@@ -1065,25 +1220,19 @@ textarea {
 }
 
 .level-rule-note {
-  margin: -4px 0 12px;
-  font-size: 0.8rem;
-  line-height: 1.5;
+  margin: -2px 0 8px;
+  font-size: 0.74rem;
+  line-height: 1.45;
   color: var(--text-3);
 }
 
 .field-row-3 {
-  grid-template-columns: repeat(3, 1fr);
-}
-
-@media (max-width: 900px) {
-  .field-row-3 {
-    grid-template-columns: 1fr;
-  }
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
 
 .row-off {
   display: block;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   color: var(--text-3);
   font-weight: 500;
 }
@@ -1125,14 +1274,14 @@ textarea {
 
 .lookup-detail-row td {
   background: var(--surface-2);
-  padding: 14px 16px;
+  padding: 10px 12px;
 }
 
 .lookup-detail {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  font-size: 0.83rem;
+  gap: 9px;
+  font-size: 0.79rem;
 }
 
 .lookup-detail-label {
@@ -1193,9 +1342,9 @@ textarea {
 
 .fee-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
-  gap: 12px;
-  margin-bottom: 18px;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 .fee-cell-inactive {
@@ -1204,10 +1353,10 @@ textarea {
 
 .fee-label {
   display: block;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 620;
   color: var(--text-2);
-  margin-bottom: 5px;
+  margin-bottom: 3px;
 }
 
 .fee-off {
@@ -1222,65 +1371,70 @@ textarea {
 .result-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  padding: 18px;
+  border-radius: var(--r);
+  padding: 12px 13px;
   box-shadow: var(--shadow-sm);
 }
 
 .result-heading {
-  font-size: 0.74rem;
+  font-size: 0.7rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-3);
-  margin-bottom: 14px;
+  margin-bottom: 9px;
 }
 
 .result-note {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   color: var(--text-3);
-  margin: -6px 0 12px;
-  line-height: 1.5;
+  margin: -4px 0 9px;
+  line-height: 1.45;
 }
 
 .result-actions {
-  margin-top: 14px;
+  margin-top: 10px;
   display: flex;
   justify-content: flex-end;
 }
 
 .result-detail {
-  margin-top: 14px;
-  padding-top: 12px;
+  margin-top: 10px;
+  padding-top: 9px;
   border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 5px;
 }
 
 .result-detail-row {
   display: flex;
   justify-content: space-between;
-  gap: 14px;
-  font-size: 0.83rem;
+  gap: 12px;
+  font-size: 0.79rem;
   color: var(--text-2);
+}
+
+/* A note explaining the rows above it is not one of them. */
+.result-detail + .result-note {
+  margin-top: 9px;
+  margin-bottom: 0;
 }
 
 /* Hero figure — the one number the screen leads with. */
 .hero-figure {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 18px 20px;
-  border-radius: var(--r);
+  gap: 0;
+  padding: 10px 13px 11px;
   background: linear-gradient(150deg, var(--accent), color-mix(in srgb, var(--accent) 62%, var(--series-1)));
   color: var(--on-accent);
-  margin: -18px -18px 16px;
-  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  margin: -12px -13px 10px;
+  border-radius: var(--r) var(--r) 0 0;
 }
 
 .hero-label {
-  font-size: 0.7rem;
+  font-size: 0.66rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.09em;
@@ -1288,36 +1442,36 @@ textarea {
 }
 
 .hero-value {
-  font-size: 2.7rem;
+  font-size: 1.95rem;
   font-weight: 700;
   letter-spacing: -0.03em;
-  line-height: 1.1;
+  line-height: 1.15;
 }
 
 .hero-caption {
-  font-size: 0.78rem;
+  font-size: 0.73rem;
   opacity: 0.85;
-  margin-top: 3px;
+  margin-top: 2px;
 }
 
 .stat-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 7px;
 }
 
 .stat-tile {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 11px 13px;
+  gap: 0;
+  padding: 6px 9px 7px;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
 }
 
 .stat-label {
-  font-size: 0.68rem;
+  font-size: 0.64rem;
   font-weight: 660;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -1325,24 +1479,24 @@ textarea {
 }
 
 .stat-value {
-  font-size: 1.2rem;
+  font-size: 1.05rem;
   font-weight: 680;
   letter-spacing: -0.02em;
 }
 
 .stat-caption {
-  font-size: 0.74rem;
+  font-size: 0.7rem;
   color: var(--text-3);
 }
 
 /* Meter — one ratio against its limit. */
 .meter + .meter {
-  margin-top: 12px;
+  margin-top: 9px;
 }
 
 .segment-bar-block + .meter {
-  margin-top: 16px;
-  padding-top: 14px;
+  margin-top: 11px;
+  padding-top: 10px;
   border-top: 1px solid var(--border);
 }
 
@@ -1351,17 +1505,17 @@ textarea {
   justify-content: space-between;
   align-items: baseline;
   gap: 12px;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .meter-label {
-  font-size: 0.8rem;
+  font-size: 0.76rem;
   color: var(--text-2);
   font-weight: 560;
 }
 
 .meter-value {
-  font-size: 0.84rem;
+  font-size: 0.79rem;
   font-weight: 660;
 }
 
@@ -1371,7 +1525,7 @@ textarea {
 }
 
 .meter-track {
-  height: 8px;
+  height: 6px;
   border-radius: 999px;
   background: var(--surface-3);
   overflow: hidden;
@@ -1398,7 +1552,7 @@ textarea {
 /* Part-to-whole bar. A 2px surface gap separates adjacent fills. */
 .segment-bar {
   display: flex;
-  height: 14px;
+  height: 11px;
   border-radius: 4px;
   overflow: hidden;
   background: var(--surface-3);
@@ -1426,17 +1580,17 @@ textarea {
 
 .segment-legend {
   list-style: none;
-  margin-top: 12px;
+  margin-top: 8px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
 }
 
 .segment-legend li {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.83rem;
+  font-size: 0.78rem;
 }
 
 .segment-legend-zero {
@@ -1469,10 +1623,10 @@ textarea {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 14px;
-  padding: 7px 0;
+  gap: 12px;
+  padding: 3px 0;
   border-bottom: 1px dashed var(--border);
-  font-size: 0.85rem;
+  font-size: 0.79rem;
 }
 
 .waterfall-row:last-child {
@@ -1485,7 +1639,7 @@ textarea {
 
 .waterfall-note {
   display: block;
-  font-size: 0.72rem;
+  font-size: 0.69rem;
   color: var(--text-3);
 }
 
@@ -1507,8 +1661,8 @@ textarea {
 .waterfall-row-total {
   border-bottom: 0;
   border-top: 2px solid var(--border-strong);
-  margin-top: 4px;
-  padding-top: 10px;
+  margin-top: 3px;
+  padding-top: 7px;
 }
 
 .waterfall-row-total .waterfall-label {
@@ -1519,20 +1673,23 @@ textarea {
 .waterfall-row-total .waterfall-value {
   color: var(--accent);
   font-weight: 720;
-  font-size: 1rem;
+  font-size: 0.94rem;
 }
 
 /* A line table in the narrow result column: fewer columns, tighter type, and
    the detail that would be a column of its own tucked under the label. */
+/* Three columns in a narrow rail: the shared 540px floor is for a form-column
+   table and would push this one out through the side of its card. */
 .line-table-compact {
-  margin-top: 14px;
+  margin-top: 10px;
+  min-width: 0;
 }
 
 .line-table-compact th,
 .line-table-compact td {
-  padding-left: 6px;
-  padding-right: 6px;
-  font-size: 0.82rem;
+  padding-left: 5px;
+  padding-right: 5px;
+  font-size: 0.78rem;
 }
 
 /* A second figure under a total — the same number restated as a share. */
@@ -1559,12 +1716,12 @@ textarea {
 /* ── Buttons ──────────────────────────────────────────────────────────── */
 
 .btn-secondary {
-  padding: 9px 16px;
+  padding: 6px 12px;
   background: var(--surface);
   color: var(--text-2);
   border: 1px solid var(--border-strong);
   border-radius: var(--r-sm);
-  font-size: 0.86rem;
+  font-size: 0.8rem;
   font-weight: 580;
   cursor: pointer;
   transition: border-color 0.15s, color 0.15s;
@@ -1575,13 +1732,50 @@ textarea {
   color: var(--accent);
 }
 
+/* Clearing the tool. Destructive and one click from the form, so it asks
+   first: the button becomes the question, and answering it is the second
+   click. */
+.app-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.btn-clear {
+  padding: 5px 11px;
+  background: var(--surface);
+  color: var(--text-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  font-size: 0.8rem;
+  font-weight: 580;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.btn-clear:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.btn-clear-armed,
+.btn-clear-armed:hover {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
+  font-weight: 650;
+}
+
 .btn-copy {
-  padding: 7px 14px;
+  padding: 5px 11px;
   background: var(--surface-2);
   color: var(--text-2);
   border: 1px solid var(--border-strong);
   border-radius: var(--r-sm);
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 580;
   cursor: pointer;
   white-space: nowrap;
@@ -1601,8 +1795,8 @@ textarea {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r);
-  padding: 3px;
-  margin-bottom: 18px;
+  padding: 2px;
+  margin-bottom: 10px;
   max-width: 100%;
   overflow-x: auto;
 }
@@ -1611,9 +1805,9 @@ textarea {
   border: 0;
   background: transparent;
   color: var(--text-2);
-  padding: 6px 15px;
-  border-radius: 7px;
-  font-size: 0.85rem;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 0.8rem;
   font-weight: 560;
   cursor: pointer;
   white-space: nowrap;
@@ -1630,20 +1824,20 @@ textarea {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 16px;
-  margin-bottom: 16px;
+  gap: 12px;
+  margin-bottom: 10px;
 }
 
 .output-header h2 {
-  font-size: 1.1rem;
+  font-size: 0.98rem;
   font-weight: 660;
   letter-spacing: -0.014em;
 }
 
 .output-hint {
-  font-size: 0.83rem;
+  font-size: 0.76rem;
   color: var(--text-2);
-  margin-top: 2px;
+  margin-top: 1px;
   max-width: 58ch;
 }
 
@@ -1652,9 +1846,9 @@ textarea {
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent);
   border-radius: var(--r-sm);
-  padding: 18px 20px;
-  font-size: 1rem;
-  line-height: 1.75;
+  padding: 12px 14px;
+  font-size: 0.92rem;
+  line-height: 1.6;
 }
 
 .cost-note-line {
@@ -1667,7 +1861,7 @@ textarea {
 }
 
 .cost-note-gap {
-  height: 12px;
+  height: 9px;
 }
 
 /* The staff detail, laid out. Labels read down one column and amounts down
@@ -1680,13 +1874,13 @@ textarea {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
-  padding: 16px 18px;
-  font-size: 0.88rem;
+  padding: 11px 13px;
+  font-size: 0.82rem;
   color: var(--text);
 }
 
 .doc-section + .doc-section {
-  margin-top: 20px;
+  margin-top: 14px;
 }
 
 .doc-heading {
@@ -1704,8 +1898,8 @@ textarea {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 14px;
-  padding: 4px 0;
+  gap: 12px;
+  padding: 2px 0;
 }
 
 .doc-row + .doc-row {
@@ -1764,10 +1958,10 @@ textarea {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
-  padding: 18px 20px;
+  padding: 12px 14px;
   font-family: var(--mono);
-  font-size: 0.82rem;
-  line-height: 1.7;
+  font-size: 0.78rem;
+  line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--text);
@@ -1790,22 +1984,16 @@ textarea {
 @media (max-width: 720px) {
   .app-bar-inner {
     flex-wrap: wrap;
-    gap: 10px 16px;
+    gap: 8px 12px;
   }
   .tool-nav {
     order: 3;
     width: 100%;
   }
-  .theme-toggle {
-    margin-left: auto;
-  }
   .hero-value {
-    font-size: 2.2rem;
-  }
-  .form-section {
-    padding: 18px 16px 16px;
+    font-size: 1.7rem;
   }
   .app-body {
-    padding: 20px 14px 56px;
+    padding: 10px 10px 40px;
   }
 }

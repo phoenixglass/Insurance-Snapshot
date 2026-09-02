@@ -133,7 +133,7 @@
  },
  {
   "input": {
-   "carrier": "Connecticare - Molina",
+   "carrier": "Emblem (Optum)",
    "seq": "Detox > Residential",
    "coins": 0.5,
    "copay": 0,
@@ -195,7 +195,8 @@
    "J40": 0,
    "J41": 0,
    "I1": 1000
-  }
+  },
+  "capturedAs": "Connecticare - Molina"
  },
  {
   "input": {
@@ -793,7 +794,7 @@
  },
  {
   "input": {
-   "carrier": "UHC",
+   "carrier": "United Healthcare Shared Services (Optum)",
    "seq": "Detox",
    "coins": 0.1,
    "copay": 0,
@@ -855,7 +856,8 @@
    "J40": 0,
    "J41": 0,
    "I1": 0
-  }
+  },
+  "capturedAs": "UHC"
  },
  {
   "input": {
@@ -1651,7 +1653,7 @@
  },
  {
   "input": {
-   "carrier": "UHC",
+   "carrier": "United Healthcare Shared Services (Optum)",
    "seq": "PHP > IOP > OP",
    "coins": 0,
    "copay": 250,
@@ -1713,7 +1715,8 @@
    "J40": 21897.21,
    "J41": 0,
    "I1": 250
-  }
+  },
+  "capturedAs": "UHC"
  },
  {
   "input": {
@@ -1849,7 +1852,7 @@
  },
  {
   "input": {
-   "carrier": "Connecticare -",
+   "carrier": "Optum Canaan",
    "seq": "Residential > PHP",
    "coins": 0.3,
    "copay": 0,
@@ -1887,6 +1890,9 @@
     "psychFollowUp": 4,
     "family": 3,
     "mats": 0
+   },
+   "rates": {
+    "H0018": 1052
    }
   },
   "expected": {
@@ -1911,11 +1917,12 @@
    "J40": 3940.0,
    "J41": 4900.0,
    "I1": 5150.0
-  }
+  },
+  "capturedAs": "Connecticare -"
  },
  {
   "input": {
-   "carrier": "Oxford",
+   "carrier": "Optum Canaan",
    "seq": "OPWM > PHP",
    "coins": 0.2,
    "copay": 1000,
@@ -1977,7 +1984,8 @@
    "J40": 4345.0,
    "J41": 2500.0,
    "I1": 2750.0
-  }
+  },
+  "capturedAs": "Oxford"
  },
  {
   "input": {
@@ -2047,7 +2055,7 @@
  },
  {
   "input": {
-   "carrier": "UHC",
+   "carrier": "United Healthcare Shared Services (Optum)",
    "seq": "Residential > PHP > IOP",
    "coins": 0.5,
    "copay": 1000,
@@ -2109,11 +2117,12 @@
    "J40": 22056.21,
    "J41": 0,
    "I1": 11034.43
-  }
+  },
+  "capturedAs": "UHC"
  },
  {
   "input": {
-   "carrier": "UBH",
+   "carrier": "UBH-HP (Optum)",
    "seq": "Detox > PHP",
    "coins": 0.1,
    "copay": 250,
@@ -2175,11 +2184,12 @@
    "J40": 9360.0,
    "J41": 0,
    "I1": 500
-  }
+  },
+  "capturedAs": "UBH"
  },
  {
   "input": {
-   "carrier": "Oxford",
+   "carrier": "Optum Canaan",
    "seq": "Detox > Residential > PHP > IOP",
    "coins": 0.2,
    "copay": 250,
@@ -2217,6 +2227,9 @@
     "psychFollowUp": 4,
     "family": 3,
     "mats": 2
+   },
+   "rates": {
+    "H0018": 1052
    }
   },
   "expected": {
@@ -2241,7 +2254,8 @@
    "J40": 10253.369999999999,
    "J41": 300,
    "I1": 1050
-  }
+  },
+  "capturedAs": "Oxford"
  },
  {
   "input": {
@@ -3103,7 +3117,7 @@
  },
  {
   "input": {
-   "carrier": "UBH",
+   "carrier": "UBH-HP (Optum)",
    "seq": "Residential > PHP > IOP",
    "coins": 0.5,
    "copay": 0,
@@ -3165,7 +3179,8 @@
    "J40": 22015.21,
    "J41": 0,
    "I1": 5150
-  }
+  },
+  "capturedAs": "UBH"
  },
  {
   "input": {
@@ -3499,7 +3514,7 @@
  },
  {
   "input": {
-   "carrier": "Connecticare -",
+   "carrier": "Optum Canaan",
    "seq": "Detox > Residential > PHP > IOP > OP",
    "coins": 0.1,
    "copay": 0,
@@ -3537,6 +3552,9 @@
     "psychFollowUp": 4,
     "family": 3,
     "mats": 2
+   },
+   "rates": {
+    "H0018": 1052
    }
   },
   "expected": {
@@ -3561,7 +3579,8 @@
    "J40": 16318.370000000003,
    "J41": 114.0,
    "I1": 2250.0
-  }
+  },
+  "capturedAs": "Connecticare -"
  },
  {
   "input": {
@@ -3697,7 +3716,7 @@
  },
  {
   "input": {
-   "carrier": "UBH",
+   "carrier": "UBH-HP (Optum)",
    "seq": "OPWM > IOP > OP",
    "coins": 0.3,
    "copay": 0,
@@ -3759,7 +3778,8 @@
    "J40": 8517.210000000001,
    "J41": 500,
    "I1": 500
-  }
+  },
+  "capturedAs": "UBH"
  },
  {
   "input": {

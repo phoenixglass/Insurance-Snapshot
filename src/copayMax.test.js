@@ -23,11 +23,14 @@ import {
 import { generateEstimateOutput } from './estimateOutput.js'
 
 // Six detox nights and fourteen residential ones, at $200 a night: $4,000 of
-// copay before any ceiling is applied.
+// copay before any ceiling is applied. The nights are stated rather than taken
+// from the form's defaults — these cases are arithmetic about a ceiling, and
+// they should not move when somebody revises how long a stay is expected to run.
 const BASE = {
   ...INITIAL_ESTIMATE_STATE,
   carrier: 'Aetna -',
   treatmentSequence: 'Detox > Residential',
+  nights: { detox: '6', residential: '14' },
   deductibleRemaining: '3000',
   oopmRemaining: '50000',
   deductibleInOopm: 'Yes',

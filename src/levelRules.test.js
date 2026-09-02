@@ -395,7 +395,7 @@ describe('psychiatry is outpatient care wherever it is delivered', () => {
 describe('a bundled in-network IOP agreement', () => {
   const bundledPlan = {
     ...BASE,
-    carrier: 'Oxford',
+    carrier: 'Optum Canaan',
     treatmentSequence: 'IOP > OP',
     bundledInnIop: 'Yes',
   }
@@ -462,7 +462,7 @@ describe('a level that answers only an accumulator question', () => {
 describe('an admission fee that covers the level', () => {
   const COVERED = {
     ...BASE,
-    carrier: 'Oxford',
+    carrier: 'Optum Canaan',
     treatmentSequence: 'IOP',
     deductibleRemaining: '3000',
     oopmRemaining: '9000',
