@@ -8,6 +8,7 @@ import {
   ADMISSION_FEE_LOCS,
   COPAY_BASIS,
   COPAY_TREATMENT,
+  COPAY_TIMING,
   INITIAL_ESTIMATE_STATE,
   CARRIER_OPTIONS,
   SERVICE_LINES,
@@ -585,6 +586,10 @@ export default function EstimatorTool() {
                   />
                 </Field>
 
+                <Field label="Copay Begins" hint="Choose when the copay starts. Next Service skips the service that finishes the deductible; Meeting Service includes it. This is different from crediting a copay toward the deductible.">
+                  <Select value={form.copayTiming || COPAY_TIMING.IMMEDIATE} onChange={set('copayTiming')} options={Object.values(COPAY_TIMING)} />
+                </Field>
+
                 <div className="field-row">
                   <Field
                     label="Copay Applies to Deductible?"
@@ -917,6 +922,9 @@ export default function EstimatorTool() {
                           onChange={setLevelRule(loc, 'copayMax')}
                           placeholder={toNumber(form.copayMax).toFixed(2)}
                         />
+                      </Field>
+                      <Field label="Copay begins" badge={sourceTag(isSet(rule.copayTiming))}>
+                        <Select value={rule.copayTiming || ''} onChange={setLevelRule(loc, 'copayTiming')} options={Object.values(COPAY_TIMING)} placeholder={`Plan — ${form.copayTiming || COPAY_TIMING.IMMEDIATE}`} />
                       </Field>
                       <Field
                         label="Copay vs coinsurance"
