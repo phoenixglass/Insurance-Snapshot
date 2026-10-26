@@ -55,6 +55,15 @@ export const COPAY_TREATMENT = {
   REPLACE: 'Replace Coinsurance',
 }
 
+// Timing is independent of whether a paid copay *credits* the deductible.
+// The workbook's existing behavior is IMMEDIATE. Never change legacy quotes
+// unless a benefit verification explicitly establishes deductible-first care.
+export const COPAY_TIMING = {
+  IMMEDIATE: 'From First Service',
+  NEXT: 'After Deductible — Next Service',
+  CROSSOVER: 'After Deductible — Meeting Service',
+}
+
 export const YES_NO_NA = ['Not Applicable', 'Yes', 'No']
 
 // ── Levels of care as the sequence names them ────────────────────────────────
@@ -327,6 +336,7 @@ export const INITIAL_ESTIMATE_STATE = {
   // that never stated one does not stop collecting.
   copayMax: '',
   copayTreatment: COPAY_TREATMENT.NA,
+  copayTiming: COPAY_TIMING.IMMEDIATE,
   copayAppliesToDeductible: 'Not Applicable',
   copayAppliesToOop: 'Not Applicable',
   // Per level of care, only where a plan departs from its own terms:
@@ -433,7 +443,7 @@ export function resolveRate(form, code) {
 // maximum is reached, which is why those pieces sit outside the MIN().
 
 // What one level of care contributes, sorted by how the plan counts it.
-function levelShare(rule, { deductible = 0, coinsurance = 0, copay = 0 }) {
+function levelShare(rule, { deductible = 0, coinsurance = 0, copay = 0, coinsuranceDueOverride = null }) {
   return {
     deductible,
     coinsurance,
@@ -443,7 +453,7 @@ function levelShare(rule, { deductible = 0, coinsurance = 0, copay = 0 }) {
     // rather than this level's, because a copay paid in one level of care
     // counts toward the deductible the next one spends.
     creditableCopay: rule.copayToDeductible ? copay : 0,
-    coinsuranceDue: rule.copayReplacesCoinsurance ? 0 : coinsurance,
+    coinsuranceDue: coinsuranceDueOverride ?? (rule.copayReplacesCoinsurance ? 0 : coinsurance),
     // "Applies to OOP" is three states, not two, and the third one is not a
     // synonym for "No": a copay whose accumulator treatment was never
     // established goes into neither side of the cap, so it drops out of the
@@ -514,6 +524,7 @@ export function planRule(form) {
     copayMax: toNumber(form.copayMax),
     copayMaxOverridden: false,
     copayTreatment: form.copayTreatment,
+    copayTiming: form.copayTiming || COPAY_TIMING.IMMEDIATE,
     copayReplacesCoinsurance: form.copayTreatment === COPAY_TREATMENT.REPLACE,
     copayToDeductibleAnswer: form.copayAppliesToDeductible,
     copayToDeductible: form.copayAppliesToDeductible === 'Yes',
@@ -545,6 +556,7 @@ export function levelRule(form, loc) {
   const copayMaxSet = rule.copayMax !== undefined && rule.copayMax !== ''
   const feeCovers = rule.admissionFeeCovers === 'Yes'
   const treatmentSet = Boolean(rule.copayTreatment)
+  const timingSet = Boolean(rule.copayTiming)
   const toDeductibleSet = Boolean(rule.copayAppliesToDeductible)
   const toOopSet = Boolean(rule.copayAppliesToOop)
   const copayTreatment = treatmentSet ? rule.copayTreatment : plan.copayTreatment
@@ -558,13 +570,14 @@ export function levelRule(form, loc) {
     // copay, and the deductible pool passes through to the next level untouched.
     admissionFeeCovers: feeCovers,
     chargeOverridden,
-    copayOverridden: chargeOverridden || copayMaxSet || treatmentSet || toDeductibleSet || toOopSet,
+    copayOverridden: chargeOverridden || copayMaxSet || treatmentSet || timingSet || toDeductibleSet || toOopSet,
     ownTerms:
       deductibleOverridden ||
       feeCovers ||
       chargeOverridden ||
       copayMaxSet ||
       treatmentSet ||
+      timingSet ||
       toDeductibleSet ||
       toOopSet,
     copayAmount: copayAmountSet ? toNumber(rule.copayAmount) : plan.copayAmount,
@@ -574,6 +587,7 @@ export function levelRule(form, loc) {
     copayMax: copayMaxSet ? toNumber(rule.copayMax) : plan.copayMax,
     copayMaxOverridden: copayMaxSet,
     copayTreatment,
+    copayTiming: timingSet ? rule.copayTiming : plan.copayTiming,
     copayReplacesCoinsurance: copayTreatment === COPAY_TREATMENT.REPLACE,
     copayToDeductibleAnswer: toDeductibleSet
       ? rule.copayAppliesToDeductible
@@ -628,14 +642,51 @@ export function admissionFeeFor(form, loc) {
 function levelUnitCopay(rule, locLines) {
   if (rule.copayAmount <= 0 || rule.copayBasis === COPAY_BASIS.NA) return { copay: 0, units: 0 }
   if (rule.copayBasis === COPAY_BASIS.PER_UNIT) {
-    const units = locLines.reduce((sum, l) => sum + (l.units ?? l.nights ?? 0), 0)
+    const units = locLines.reduce((sum, l) => sum + (l.copayEligibleUnits ?? l.units ?? l.nights ?? 0), 0)
     return { copay: units * rule.copayAmount, units }
   }
   if (rule.copayBasis === COPAY_BASIS.PROFESSIONAL_ONLY) {
-    const units = locLines.reduce((sum, l) => sum + (l.professional ? l.units ?? 0 : 0), 0)
+    const units = locLines.reduce((sum, l) => sum + (l.professional ? (l.copayEligibleUnits ?? l.units ?? 0) : 0), 0)
     return { copay: units * rule.copayAmount, units }
   }
   return { copay: 0, units: 0 }
+}
+
+// How many service units are eligible for a copay when the deductible comes
+// first? The threshold unit can be included or excluded according to the
+// verified benefit. Calculating against the deductible *at entry to the line*
+// handles a prior detox stay, other levels of care, and a partly used deductible.
+// A waived deductible means this level's copay is payable immediately.
+function timedCopayUnits(rule, { units, rate, deductibleBefore }) {
+  const count = Math.max(0, units || 0)
+  if (rule.copayTiming === COPAY_TIMING.IMMEDIATE || !rule.deductibleApplies || deductibleBefore <= 0) {
+    return count
+  }
+  if (!(rate > 0) || count <= 0) return 0
+  // A tiny floating-point subtraction avoids treating a near-exact boundary
+  // as an extra full service. No copay is charged if the line does not meet
+  // the outstanding deductible at all.
+  if (count * rate < deductibleBefore - 0.000001) return 0
+  const thresholdUnit = Math.ceil((deductibleBefore - 0.000001) / rate)
+  const beforeCopay = rule.copayTiming === COPAY_TIMING.CROSSOVER
+    ? thresholdUnit - 1
+    : thresholdUnit
+  return Math.min(count, Math.max(0, count - beforeCopay))
+}
+
+// When the copay *replaces* coinsurance and starts on a later unit, any
+// coinsurance on the threshold unit remains payable until its copay begins.
+// This also avoids wiping coinsurance from services that do not carry a
+// professional-only copay.
+function coinsuranceBeforeTimedCopay(rule, lines, coins) {
+  if (!rule.copayReplacesCoinsurance || rule.copayTiming === COPAY_TIMING.IMMEDIATE) return null
+  return lines.reduce((sum, line) => {
+    const eligible = rule.copayBasis === COPAY_BASIS.PROFESSIONAL_ONLY && !line.professional
+      ? 0
+      : (line.copayEligibleUnits || 0)
+    const uncovered = Math.max(0, line.allowed - (line.deductibleApplied || 0))
+    return sum + Math.max(0, uncovered - eligible * (line.rate || 0)) * coins
+  }, 0)
 }
 
 // A manual-total copay is one charge for a block, not one per level — that is
@@ -717,8 +768,12 @@ function computeInpatient(form, ctx) {
     const rule = levelRule(form, line.loc)
     line.coveredByFee = line.active && rule.admissionFeeCovers
     const charges = line.active && !line.coveredByFee
+    const before = deductiblePool
     const applied = charges && rule.deductibleApplies ? Math.min(deductiblePool, line.allowed) : 0
     line.deductibleApplied = applied
+    line.copayEligibleUnits = charges
+      ? timedCopayUnits(rule, { units: line.nights, rate: line.rate, deductibleBefore: before })
+      : 0
     line.deductibleWaived = charges && !rule.deductibleApplies
     deductiblePool = clampAtZero(deductiblePool - applied)
   })
@@ -759,6 +814,7 @@ function computeInpatient(form, ctx) {
         deductible: line.deductibleApplied,
         coinsurance: line.coinsurance,
         copay: line.copay,
+        coinsuranceDueOverride: coinsuranceBeforeTimedCopay(rule, [line], coins),
       })
     )
   })
@@ -1001,6 +1057,7 @@ function computeOutpatient(form, ctx, inpatient) {
     // level's fee.
     const locLines = lines.filter((l) => l.active && l.loc === loc && !l.coveredByFee)
     const allowed = locLines.reduce((sum, l) => sum + l.allowed, 0)
+    const levelDeductibleBefore = deductiblePool
     const deductible = rule.deductibleApplies ? Math.min(deductiblePool, allowed) : 0
     deductiblePool = clampAtZero(deductiblePool - deductible)
     const coinsurance = clampAtZero(allowed - deductible) * coins
@@ -1008,9 +1065,16 @@ function computeOutpatient(form, ctx, inpatient) {
     // The level's deductible spread across its own rows, in the order they are
     // listed. Nothing downstream has to guess what a single line costs.
     let linePool = deductible
+    let lineDeductibleBefore = levelDeductibleBefore
     locLines.forEach((l) => {
       l.deductibleApplied = Math.min(linePool, l.allowed)
+      l.copayEligibleUnits = timedCopayUnits(rule, {
+        units: l.units,
+        rate: l.rate,
+        deductibleBefore: lineDeductibleBefore,
+      })
       linePool = clampAtZero(linePool - l.deductibleApplied)
+      if (rule.deductibleApplies) lineDeductibleBefore = clampAtZero(lineDeductibleBefore - l.allowed)
       l.coinsurance = clampAtZero(l.allowed - l.deductibleApplied) * coins
       l.deductibleWaived = !rule.deductibleApplies
     })
@@ -1038,6 +1102,7 @@ function computeOutpatient(form, ctx, inpatient) {
       deductible,
       coinsurance,
       copay,
+      coinsuranceDueOverride: coinsuranceBeforeTimedCopay(rule, locLines, coins),
       copayBeforeMax: uncapped,
       copayMaxReached: maxReached,
       feeCovered: rule.admissionFeeCovers,
@@ -1061,7 +1126,12 @@ function computeOutpatient(form, ctx, inpatient) {
   // exactly where it was.
   const shares = anyActive
     ? levels.map((l) =>
-        levelShare(l.rule, { deductible: l.deductible, coinsurance: l.coinsurance, copay: l.copay })
+        levelShare(l.rule, {
+          deductible: l.deductible,
+          coinsurance: l.coinsurance,
+          copay: l.copay,
+          coinsuranceDueOverride: l.coinsuranceDueOverride,
+        })
       )
     : []
   const planCopayUncapped = anyActive ? planManualCopay(form, rules) : 0
@@ -1264,6 +1334,19 @@ export function estimateBlockers(form) {
       blockers.push(
         `${label} has a copay amount but its basis is "Not Applicable" — it will not be collected`
       )
+    }
+  }
+
+  // A manual total cannot be allocated to individual pre/post-deductible
+  // services; don't silently interpret it as a per-unit charge.
+  for (const { label, rule } of levels) {
+    if (rule.copayAmount > 0 && rule.copayBasis === COPAY_BASIS.MANUAL &&
+        rule.copayTiming !== COPAY_TIMING.IMMEDIATE) {
+      blockers.push(`${label}: copay timing after deductible requires a per-unit or professional-visit copay`)
+    }
+    if (rule.copayAmount > 0 && rule.copayTiming !== COPAY_TIMING.IMMEDIATE &&
+        rule.copayToDeductible) {
+      blockers.push(`${label}: a copay that begins after the deductible cannot also be credited toward it`)
     }
   }
 
