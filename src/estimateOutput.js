@@ -277,7 +277,7 @@ function levelTerms(form, loc) {
         rule.copayMax > 0 ? `, up to ${formatMoney(rule.copayMax)}` : ''
       }`
     )
-    parts.push(`copay timing: ${rule.copayTiming}`)
+    if (rule.copayTiming !== COPAY_TIMING.IMMEDIATE) parts.push(`copay timing: ${rule.copayTiming}`)
     parts.push(
       rule.copayReplacesCoinsurance ? 'charged instead of coinsurance' : 'charged with coinsurance'
     )
