@@ -26,6 +26,7 @@ import {
   ADMISSION_FEE_LOCS,
   COPAY_BASIS,
   COPAY_TREATMENT,
+  COPAY_TIMING,
   admissionFeeFor,
   billingLevels,
   formatMoney,
@@ -85,16 +86,17 @@ function copayRules(form) {
 // stands on its own, and a ceiling is part of the charge rather than a footnote
 // to it — "$200 a day" and "$200 a day up to $2,000" are different benefits.
 function basisPhrase(rule, units) {
+  const timing = rule.copayTiming === COPAY_TIMING.NEXT ? ', after the deductible (starting with the next service)' : rule.copayTiming === COPAY_TIMING.CROSSOVER ? ', starting with the service that meets the deductible' : ''
   const upTo = rule.copayMax > 0 ? `, up to ${dollars(rule.copayMax)}` : ''
   switch (rule.copayBasis) {
     case COPAY_BASIS.MANUAL:
-      return `${dollars(rule.copayAmount)}, charged once for the episode${upTo}`
+      return `${dollars(rule.copayAmount)}, charged once for the episode${timing}${upTo}`
     case COPAY_BASIS.PROFESSIONAL_ONLY:
-      return `${dollars(rule.copayAmount)} per visit${units > 0 ? `, on ${plural(units, 'visit', 'visits')}` : ''}${upTo}`
+      return `${dollars(rule.copayAmount)} per visit${units > 0 ? `, on ${plural(units, 'visit', 'visits')}` : ''}${timing}${upTo}`
     case COPAY_BASIS.PER_UNIT:
-      return `${dollars(rule.copayAmount)} per service unit${upTo}`
+      return `${dollars(rule.copayAmount)} per service unit${timing}${upTo}`
     default:
-      return `${dollars(rule.copayAmount)}${upTo}`
+      return `${dollars(rule.copayAmount)}${timing}${upTo}`
   }
 }
 
@@ -107,7 +109,7 @@ function copayPhrase(form, result) {
   if (rules.length === 0) return null
   const units = result.outpatient.copayUnits
   const distinct = new Set(
-    rules.map(({ rule }) => `${rule.copayAmount}|${rule.copayBasis}|${rule.copayMax}`)
+    rules.map(({ rule }) => `${rule.copayAmount}|${rule.copayBasis}|${rule.copayMax}|${rule.copayTiming}`)
   )
   if (distinct.size === 1) return basisPhrase(rules[0].rule, units)
   return rules.map(({ label, rule }) => `${label}: ${basisPhrase(rule, units)}`).join('; ')
@@ -275,6 +277,7 @@ function levelTerms(form, loc) {
         rule.copayMax > 0 ? `, up to ${formatMoney(rule.copayMax)}` : ''
       }`
     )
+    parts.push(`copay timing: ${rule.copayTiming}`)
     parts.push(
       rule.copayReplacesCoinsurance ? 'charged instead of coinsurance' : 'charged with coinsurance'
     )
@@ -370,6 +373,7 @@ function staffDetail(form, result) {
               ? `${formatMoney(toNumber(form.copayMax))} for the episode`
               : 'none stated'
           }`,
+          `  Timing: ${form.copayTiming || COPAY_TIMING.IMMEDIATE}`,
           `  Treatment: ${form.copayTreatment}${
             form.copayTreatment === COPAY_TREATMENT.REPLACE ? ' — no coinsurance is charged alongside it' : ''
           }`,
