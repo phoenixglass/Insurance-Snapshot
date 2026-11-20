@@ -26,6 +26,7 @@ import {
   levelRule,
   needsNetworkChoice,
   networkDependsOnLocation,
+  ratesDependOnLocation,
   resolveRate,
   sequenceIncludes,
   sequenceLocs,
@@ -436,8 +437,14 @@ export default function EstimatorTool() {
             <Field
               label="Location"
               htmlFor="location"
+              required={networkDependsOnLocation(form.carrier) || ratesDependOnLocation(form.carrier)}
               hint={(() => {
                 const loc = getLocation(form.location)
+                // A carrier with one rate row per site has no rates until the
+                // site is chosen, and none of its own at a site with no row.
+                if (ratesDependOnLocation(form.carrier) && !loc) {
+                  return `Required for ${form.carrier}: its rates differ by site, so the location picks which ones apply.`
+                }
                 // In network at this site, but on the payer's own rates: the
                 // site schedule is our contract with other payers, not this one.
                 if (result.scheduleNotForPayer) {
