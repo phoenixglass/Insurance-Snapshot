@@ -453,6 +453,69 @@ describe('the Optum carriers and the claims filed under their old names', () => 
   })
 })
 
+// The workbook carries Optum as one row per site. The dropdown offers Optum
+// once and the location picks the row, so the site is asked for in one place.
+describe('Optum, priced by the location', () => {
+  const form = (location) => ({ ...INITIAL_ESTIMATE_STATE, carrier: 'Optum', location })
+
+  test('the dropdown offers Optum once, not once per site', () => {
+    const values = CARRIER_OPTIONS.map((o) => o.value)
+    assert.ok(values.includes('Optum'))
+    for (const row of ['Optum Canaan', 'Optum Wilton', 'Optum NYC', 'Optum Ramsey']) {
+      assert.ok(!values.includes(row), `${row} should not be its own option`)
+    }
+    // Other Optum-administered plans are separate plans and stay listed.
+    assert.ok(values.includes('UMR (Optum)'))
+  })
+
+  test('the location picks the site row', () => {
+    // H0015 differs at every site: Canaan 328, Wilton 298, NY 305, Ramsey 225.
+    assert.equal(lookupRate('Optum', 'H0015', 'canaan'), 328)
+    assert.equal(lookupRate('Optum', 'H0015', 'wilton'), 298)
+    assert.equal(lookupRate('Optum', 'H0015', 'nyc'), 305)
+    assert.equal(lookupRate('Optum', 'H0015', 'chappaqua'), 305)
+    assert.equal(lookupRate('Optum', 'H0015', 'huntington'), 305)
+    assert.equal(lookupRate('Optum', 'H0015', 'ramsey'), 225)
+    assert.equal(lookupRate('Optum', 'H0015', 'mass-virtual'), null)
+    assert.equal(lookupRate('Optum', 'H0015', ''), null)
+  })
+
+  test('it prices the same as the per-site row it replaces', () => {
+    for (const [location, row] of [['canaan', 'Optum Canaan'], ['wilton', 'Optum Wilton'], ['ramsey', 'Optum Ramsey']]) {
+      for (const code of ['H0010', 'H0018', 'H0015', '90837', '99214']) {
+        assert.deepEqual(
+          resolveRate(form(location), code),
+          resolveRate({ ...form(location), carrier: row }, code),
+          `${code} at ${location}`
+        )
+      }
+    }
+  })
+
+  test('it is in network, and the site schedule applies', () => {
+    assert.equal(effectiveNetwork(form('wilton')), 'INN')
+    assert.equal(scheduleInEffect(form('wilton')).id, 'ct-wilton')
+  })
+
+  test('the location is required', () => {
+    assert.ok(estimateBlockers(form('')).some((b) => /rates depend on the site/.test(b)))
+    assert.ok(!estimateBlockers(form('canaan')).some((b) => /rates depend on the site/.test(b)))
+  })
+
+  test('a site with no Optum row falls back to the Optum claims average, labelled as such', () => {
+    const r = resolveRate(form('mass-virtual'), 'H0010')
+    assert.equal(r.source, 'payer-average')
+    assert.equal(r.group, 'Optum')
+  })
+
+  test('the rate lookup reads the row for the location', () => {
+    const [row] = searchCodes('H0015', 'Optum', { location: 'wilton' })
+    assert.equal(row.rate, 298)
+    const [none] = searchCodes('H0015', 'Optum')
+    assert.equal(none.rate, null)
+  })
+})
+
 // A plan with no allowed amounts of its own, whose claims come back at a known
 // percentage of what we billed. The number is real enough to quote and derived
 // enough that it must never look stated.
@@ -530,6 +593,31 @@ describe('a payer priced as a percentage of our charge', () => {
     const r = resolveRate(form({ rateOverrides: { H0010: '1800' } }), 'H0010')
     assert.equal(r.source, 'override')
     assert.equal(r.rate, 1800)
+  })
+})
+
+describe('Mass Virtual is out of network with every payer', () => {
+  const form = (over) => ({ ...INITIAL_ESTIMATE_STATE, location: 'mass-virtual', ...over })
+
+  test('a plan in network everywhere else is OON there', () => {
+    for (const carrier of ['Optum', 'Magellan', 'Emblem (Optum)', 'UMR (Optum)']) {
+      assert.equal(effectiveNetwork(form({ carrier })), 'OON', carrier)
+      assert.equal(effectiveNetwork(form({ carrier, location: 'canaan' })), 'INN', `${carrier} at Canaan`)
+    }
+  })
+
+  test('a hand-stated INN does not survive it, and is not asked for', () => {
+    const f = form({ carrier: 'Other — not listed', networkOverride: 'INN' })
+    assert.equal(effectiveNetwork(f), 'OON')
+    assert.ok(!estimateBlockers(form({ carrier: 'Other — not listed' })).some((b) => /network status/.test(b)))
+  })
+
+  test('Self Pay is not a network and is left alone', () => {
+    assert.equal(effectiveNetwork(form({ carrier: 'Self Pay' })), 'Self Pay')
+  })
+
+  test('no schedule, and no INN-only bundling', () => {
+    assert.equal(scheduleInEffect(form({ carrier: 'Optum' })), null)
   })
 })
 

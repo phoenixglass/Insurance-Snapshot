@@ -15,10 +15,11 @@ import {
   formatMoney,
   needsNetworkChoice,
   networkDependsOnLocation,
+  ratesDependOnLocation,
   searchCodes,
   toNumber,
 } from './estimate.js'
-import { CONTRACT_SCHEDULES, getSchedule, scheduleBilledRate, scheduleRate } from './data/contractRates.js'
+import { CONTRACT_SCHEDULES, LOCATIONS, getSchedule, scheduleBilledRate, scheduleRate } from './data/contractRates.js'
 import { reimbursementDetail } from './data/reimbursement.js'
 import { Banner, Field, PercentInput, Section, Select } from './ui.jsx'
 
@@ -28,6 +29,7 @@ export default function RateLookupTool() {
   const [coinsurance, setCoinsurance] = useState('20')
   const [scheduleId, setScheduleId] = useState('')
   const [expanded, setExpanded] = useState(null)
+  const [location, setLocation] = useState('')
 
   const network = needsNetworkChoice(carrier) ? 'Not on file' : carrierNetworkLabel(carrier)
   // A carrier in network at some sites only has no single status, so its pill
@@ -37,7 +39,10 @@ export default function RateLookupTool() {
     : `network-${network.toLowerCase().replace(/\s+/g, '-')}`
   const coins = toNumber(coinsurance) / 100
   const schedule = getSchedule(scheduleId)
-  const results = useMemo(() => searchCodes(query, carrier, { limit: 60 }), [query, carrier])
+  const results = useMemo(
+    () => searchCodes(query, carrier, { limit: 60, location }),
+    [query, carrier, location]
+  )
 
   const onFileCount = results.filter((r) => r.onFile).length
 
@@ -62,6 +67,23 @@ export default function RateLookupTool() {
             <PercentInput id="lookupCoins" value={coinsurance} onChange={setCoinsurance} />
           </Field>
         </div>
+
+        {ratesDependOnLocation(carrier) && (
+          <Field
+            label="Location"
+            htmlFor="lookupLocation"
+            required
+            hint={`${carrier}'s rates differ by site; this picks which site's rates are shown.`}
+          >
+            <Select
+              id="lookupLocation"
+              value={location}
+              onChange={setLocation}
+              options={LOCATIONS.map((loc) => ({ value: loc.id, label: `${loc.label}, ${loc.state}` }))}
+              placeholder="Select a location…"
+            />
+          </Field>
+        )}
 
         <Field
           label="Compare against a contracted schedule"

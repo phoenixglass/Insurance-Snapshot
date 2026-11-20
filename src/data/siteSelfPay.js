@@ -15,17 +15,22 @@
 // so a re-export of the workbook does not quietly undo it.
 //
 // Which site applies: the Location selected on the estimate, which is the site
-// the client is admitting to. Until one is selected, a carrier named for a site
-// is taken to be at that site, so `Optum Wilton` with no location reads as
-// Wilton and `Optum Canaan` as Canaan.
+// the client is admitting to. The carrier dropdown offers Optum once and the
+// location picks its rates (`siteRateCarriers.js`), so for `Optum` the location
+// is the whole answer, and until one is chosen the rule does not apply (the
+// estimate is blocked for want of it anyway). The per-site rows the workbook
+// carries ("Optum Wilton") are still valid carrier names; with no location
+// selected, one of those is taken to be at the site it is named for.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const SITE_SELF_PAY = [
   {
-    // The per-site Optum rows. The other Optum-administered plans (UMR,
-    // Emblem, UBH-HP, Surest, UHC Shared Services, GEHA-ASA) are not covered:
-    // they are separate plans and nothing has been said about them.
+    // Optum, and the per-site rows it stands for. The other Optum-administered
+    // plans (UMR, Emblem, UBH-HP, Surest, UHC Shared Services, GEHA-ASA) are not
+    // covered: they are separate plans and nothing has been said about them.
+    // Every site but Canaan is covered, Mass Virtual included.
     carriers: {
+      Optum: null,
       'Optum Canaan': 'canaan',
       'Optum Wilton': 'wilton',
       'Optum Chappaqua': 'chappaqua',
@@ -48,10 +53,9 @@ export const SITE_SELF_PAY = [
 export function siteSelfPayRule({ carrier, location }, level) {
   for (const rule of SITE_SELF_PAY) {
     if (rule.level !== level) continue
-    const homeSite = rule.carriers[carrier]
-    if (homeSite === undefined) continue
-    const site = location || homeSite
-    if (rule.exceptAt.includes(site)) continue
+    if (!Object.hasOwn(rule.carriers, carrier)) continue
+    const site = location || rule.carriers[carrier]
+    if (!site || rule.exceptAt.includes(site)) continue
     return rule
   }
   return null

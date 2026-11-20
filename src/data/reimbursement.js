@@ -86,7 +86,7 @@ export const OPTUM_GROUP = 'Optum'
 // names. Checked last, so a carrier that maps to a bucket of its own — UBH-HP
 // to UBH, UMR (Optum) to UMR — keeps that narrower reading; this only reaches
 // the ones that had no payer group at all.
-const OPTUM_ADMINISTERED = /\(Optum\)|^Optum |^UHC\b/i
+const OPTUM_ADMINISTERED = /\(Optum\)|^Optum\b|^UHC\b/i
 
 const blend = (table) => {
   const byCode = {}

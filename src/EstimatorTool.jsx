@@ -26,6 +26,8 @@ import {
   levelRule,
   needsNetworkChoice,
   networkDependsOnLocation,
+  ratesDependOnLocation,
+  locationForcesOon,
   resolveRate,
   sequenceIncludes,
   sequenceLocs,
@@ -413,14 +415,16 @@ export default function EstimatorTool() {
                 label="Network Status"
                 required={needsNetworkChoice(form.carrier)}
                 hint={
-                  needsNetworkChoice(form.carrier)
+                  form.carrier && locationForcesOon(form)
+                    ? `Out of network at ${getLocation(form.location)?.label} for every plan.`
+                    : needsNetworkChoice(form.carrier)
                     ? 'This carrier has no network on file, so it has to be stated.'
                     : networkDependsOnLocation(form.carrier)
                       ? `${carrierNetworkLabel(form.carrier)} — set by the location below.`
                       : undefined
                 }
               >
-                {needsNetworkChoice(form.carrier) ? (
+                {needsNetworkChoice(form.carrier) && !locationForcesOon(form) ? (
                   <SegmentedControl
                     name="networkOverride"
                     options={['INN', 'OON']}
@@ -439,8 +443,22 @@ export default function EstimatorTool() {
             <Field
               label="Location"
               htmlFor="location"
+              required={networkDependsOnLocation(form.carrier) || ratesDependOnLocation(form.carrier)}
               hint={(() => {
                 const loc = getLocation(form.location)
+                // A carrier with one rate row per site has no rates until the
+                // site is chosen, and none of its own at a site with no row.
+                if (ratesDependOnLocation(form.carrier) && !loc) {
+                  return `Required for ${form.carrier}: its rates differ by site, so the location picks which ones apply.`
+                }
+                // Out of network with every payer here, whatever the carrier's
+                // own status, so no schedule applies and the plan's own allowed
+                // amounts price everything.
+                if (loc && form.carrier && locationForcesOon(form)) {
+                  return `Every plan is out of network at ${loc.label}, so every rate below is the carrier's own allowed amount${
+                    ratesDependOnLocation(form.carrier) ? ` — and ${form.carrier} has no ${loc.label} rates on file, so they come from its claims average` : ''
+                  }.`
+                }
                 // In network at this site, but on the payer's own rates: the
                 // site schedule is our contract with other payers, not this one.
                 if (result.scheduleNotForPayer) {

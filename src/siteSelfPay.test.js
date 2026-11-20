@@ -63,6 +63,20 @@ describe('Optum PHP outside Canaan is self-pay at $442 a day', () => {
     }
   })
 
+  test('Optum as the dropdown offers it: the location decides', () => {
+    for (const location of AWAY_SITES) {
+      const r = computeEstimate(form({ carrier: 'Optum', location }))
+      assert.ok(near(r.grandTotal, 8840), `${location}: ${r.grandTotal}`)
+    }
+    const canaan = computeEstimate(form({ carrier: 'Optum', location: 'canaan' }))
+    assert.equal(canaan.selfPay, 0)
+    assert.ok(near(canaan.grandTotal, (1500 - 1000) + 7340 * 0.2 + 1000), String(canaan.grandTotal))
+    // No location: no rule, and the quote is blocked for want of one.
+    const none = form({ carrier: 'Optum' })
+    assert.equal(computeEstimate(none).selfPay, 0)
+    assert.ok(estimateBlockers(none).some((b) => b.includes('location')))
+  })
+
   test('every site other than Canaan, by the location selected', () => {
     for (const location of AWAY_SITES) {
       const r = computeEstimate(form({ carrier: 'Optum Canaan', location }))
