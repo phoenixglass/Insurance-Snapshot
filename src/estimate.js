@@ -22,6 +22,7 @@ import {
   UNCONTRACTED_CODES,
   getLocation,
   getSchedule,
+  levelsNotOfferedAt,
   scheduleForLocation,
   scheduleRate,
 } from './data/contractRates.js'
@@ -132,11 +133,29 @@ export function networkDependsOnLocation(carrier) {
   return Boolean(siteNetworkRule(carrier))
 }
 
+// The levels of care in this estimate's sequence that the selected site does
+// not provide. A quote for care the site cannot deliver is not a quote.
+export function levelsNotOffered(form) {
+  const notOffered = levelsNotOfferedAt(form.location)
+  return sequenceLocs(form.treatmentSequence).filter((loc) => notOffered.includes(loc))
+}
+
+// Whether a sequence can be delivered at a site at all, for narrowing the
+// sequence list once a location is chosen.
+export function sequenceOfferedAt(sequence, location) {
+  const notOffered = levelsNotOfferedAt(location)
+  return !sequenceLocs(sequence).some((loc) => notOffered.includes(loc))
+}
+
 // The rule pricing a level of care outside the plan for this estimate, or null
 // when the plan prices it. See `siteSelfPay.js`: such a level is charged a flat
 // daily rate and never enters the cost-share waterfall.
+//
+// A level the site does not offer has no price at all, flat or otherwise: the
+// estimate is blocked for it instead (`levelsNotOffered`).
 export function selfPayLevel(form, loc) {
-  return loc ? siteSelfPayRule(form, loc) : null
+  if (!loc || levelsNotOfferedAt(form.location).includes(loc)) return null
+  return siteSelfPayRule(form, loc)
 }
 
 // The levels of care this estimate prices through the plan: every level it
@@ -1432,6 +1451,12 @@ export function estimateBlockers(form) {
     blockers.push('Select the location — this carrier’s rates depend on the site')
   }
   if (!form.treatmentSequence) blockers.push('Select a treatment sequence')
+  const notOffered = levelsNotOffered(form)
+  if (notOffered.length > 0) {
+    blockers.push(
+      `${getLocation(form.location).label} does not offer ${notOffered.join(' or ')} — choose a sequence without it, or another location`
+    )
+  }
   // A sequence whose every level of care is priced outside the plan does not
   // read the plan's terms at all, so it does not need them to be quoted. Until
   // a sequence is chosen that cannot be known, and the terms are asked for.

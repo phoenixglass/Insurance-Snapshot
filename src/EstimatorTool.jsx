@@ -30,6 +30,7 @@ import {
   locationForcesOon,
   resolveRate,
   sequenceIncludes,
+  sequenceOfferedAt,
   sequenceLocs,
   toNumber,
   unitNoun,
@@ -37,7 +38,7 @@ import {
 import { generateEstimateOutput, parseStaffDetail } from './estimateOutput.js'
 import { computeHardship, hardshipBlockers } from './hardship.js'
 import { TREATMENT_SEQUENCES } from './data/rates.js'
-import { LOCATIONS, getLocation } from './data/contractRates.js'
+import { LOCATIONS, getLocation, levelsNotOfferedAt } from './data/contractRates.js'
 import { miscRate } from './data/reimbursement.js'
 import {
   Banner,
@@ -521,13 +522,22 @@ export default function EstimatorTool() {
               label="Treatment Sequence"
               htmlFor="treatmentSequence"
               required
-              hint="Only the levels of care named here are priced. Everything else stays at zero."
+              hint={
+                levelsNotOfferedAt(form.location).length > 0
+                  ? `Only the levels of care named here are priced. ${getLocation(form.location).label} does not offer ${levelsNotOfferedAt(form.location).join(' or ')}, so sequences with it are not listed.`
+                  : 'Only the levels of care named here are priced. Everything else stays at zero.'
+              }
             >
               <Select
                 id="treatmentSequence"
                 value={form.treatmentSequence}
                 onChange={set('treatmentSequence')}
-                options={TREATMENT_SEQUENCES}
+                // A sequence the site cannot deliver is left out, except the one
+                // already chosen: it stays visible, and blocked, rather than
+                // silently vanishing from the field.
+                options={TREATMENT_SEQUENCES.filter(
+                  (seq) => seq === form.treatmentSequence || sequenceOfferedAt(seq, form.location)
+                )}
                 placeholder="Select a sequence…"
               />
             </Field>

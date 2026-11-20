@@ -6,12 +6,16 @@ import { strict as assert } from 'node:assert'
 import { test, describe } from 'node:test'
 
 import {
+  CARRIER_OPTIONS,
   COPAY_BASIS,
   COPAY_TREATMENT,
   INITIAL_ESTIMATE_STATE,
   computeEstimate,
   estimateBlockers,
+  levelsNotOffered,
+  sequenceOfferedAt,
 } from './estimate.js'
+import { TREATMENT_SEQUENCES } from './data/rates.js'
 import { generateEstimateOutput } from './estimateOutput.js'
 import { computeHardship } from './hardship.js'
 
@@ -34,7 +38,8 @@ const form = (over) => ({
 })
 
 const OPTUM_AWAY = ['Optum Wilton', 'Optum Chappaqua', 'Optum NYC', 'Optum Huntington', 'Optum Ramsey']
-const AWAY_SITES = ['wilton', 'ramsey', 'nyc', 'chappaqua', 'huntington', 'mass-virtual']
+// Mass Virtual is not here: it offers no PHP at all (see the last block).
+const AWAY_SITES = ['wilton', 'ramsey', 'nyc', 'chappaqua', 'huntington']
 
 describe('Optum PHP outside Canaan is self-pay at $442 a day', () => {
   test('20 days is $8,840 at every Optum site but Canaan, whatever the plan says', () => {
@@ -187,5 +192,48 @@ describe('Optum PHP outside Canaan is self-pay at $442 a day', () => {
     assert.ok(near(php.responsibility, 8840))
     const total = h.rows.reduce((sum, row) => sum + row.responsibility, 0)
     assert.ok(near(total, r.grandTotal))
+  })
+})
+
+describe('Mass Virtual does not offer PHP', () => {
+  test('a sequence with PHP is blocked there, for every carrier', () => {
+    for (const { value: carrier } of CARRIER_OPTIONS) {
+      const f = form({ carrier, location: 'mass-virtual', treatmentSequence: 'Detox > PHP > IOP' })
+      assert.deepEqual(levelsNotOffered(f), ['PHP'], carrier)
+      assert.ok(
+        estimateBlockers(f).includes(
+          'Mass Virtual does not offer PHP — choose a sequence without it, or another location'
+        ),
+        carrier
+      )
+    }
+  })
+
+  test('no self-pay banner or flat charge for PHP where there is no PHP', () => {
+    const r = computeEstimate(form({ carrier: 'Optum', location: 'mass-virtual', treatmentSequence: 'PHP' }))
+    assert.equal(r.selfPay, 0)
+    assert.deepEqual(r.selfPayLines, [])
+  })
+
+  test('a sequence without PHP is not blocked for it', () => {
+    const f = form({ carrier: 'Optum', location: 'mass-virtual', treatmentSequence: 'IOP > OP' })
+    assert.deepEqual(levelsNotOffered(f), [])
+    assert.ok(!estimateBlockers(f).some((b) => b.includes('does not offer')))
+  })
+
+  test('PHP stays available everywhere else, and with no location', () => {
+    for (const location of ['', 'canaan', ...AWAY_SITES]) {
+      assert.ok(sequenceOfferedAt('PHP', location), location || 'no location')
+    }
+  })
+
+  test('the sequence list at Mass Virtual is every sequence without PHP', () => {
+    const offered = TREATMENT_SEQUENCES.filter((seq) => sequenceOfferedAt(seq, 'mass-virtual'))
+    assert.ok(offered.length > 0)
+    assert.ok(offered.every((seq) => !seq.split(' > ').includes('PHP')))
+    assert.equal(
+      offered.length,
+      TREATMENT_SEQUENCES.filter((seq) => !seq.split(' > ').includes('PHP')).length
+    )
   })
 })

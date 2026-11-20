@@ -153,6 +153,10 @@ export const UNCONTRACTED_CODES = ['80305', 'H0006', '99368', '98966', '98967', 
 // `network: 'OON'` marks a site where we are out of network with every payer,
 // whatever the carrier's own status says. Mass Virtual is always out of network
 // (noted 2026-11-20).
+//
+// `notOffered` lists levels of care a site does not provide, in the treatment
+// sequence's spelling. A sequence naming one cannot be quoted there for any
+// payer. Mass Virtual has no PHP (noted 2026-11-20).
 
 export const LOCATIONS = [
   { id: 'canaan', label: 'Canaan', state: 'CT', schedule: 'ct' },
@@ -161,13 +165,19 @@ export const LOCATIONS = [
   { id: 'nyc', label: 'New York City', state: 'NY', schedule: 'ny' },
   { id: 'chappaqua', label: 'Chappaqua', state: 'NY', schedule: 'ny' },
   { id: 'huntington', label: 'Huntington', state: 'NY', schedule: 'ny' },
-  { id: 'mass-virtual', label: 'Mass Virtual', state: 'MA', schedule: null, network: 'OON' },
+  { id: 'mass-virtual', label: 'Mass Virtual', state: 'MA', schedule: null, network: 'OON', notOffered: ['PHP'] },
 ]
 
 const LOCATION_BY_ID = new Map(LOCATIONS.map((l) => [l.id, l]))
 
 export function getLocation(id) {
   return LOCATION_BY_ID.get(id) || null
+}
+
+// The levels of care a site does not provide. Empty for an unknown site: with
+// no location there is nothing to rule out.
+export function levelsNotOfferedAt(id) {
+  return LOCATION_BY_ID.get(id)?.notOffered || []
 }
 
 export function scheduleForLocation(id) {

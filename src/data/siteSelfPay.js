@@ -28,7 +28,9 @@ export const SITE_SELF_PAY = [
     // Optum, and the per-site rows it stands for. The other Optum-administered
     // plans (UMR, Emblem, UBH-HP, Surest, UHC Shared Services, GEHA-ASA) are not
     // covered: they are separate plans and nothing has been said about them.
-    // Every site but Canaan is covered, Mass Virtual included.
+    // Every site but Canaan is covered. Mass Virtual offers no PHP at all, so
+    // a PHP sequence there is blocked before this rule matters
+    // (`notOffered` in contractRates.js).
     carriers: {
       Optum: null,
       'Optum Canaan': 'canaan',
