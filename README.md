@@ -21,9 +21,9 @@ Regenerate it with `python3 scripts/extract-rates.py <workbook.xlsx>` (needs `pi
 Two things the app keeps past the workbook are held outside the generated file, so a re-export cannot take them away without somebody deciding to:
 
 - **Four treatment sequences.** The 2026 revision offers 43; the app offers 47, keeping `Residential > PHP`, `Residential > OP`, `OPWM > Residential > IOP` and `OPWM > Residential > IOP > OP`. A step-down you cannot select is a worse failure than an extra option in a list, and the estimator prices any pathway built from these levels. They live in `EXTRA_TREATMENT_SEQUENCES` in the script.
-- **Rates the workbook has wrong**, corrected in `src/data/rateCorrections.js` — an overlay applied at lookup time, where a hand edit cannot be silently reverted. Each entry records the old value, the date and the reason. The list is currently empty, which is the healthy state: the revision adopted the one correction that was in it (self-pay psychiatric evaluation, $650 → $675), so it was retired rather than left sitting as a no-op.
+- **Rates the workbook has wrong, or is missing but we now know**, held in `src/data/rateCorrections.js` — an overlay applied at lookup time, where a hand edit cannot be silently reverted. Each entry records the old value (`null` when the workbook had none), the date and the reason, and is retired once the workbook carries the same number. It currently holds **MagnaCare OPWM (H0014) at $800 per day**, supplied by management 2026-11-20 and applied to both MagnaCare rows (`MagnaCare -` and `Magna Care (JPRN Consulting)`); the workbook leaves it blank for both. (The revision already adopted the previous entry, self-pay psychiatric evaluation $650 → $675, so that one was retired.)
 
-A rate the workbook is merely *missing* is never corrected there; it is left missing so the app can say so.
+A rate nobody has actually stated is never put there; a gap stays a gap so the app can say so.
 
 The 2026 revision also **dropped five in-network carriers** — Oxford, UHC, UBH, Connecticare and Connecticare - Molina — consolidating onto the per-site `Optum …` rows. Optum administers all of them on one set of contracted rates, which is why the rows are identical and why the consolidation is a rename rather than a loss. The app follows the sheet, and the claims history filed under the old names is still reachable from the carriers that replaced them (see below).
 
@@ -44,7 +44,7 @@ This is the weakest source and the last one consulted. A contracted schedule is 
 - The carrier list ends with **"Other — not listed"**, for a plan the app does not carry. It prices entirely off Misc, states plainly that nothing is specific to the client, and asks for the network status, since an unlisted carrier has none on file.
 - A missing rate on a listed carrier shows a one-click **`misc`** button beside its field, alongside the option to type the number the verification call established. Either way the choice is the user's and the source is visible.
 
-With Misc held back this way, **39 of the 176** carrier-table gaps on a priced code fill automatically from the carrier's own payer group and **12 more** from Diversified Group's percentage of billed charges; the other 125 offer the quick-fill. 20 carriers map to no payer group and no percentage basis at all, and rely on a typed rate or the Misc button.
+With Misc held back this way, of the **176** carrier-table gaps on a priced code, **2** are filled by supplied rates in `rateCorrections.js` (MagnaCare OPWM, both rows), **39** fill automatically from the carrier's own payer group and **12 more** from Diversified Group's percentage of billed charges; the other 123 offer the quick-fill. 20 carriers map to no payer group and no percentage basis at all, and rely on a typed rate or the Misc button.
 
 ### Payers priced off our own charge master
 

@@ -288,7 +288,14 @@ describe('rate corrections', () => {
     assert.equal(lookupRate('Self Pay', '90792'), 675)
   })
 
+  test('a rate the workbook is missing can be supplied', () => {
+    assert.equal(lookupRate('MagnaCare -', 'H0014'), 800)
+    assert.equal(lookupRate('Magna Care (JPRN Consulting)', 'H0014'), 800)
+  })
+
   test('corrections touch nothing else', () => {
+    assert.equal(lookupRate('Magna Care (JPRN Consulting)', 'H0015'), null)
+    assert.equal(lookupRate('MagnaCare -', 'H0015'), 145)
     assert.equal(lookupRate('Self Pay', '90791'), 450)
     assert.equal(lookupRate('BCBS - Anthem NY', '90792'), 340)
   })
