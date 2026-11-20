@@ -26,6 +26,7 @@ import {
   scheduleRate,
 } from './data/contractRates.js'
 import { siteNetworkRule } from './data/siteNetworks.js'
+import { SITE_RATE_CARRIERS, SITE_RATE_ROWS, rateRowFor, siteRateCarrier } from './data/siteRateCarriers.js'
 import {
   OTHER_CARRIER,
   SUPPLEMENTAL_CARRIERS,
@@ -106,6 +107,8 @@ const CODE_BY_ID = new Map(CODES.map((c) => [c.code, c]))
 // (see `siteNetworks.js`) keeps this as its base; `effectiveNetwork` is what
 // applies to a given estimate.
 export function carrierNetwork(carrier) {
+  const site = siteRateCarrier(carrier)
+  if (site) return site.network
   const found = CARRIER_BY_NAME.get(carrier)
   return found ? found.network : ''
 }
@@ -128,6 +131,13 @@ export function networkDependsOnLocation(carrier) {
   return Boolean(siteNetworkRule(carrier))
 }
 
+// True when the carrier's rate row is picked by the location (see
+// `siteRateCarriers.js`), so nothing can be priced from the carrier table until
+// a location is chosen.
+export function ratesDependOnLocation(carrier) {
+  return Boolean(siteRateCarrier(carrier))
+}
+
 // The rate table's carriers, the payers only the claims data knows about, and
 // the explicit "not listed" option — which is the only thing that draws on the
 // Misc claims bucket.
@@ -143,7 +153,16 @@ const byName = (a, b) =>
 
 export const CARRIER_OPTIONS = [
   ...[
-    ...CARRIERS.map((c) => ({ value: c.name, label: `${c.name} — ${carrierNetworkLabel(c.name)}` })),
+    // A per-site row ("Optum Canaan") is offered once, as its carrier; the
+    // location field picks the row.
+    ...CARRIERS.filter((c) => !SITE_RATE_ROWS.has(c.name)).map((c) => ({
+      value: c.name,
+      label: `${c.name} — ${carrierNetworkLabel(c.name)}`,
+    })),
+    ...SITE_RATE_CARRIERS.map((c) => ({
+      value: c.name,
+      label: `${c.name} — ${c.network}, rates by location`,
+    })),
     ...SUPPLEMENTAL_CARRIERS.map((name) => ({
       value: name,
       label: `${name} — network not on file`,
@@ -167,7 +186,16 @@ export function needsNetworkChoice(carrier) {
 // carrier that has none on file, or, for a carrier in network at some sites
 // only, the status at the location selected. That last one is not established
 // until a location is, and stays blank rather than defaulting to either.
+//
+// A site that is out of network with every payer (Mass Virtual) settles it
+// before any of that: a plan in network elsewhere is OON there. Self Pay is not
+// a network and is left alone.
+export function locationForcesOon(form) {
+  return getLocation(form.location)?.network === 'OON' && carrierNetwork(form.carrier) !== 'Self Pay'
+}
+
 export function effectiveNetwork(form) {
+  if (form.carrier && locationForcesOon(form)) return 'OON'
   if (needsNetworkChoice(form.carrier)) return form.networkOverride || ''
   const rule = siteNetworkRule(form.carrier)
   if (rule) {
@@ -197,10 +225,15 @@ export function codeDescription(code) {
 // corrections in `rateCorrections.js` laid over it. A blank cell there is an
 // amber "estimate from a similar plan", not a zero, so this returns null and
 // every caller has to decide what to say about a rate that does not exist.
-export function lookupRate(carrier, code) {
-  const corrected = correctedRate(carrier, code)
+//
+// A carrier whose row depends on the site reads the row for `location`, and has
+// no rate at all until one is given.
+export function lookupRate(carrier, code, location) {
+  const rowName = rateRowFor(carrier, location)
+  if (!rowName) return null
+  const corrected = correctedRate(rowName, code)
   if (corrected !== null) return corrected
-  const row = RATES[carrier]
+  const row = RATES[rowName]
   if (!row) return null
   const rate = row[String(code)]
   return typeof rate === 'number' ? rate : null
@@ -421,7 +454,7 @@ export function resolveRate(form, code) {
     if (contracted !== null) return { rate: contracted, source: 'contract' }
   }
 
-  const carrier = lookupRate(form.carrier, code)
+  const carrier = lookupRate(form.carrier, code, form.location)
   if (carrier !== null) return { rate: carrier, source: 'carrier' }
 
   // A plan with no allowed amounts of its own, whose claims come back at a
@@ -1330,11 +1363,14 @@ export function computeEstimate(form) {
 export function estimateBlockers(form) {
   const blockers = []
   if (!form.carrier) blockers.push('Select an insurance carrier')
-  if (needsNetworkChoice(form.carrier) && !form.networkOverride) {
+  if (needsNetworkChoice(form.carrier) && !form.networkOverride && !locationForcesOon(form)) {
     blockers.push('Select the network status — this carrier has none on file')
   }
   if (networkDependsOnLocation(form.carrier) && !getLocation(form.location)) {
     blockers.push('Select the location — this carrier’s network depends on the site')
+  }
+  if (ratesDependOnLocation(form.carrier) && !getLocation(form.location)) {
+    blockers.push('Select the location — this carrier’s rates depend on the site')
   }
   if (!form.treatmentSequence) blockers.push('Select a treatment sequence')
   if (form.coinsurancePercent === '') {
@@ -1434,7 +1470,7 @@ export function estimateBlockers(form) {
 // by code or by description, because a spreadsheet dropdown cannot do both.
 // That constraint does not exist here, so one query matches either.
 
-export function searchCodes(query, carrier, { limit = 40 } = {}) {
+export function searchCodes(query, carrier, { limit = 40, location = '' } = {}) {
   const q = String(query || '').trim().toLowerCase()
   const scored = []
 
@@ -1450,7 +1486,7 @@ export function searchCodes(query, carrier, { limit = 40 } = {}) {
     else if (code.includes(q)) score = 40
     if (score < 0) continue
 
-    const stated = lookupRate(carrier, entry.code)
+    const stated = lookupRate(carrier, entry.code, location)
     const ofCharge = stated === null ? percentOfChargeRate(carrier, entry.code) : null
     const rate = stated !== null ? stated : (ofCharge?.rate ?? null)
     scored.push({
