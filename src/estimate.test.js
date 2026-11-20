@@ -215,6 +215,27 @@ describe('rate resolution', () => {
     assert.equal(resolveRate(form({ location: 'canaan' }), 'H0015').rate, 328)
   })
 
+  test('Wilton pays 298 for IOP in network; the rest of its schedule is Connecticut', () => {
+    const wilton = form({ location: 'wilton' })
+    assert.deepEqual(resolveRate(wilton, 'H0015'), { rate: 298, source: 'contract' })
+    assert.equal(resolveRate(form({ location: 'canaan' }), 'H0015').rate, 328, 'Canaan is unchanged')
+    for (const code of ['H0010', 'H0018', 'H0014', 'H0035', '90837', '90853']) {
+      assert.equal(resolveRate(wilton, code).rate, resolveRate(form({ location: 'canaan' }), code).rate, code)
+    }
+    // Any in-network plan, including one whose network was stated by hand.
+    const other = form({ carrier: 'Other — not listed', networkOverride: 'INN', location: 'wilton' })
+    assert.equal(resolveRate(other, 'H0015').rate, 298)
+  })
+
+  test('Wilton’s 298 IOP rate is not Anthem’s, and not an OON plan’s', () => {
+    const anthem = form({ carrier: 'BCBS - Anthem CT', location: 'wilton' })
+    assert.equal(effectiveNetwork(anthem), 'INN')
+    assert.deepEqual(resolveRate(anthem, 'H0015'), { rate: lookupRate('BCBS - Anthem CT', 'H0015'), source: 'carrier' })
+    const oon = form({ carrier: 'BCBS - Mass CT', location: 'wilton' })
+    assert.equal(resolveRate(oon, 'H0015').source, 'carrier')
+    assert.notEqual(resolveRate(oon, 'H0015').rate, 298)
+  })
+
   test('a contracted schedule never prices an out-of-network plan', () => {
     // There is no agreement with a payer we are out of network with, whatever
     // site the client walks into — the allowed amount is the carrier's own.
@@ -571,7 +592,7 @@ describe('Anthem BCBS: in network at Canaan and Wilton only', () => {
     assert.equal(r.network, 'INN')
     assert.equal(r.schedule, null)
     assert.equal(r.scheduleSuppressed, null, 'it is not suppressed for being OON')
-    assert.equal(r.scheduleNotForPayer?.id, 'ct')
+    assert.equal(r.scheduleNotForPayer?.id, 'ct-wilton')
   })
 
   test('an INN Anthem plan at Canaan can take a bundled IOP agreement', () => {

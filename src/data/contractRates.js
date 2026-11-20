@@ -37,6 +37,26 @@ const SHARED_PROFESSIONAL = {
   '90846': { billed: 600, contracted: 92.62 },
 }
 
+// The Connecticut schedule's rates, shared by Canaan and Wilton. Wilton differs
+// on IOP alone, so it is the same block with that one rate replaced.
+const CT_RATES = {
+  'H0010': { billed: 5450, contracted: 1186 },
+  'H0018': { billed: 4950, contracted: 1045 },
+  'H0014': { billed: 4500, contracted: 485 },
+  'H0035': { billed: 3150, contracted: 442 },
+  'H0015': { billed: 1550, contracted: 328 },
+  ...SHARED_PROFESSIONAL,
+  '90840': { billed: 425, contracted: 57.38 },
+}
+
+const CT_ALTERNATES = [
+  {
+    code: 'H0018',
+    contracted: 1186,
+    note: 'Residential 3.7 / Residential Eval, revenue code 1000',
+  },
+]
+
 export const CONTRACT_SCHEDULES = [
   {
     id: 'ct',
@@ -49,22 +69,23 @@ export const CONTRACT_SCHEDULES = [
     // and Residential). The workbook's rate table labels H0018 "Residential
     // 3.5", so the residential line prices at the 1002 rate; `alternates`
     // records the other one rather than losing it.
+    rates: CT_RATES,
+    alternates: CT_ALTERNATES,
+  },
+  {
+    // Wilton is the Connecticut schedule with IOP (H0015) contracted at 298.00
+    // rather than 328.00 (noted 2026-11-20). It applies to every plan in
+    // network at Wilton that prices off the site schedule, which leaves out
+    // Anthem BCBS: it is in network there on its own rates (`siteNetworks.js`).
+    id: 'ct-wilton',
+    label: 'Connecticut — Wilton',
+    region: 'CT',
+    effective: '7/24/2026 – present',
     rates: {
-      'H0010': { billed: 5450, contracted: 1186 },
-      'H0018': { billed: 4950, contracted: 1045 },
-      'H0014': { billed: 4500, contracted: 485 },
-      'H0035': { billed: 3150, contracted: 442 },
-      'H0015': { billed: 1550, contracted: 328 },
-      ...SHARED_PROFESSIONAL,
-      '90840': { billed: 425, contracted: 57.38 },
+      ...CT_RATES,
+      'H0015': { billed: 1550, contracted: 298 },
     },
-    alternates: [
-      {
-        code: 'H0018',
-        contracted: 1186,
-        note: 'Residential 3.7 / Residential Eval, revenue code 1000',
-      },
-    ],
+    alternates: CT_ALTERNATES,
   },
   {
     id: 'nj-ramsey',
@@ -118,8 +139,9 @@ export const UNCONTRACTED_CODES = ['80305', 'H0006', '99368', '98966', '98967', 
 // ── Locations ────────────────────────────────────────────────────────────────
 // Which rate schedule applies is a fact about the site the client is admitting
 // to, not about the payer, so the estimator asks for the location and derives
-// the schedule from it. Connecticut and New York are state-wide schedules;
-// Ramsey is its own sheet.
+// the schedule from it. New York is a state-wide schedule; Connecticut is too,
+// except that Wilton has its own copy with a different IOP rate. Ramsey is its
+// own sheet.
 //
 // Add or correct a site here and every tool follows.
 //
@@ -130,7 +152,7 @@ export const UNCONTRACTED_CODES = ['80305', 'H0006', '99368', '98966', '98967', 
 
 export const LOCATIONS = [
   { id: 'canaan', label: 'Canaan', state: 'CT', schedule: 'ct' },
-  { id: 'wilton', label: 'Wilton', state: 'CT', schedule: 'ct' },
+  { id: 'wilton', label: 'Wilton', state: 'CT', schedule: 'ct-wilton' },
   { id: 'ramsey', label: 'Ramsey', state: 'NJ', schedule: 'nj-ramsey' },
   { id: 'nyc', label: 'New York City', state: 'NY', schedule: 'ny' },
   { id: 'chappaqua', label: 'Chappaqua', state: 'NY', schedule: 'ny' },

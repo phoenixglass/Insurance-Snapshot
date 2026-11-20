@@ -56,7 +56,7 @@ It is not the same kind of fact as a contracted rate or a stated allowed amount,
 
 ### In-network contracted rate schedules
 
-`src/data/contractRates.js` holds the signed rate sheets by facility location — **Connecticut** (effective 7/24/2026), **New Jersey — Ramsey** (7/6/2024), and **New York** (12/06/2024) — with both the contracted and billed rate for every code.
+`src/data/contractRates.js` holds the signed rate sheets by facility location — **Connecticut** (effective 7/24/2026), **Connecticut — Wilton** (the Connecticut sheet with IOP / H0015 at $298.00 instead of $328.00, noted 2026-11-20), **New Jersey — Ramsey** (7/6/2024), and **New York** (12/06/2024) — with both the contracted and billed rate for every code.
 
 These are a different axis from the carrier table. That table answers *"what does this payer allow?"*; a schedule answers *"what have we contracted to be paid here?"* Which schedule applies is a fact about the **site the client is admitting to**, so the estimator asks for a **Location** — Canaan, Wilton, Ramsey, New York City, Chappaqua, Huntington, Mass Virtual — and derives the schedule from it. Mass Virtual has no schedule on file (there is no MA rate sheet), which the app says rather than leaving blank. Rates then resolve in three tiers, and every row shows which tier its number came from:
 
@@ -74,7 +74,7 @@ Some agreements cover only some of our sites. `src/data/siteNetworks.js` lists t
 
 - **BCBS - Anthem CT, NJ and NY** are **in network at Canaan and Wilton** and out of network at every other site (as of 2026-11-20). **BCBS - Mass** stays out of network everywhere, and so do Empire, Horizon, Other and WellPoint.
 - Anthem's network is not settled until a location is picked, so the estimator blocks an Anthem quote with no location rather than guessing INN or OON. The carrier list reads `INN at Canaan & Wilton, OON elsewhere`.
-- In network, Anthem still prices from **its own row in the carrier table**, not the Connecticut contracted schedule. That schedule is our contract with other payers. Being INN changes everything else: bundled IOP is available, and the client letter says in network. The Location hint and the staff detail both say the schedule was not applied and why.
+- In network, Anthem still prices from **its own row in the carrier table**, not the Connecticut or Wilton contracted schedule (so Wilton's $298 IOP rate does not apply to it). That schedule is our contract with other payers. Being INN changes everything else: bundled IOP is available, and the client letter says in network. The Location hint and the staff detail both say the schedule was not applied and why.
 
 Connecticut contracts **H0018 at two rates** against two revenue codes — $1,186.00 under rev 1000 (Residential 3.7 / Residential Eval) and $1,045.00 under rev 1002 (Residential 3.5 / Residential). The residential line prices at the 1002 rate, matching how the workbook's own table labels H0018, and the app surfaces the other rate on screen so it can be entered when a stay bills that way.
 
