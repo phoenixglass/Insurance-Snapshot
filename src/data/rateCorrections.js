@@ -18,13 +18,23 @@
 // The last retired entry was the self-pay psychiatric evaluation, corrected from
 // $650 to $675 on 2026-08-31; the 2026 revision of the workbook adopted $675.
 export const RATE_CORRECTIONS = [
+  // MagnaCare OPWM/OWM, per day. Management set one rate for both MagnaCare
+  // rows; the workbook has no H0014 rate for either.
   {
     carrier: 'MagnaCare -',
     code: 'H0014',
     rate: 800,
     was: null,
     noted: '2026-11-20',
-    reason: 'MagnaCare OPWM/OWM rate supplied by staff; the workbook has no H0014 rate for MagnaCare.',
+    reason: 'MagnaCare OPWM/OWM per-day rate supplied by management; the workbook has none.',
+  },
+  {
+    carrier: 'Magna Care (JPRN Consulting)',
+    code: 'H0014',
+    rate: 800,
+    was: null,
+    noted: '2026-11-20',
+    reason: 'MagnaCare OPWM/OWM per-day rate supplied by management, applies to the JPRN Consulting row too; the workbook has none.',
   },
 ]
 
