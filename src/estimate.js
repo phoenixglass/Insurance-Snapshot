@@ -20,10 +20,12 @@ import { BENCHMARK_RATES, CARRIERS, CODES, RATES } from './data/rates.js'
 import { correctedRate } from './data/rateCorrections.js'
 import {
   UNCONTRACTED_CODES,
+  getLocation,
   getSchedule,
   scheduleForLocation,
   scheduleRate,
 } from './data/contractRates.js'
+import { siteNetworkRule } from './data/siteNetworks.js'
 import {
   OTHER_CARRIER,
   SUPPLEMENTAL_CARRIERS,
@@ -100,9 +102,30 @@ export function sequenceLocs(sequence) {
 const CARRIER_BY_NAME = new Map(CARRIERS.map((c) => [c.name, c]))
 const CODE_BY_ID = new Map(CODES.map((c) => [c.code, c]))
 
+// The carrier's network as the workbook records it. A carrier with a site rule
+// (see `siteNetworks.js`) keeps this as its base; `effectiveNetwork` is what
+// applies to a given estimate.
 export function carrierNetwork(carrier) {
   const found = CARRIER_BY_NAME.get(carrier)
   return found ? found.network : ''
+}
+
+// The sites where a carrier with a site rule is in network, as labels.
+function siteRuleLabels(rule) {
+  return rule.inNetworkAt.map((id) => getLocation(id)?.label || id)
+}
+
+// How a carrier's network reads before a location is known: the plain status,
+// or where it changes for a carrier whose network depends on the site.
+export function carrierNetworkLabel(carrier) {
+  const rule = siteNetworkRule(carrier)
+  if (rule) return `INN at ${siteRuleLabels(rule).join(' & ')}, OON elsewhere`
+  return carrierNetwork(carrier)
+}
+
+// True when the carrier's network cannot be settled without the location.
+export function networkDependsOnLocation(carrier) {
+  return Boolean(siteNetworkRule(carrier))
 }
 
 // The rate table's carriers, the payers only the claims data knows about, and
@@ -120,7 +143,7 @@ const byName = (a, b) =>
 
 export const CARRIER_OPTIONS = [
   ...[
-    ...CARRIERS.map((c) => ({ value: c.name, label: `${c.name} — ${c.network}` })),
+    ...CARRIERS.map((c) => ({ value: c.name, label: `${c.name} — ${carrierNetworkLabel(c.name)}` })),
     ...SUPPLEMENTAL_CARRIERS.map((name) => ({
       value: name,
       label: `${name} — network not on file`,
@@ -140,17 +163,28 @@ export function needsNetworkChoice(carrier) {
   return Boolean(carrier) && !carrierNetwork(carrier)
 }
 
-// The plan's network: the carrier's own status, or the one stated by hand for a
-// carrier that has none on file.
+// The plan's network: the carrier's own status, the one stated by hand for a
+// carrier that has none on file, or, for a carrier in network at some sites
+// only, the status at the location selected. That last one is not established
+// until a location is, and stays blank rather than defaulting to either.
 export function effectiveNetwork(form) {
-  return needsNetworkChoice(form.carrier) ? form.networkOverride || '' : carrierNetwork(form.carrier)
+  if (needsNetworkChoice(form.carrier)) return form.networkOverride || ''
+  const rule = siteNetworkRule(form.carrier)
+  if (rule) {
+    if (!getLocation(form.location)) return ''
+    return rule.inNetworkAt.includes(form.location) ? 'INN' : 'OON'
+  }
+  return carrierNetwork(form.carrier)
 }
 
 // A contracted rate schedule is an in-network agreement. Out of network there
 // is no contract with the payer, so the allowed amount is whatever that plan
 // allows — the schedule must not price anything, however the location is set.
+// In network, a payer whose site agreement is priced on its own terms is not on
+// the site's schedule either.
 export function scheduleInEffect(form) {
   if (effectiveNetwork(form) !== 'INN') return null
+  if (siteNetworkRule(form.carrier)?.siteSchedule === false) return null
   return getSchedule(scheduleForLocation(form.location))
 }
 
@@ -1279,6 +1313,11 @@ export function computeEstimate(form) {
     // says why rather than leaving the field looking ignored.
     scheduleSuppressed:
       network !== 'INN' ? getSchedule(scheduleForLocation(form.location)) : null,
+    // In network, but on the payer's own rates rather than the site schedule.
+    scheduleNotForPayer:
+      network === 'INN' && siteNetworkRule(form.carrier)?.siteSchedule === false
+        ? getSchedule(scheduleForLocation(form.location))
+        : null,
     totalAllowed: inpatient.totalAllowed + outpatient.totalAllowed,
     totalRevenue: inpatient.revenue + outpatient.revenue,
     // I1 — the number the client is quoted.
@@ -1293,6 +1332,9 @@ export function estimateBlockers(form) {
   if (!form.carrier) blockers.push('Select an insurance carrier')
   if (needsNetworkChoice(form.carrier) && !form.networkOverride) {
     blockers.push('Select the network status — this carrier has none on file')
+  }
+  if (networkDependsOnLocation(form.carrier) && !getLocation(form.location)) {
+    blockers.push('Select the location — this carrier’s network depends on the site')
   }
   if (!form.treatmentSequence) blockers.push('Select a treatment sequence')
   if (form.coinsurancePercent === '') {
@@ -1437,7 +1479,7 @@ export function searchCodes(query, carrier, { limit = 40 } = {}) {
 // Every carrier that does have a rate for this code — the "similar plan" the
 // workbook tells you to estimate from, without leaving the app to find one.
 export function carriersWithRate(code, { limit = 8 } = {}) {
-  return CARRIERS.map((c) => ({ ...c, rate: lookupRate(c.name, code) }))
+  return CARRIERS.map((c) => ({ ...c, network: carrierNetworkLabel(c.name), rate: lookupRate(c.name, code) }))
     .filter((c) => c.rate !== null)
     .sort((a, b) => a.rate - b.rate)
     .slice(0, limit)

@@ -218,12 +218,12 @@ describe('rate resolution', () => {
   test('a contracted schedule never prices an out-of-network plan', () => {
     // There is no agreement with a payer we are out of network with, whatever
     // site the client walks into — the allowed amount is the carrier's own.
-    const oon = form({ carrier: 'BCBS - Anthem NY', location: 'canaan' })
+    const oon = form({ carrier: 'BCBS - Mass CT', location: 'canaan' })
     assert.equal(effectiveNetwork(oon), 'OON')
     assert.equal(scheduleInEffect(oon), null)
     const r = resolveRate(oon, 'H0015')
     assert.equal(r.source, 'carrier')
-    assert.equal(r.rate, lookupRate('BCBS - Anthem NY', 'H0015'))
+    assert.equal(r.rate, lookupRate('BCBS - Mass CT', 'H0015'))
     assert.notEqual(r.rate, 328, 'the Connecticut contracted rate must not leak into an OON quote')
   })
 
@@ -237,7 +237,7 @@ describe('rate resolution', () => {
   test('the estimate reports a schedule the network ruled out', () => {
     const r = computeEstimate(
       form({
-        carrier: 'BCBS - Anthem NY',
+        carrier: 'BCBS - Mass CT',
         location: 'canaan',
         treatmentSequence: 'IOP',
         coinsurancePercent: '20',
@@ -247,6 +247,12 @@ describe('rate resolution', () => {
     )
     assert.equal(r.schedule, null, 'nothing is contracted for this plan')
     assert.equal(r.scheduleSuppressed?.id, 'ct', 'but the location does have one, and the UI says so')
+  })
+
+  test('the carrier list labels a network that depends on the site', () => {
+    const label = (name) => CARRIER_OPTIONS.find((o) => o.value === name).label
+    assert.equal(label('BCBS - Anthem CT'), 'BCBS - Anthem CT — INN at Canaan & Wilton, OON elsewhere')
+    assert.equal(label('BCBS - Mass CT'), 'BCBS - Mass CT — OON')
   })
 
   test('an override outranks everything', () => {
@@ -315,6 +321,8 @@ describe('submit blockers', () => {
   const ready = {
     ...INITIAL_ESTIMATE_STATE,
     carrier: 'BCBS - Anthem NY',
+    // Anthem's network depends on the site, so a complete quote names one.
+    location: 'nyc',
     treatmentSequence: 'IOP',
     coinsurancePercent: '20',
     deductibleRemaining: '0',
@@ -495,5 +503,89 @@ describe('a payer priced as a percentage of our charge', () => {
     const r = resolveRate(form({ rateOverrides: { H0010: '1800' } }), 'H0010')
     assert.equal(r.source, 'override')
     assert.equal(r.rate, 1800)
+  })
+})
+
+describe('Anthem BCBS: in network at Canaan and Wilton only', () => {
+  const ANTHEM = ['BCBS - Anthem CT', 'BCBS - Anthem NJ', 'BCBS - Anthem NY']
+  const SITES_OON = ['ramsey', 'nyc', 'chappaqua', 'huntington', 'mass-virtual']
+  const form = (over) => ({ ...INITIAL_ESTIMATE_STATE, ...over })
+
+  test('every Anthem plan is INN at Canaan and Wilton', () => {
+    for (const carrier of ANTHEM) {
+      for (const location of ['canaan', 'wilton']) {
+        assert.equal(effectiveNetwork(form({ carrier, location })), 'INN', `${carrier} at ${location}`)
+      }
+    }
+  })
+
+  test('every Anthem plan is OON at every other site', () => {
+    for (const carrier of ANTHEM) {
+      for (const location of SITES_OON) {
+        assert.equal(effectiveNetwork(form({ carrier, location })), 'OON', `${carrier} at ${location}`)
+      }
+    }
+  })
+
+  test('the Mass plans and the other Blues stay OON at Canaan and Wilton', () => {
+    const others = [
+      'BCBS - Mass CT', 'BCBS - Mass MA', 'BCBS - Mass NY',
+      'BCBS - Empire CT', 'BCBS - Horizon NJ', 'BCBS - Other CT', 'WellPoint',
+    ]
+    for (const carrier of others) {
+      for (const location of ['canaan', 'wilton']) {
+        assert.equal(effectiveNetwork(form({ carrier, location })), 'OON', `${carrier} at ${location}`)
+      }
+    }
+  })
+
+  test('with no location the network is not established, and the quote is blocked', () => {
+    const f = form({ carrier: 'BCBS - Anthem CT' })
+    assert.equal(effectiveNetwork(f), '')
+    assert.ok(estimateBlockers(f).some((b) => b.includes('location')))
+    assert.ok(!estimateBlockers(form({ carrier: 'BCBS - Anthem CT', location: 'nyc' })).some((b) => b.includes('location')))
+    // A carrier with one network everywhere is not asked for the site.
+    assert.ok(!estimateBlockers(form({ carrier: 'BCBS - Mass CT' })).some((b) => b.includes('location')))
+  })
+
+  test('in network at Canaan, Anthem still prices off its own rates, not the CT schedule', () => {
+    const f = form({ carrier: 'BCBS - Anthem CT', location: 'canaan' })
+    assert.equal(scheduleInEffect(f), null)
+    const r = resolveRate(f, 'H0015')
+    assert.equal(r.source, 'carrier')
+    assert.equal(r.rate, lookupRate('BCBS - Anthem CT', 'H0015'))
+    assert.notEqual(r.rate, 328, 'the Connecticut contracted rate is not Anthem’s')
+  })
+
+  test('the estimate says the site schedule was not applied, and why', () => {
+    const r = computeEstimate(
+      form({
+        carrier: 'BCBS - Anthem NY',
+        location: 'wilton',
+        treatmentSequence: 'IOP',
+        coinsurancePercent: '20',
+        deductibleRemaining: '0',
+        oopmRemaining: '99999',
+      })
+    )
+    assert.equal(r.network, 'INN')
+    assert.equal(r.schedule, null)
+    assert.equal(r.scheduleSuppressed, null, 'it is not suppressed for being OON')
+    assert.equal(r.scheduleNotForPayer?.id, 'ct')
+  })
+
+  test('an INN Anthem plan at Canaan can take a bundled IOP agreement', () => {
+    const r = computeEstimate(
+      form({
+        carrier: 'BCBS - Anthem CT',
+        location: 'canaan',
+        treatmentSequence: 'IOP',
+        bundledInnIop: 'Yes',
+        coinsurancePercent: '20',
+        deductibleRemaining: '0',
+        oopmRemaining: '99999',
+      })
+    )
+    assert.equal(r.outpatient.bundled, true)
   })
 })

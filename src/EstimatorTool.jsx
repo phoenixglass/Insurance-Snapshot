@@ -21,9 +21,11 @@ import {
   formatPercent,
   formatUnits,
   hasLevelOverrides,
+  carrierNetworkLabel,
   isOtherCarrier,
   levelRule,
   needsNetworkChoice,
+  networkDependsOnLocation,
   resolveRate,
   sequenceIncludes,
   sequenceLocs,
@@ -410,7 +412,9 @@ export default function EstimatorTool() {
                 hint={
                   needsNetworkChoice(form.carrier)
                     ? 'This carrier has no network on file, so it has to be stated.'
-                    : undefined
+                    : networkDependsOnLocation(form.carrier)
+                      ? `${carrierNetworkLabel(form.carrier)} — set by the location below.`
+                      : undefined
                 }
               >
                 {needsNetworkChoice(form.carrier) ? (
@@ -422,7 +426,8 @@ export default function EstimatorTool() {
                   />
                 ) : (
                   <div className={`network-pill network-${(result.network || 'none').toLowerCase().replace(/\s+/g, '-')}`}>
-                    {result.network || 'Select a carrier'}
+                    {result.network ||
+                      (networkDependsOnLocation(form.carrier) ? 'Select a location' : 'Select a carrier')}
                   </div>
                 )}
               </Field>
@@ -433,6 +438,11 @@ export default function EstimatorTool() {
               htmlFor="location"
               hint={(() => {
                 const loc = getLocation(form.location)
+                // In network at this site, but on the payer's own rates: the
+                // site schedule is our contract with other payers, not this one.
+                if (result.scheduleNotForPayer) {
+                  return `This plan is in network at ${loc?.label}, but on its own rates: the ${result.scheduleNotForPayer.label} schedule does not apply to it, so every rate below is the carrier's own.`
+                }
                 if (result.schedule) {
                   return `${loc?.label} bills on the ${result.schedule.label} schedule, effective ${result.schedule.effective}. Those signed rates outrank the carrier table; a code the schedule does not cover falls back to it.`
                 }
@@ -440,7 +450,16 @@ export default function EstimatorTool() {
                 // plan gets the carrier's own allowed amounts no matter which
                 // site the client walks into.
                 if (result.scheduleSuppressed) {
+                  if (networkDependsOnLocation(form.carrier)) {
+                    return `This plan is out of network at ${loc?.label} (${carrierNetworkLabel(form.carrier)}). There is no agreement with it here, so every rate below is the carrier's own allowed amount.`
+                  }
                   return `${loc?.label} has a ${result.scheduleSuppressed.label} contract, but this plan is ${result.network} — there is no agreement with an out-of-network payer, so every rate below is the carrier's own allowed amount.`
+                }
+                if (loc && networkDependsOnLocation(form.carrier) && result.network === 'OON') {
+                  return `This plan is out of network at ${loc.label} (${carrierNetworkLabel(form.carrier)}), so every rate below is the carrier's own allowed amount.`
+                }
+                if (networkDependsOnLocation(form.carrier) && !loc) {
+                  return `Required for this carrier: it is ${carrierNetworkLabel(form.carrier)}, so its network is not settled until the site is.`
                 }
                 if (loc) {
                   return `No contracted rate schedule on file for ${loc.label} — there is no ${loc.state} rate sheet — so every rate here comes from the carrier table.`
