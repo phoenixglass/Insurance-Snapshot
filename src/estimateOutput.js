@@ -32,6 +32,8 @@ import {
   formatMoney,
   hasLevelOverrides,
   levelRule,
+  planBillingLevels,
+  selfPayLevel,
   sequenceIncludes,
   sequenceLocs,
   toNumber,
@@ -77,6 +79,7 @@ function feeCoveredLevels(form) {
 // reads the levels rather than the plan's own cells.
 function copayRules(form) {
   return billingLevels(form)
+    .filter(({ loc }) => !selfPayLevel(form, loc))
     .map(({ loc, label }) => ({ label, loc, rule: levelRule(form, loc) }))
     .filter(({ rule }) => rule.copayAmount > 0 && rule.copayBasis !== COPAY_BASIS.NA)
 }
@@ -128,11 +131,29 @@ function components(form, result) {
   const coinsurance = inpatient.coinsuranceDue + outpatient.coinsuranceDue
   const copay = inpatient.copay + outpatient.copay
   const fees = inpatient.admissionFees + outpatient.admissionFees
-  return { deductible, coinsurance, copay, fees, total: deductible + coinsurance + copay + fees }
+  const selfPay = result.selfPay || 0
+  return {
+    deductible,
+    coinsurance,
+    copay,
+    fees,
+    selfPay,
+    total: deductible + coinsurance + copay + fees + selfPay,
+  }
+}
+
+// The care charged at a flat daily rate outside the plan, said with its
+// arithmetic: "PHP, 20 days at $442 a day".
+function selfPayPhrase(result) {
+  return joinList(
+    (result.selfPayLines || []).map(
+      (l) => `${l.label}, ${plural(Math.round(l.units * 100) / 100, 'day', 'days')} at ${dollars(l.rate)} a day`
+    )
+  )
 }
 
 function componentLines(form, result) {
-  const { deductible, coinsurance, copay, fees } = components(form, result)
+  const { deductible, coinsurance, copay, fees, selfPay } = components(form, result)
   const coinsPercent = toNumber(form.coinsurancePercent)
   const copayNote = copayPhrase(form, result)
   const rules = copayRules(form)
@@ -162,6 +183,11 @@ function componentLines(form, result) {
           ? ` — this covers everything in ${joinList(covered)}, with nothing else charged for that care`
           : ''
       }.`
+    )
+  }
+  if (selfPay > 0) {
+    out.push(
+      `  ${selfPayPhrase(result)}, self-pay: ${dollars(selfPay)} — not billed to the plan, so no deductible, coinsurance or copay applies and it does not count toward the out-of-pocket maximum.`
     )
   }
   return out
@@ -255,7 +281,9 @@ function costNote(form, result) {
           .join(', ')} ${result.estimatedRates.length === 1 ? 'is' : 'are'} priced from average paid claims rather than a rate for this plan.`
       : null,
     result.missingRates.length > 0 || result.estimatedRates.length > 0 ? '' : null,
-    'This is an estimate of the plan’s cost share for the care listed above, not a bill. What is owed in the end follows the care actually delivered.'
+    planBillingLevels(form).length > 0
+      ? 'This is an estimate of the plan’s cost share for the care listed above, not a bill. What is owed in the end follows the care actually delivered.'
+      : 'This is an estimate for the care listed above, not a bill. What is owed in the end follows the care actually delivered.'
   )
 }
 
@@ -358,6 +386,10 @@ function staffDetail(form, result) {
       ? `  Contracted schedule not applied: in network at this site on the carrier's own rates, not the ${result.scheduleNotForPayer.label} schedule`
       : null,
     outpatient.bundled ? '  Bundled INN IOP agreement: individual and family therapy fold into the IOP rate' : null,
+    ...(result.selfPayLines || []).map(
+      (l) =>
+        `  ${l.label} priced outside the plan: self-pay at ${formatMoney(l.rate)} a day — ${l.selfPayRule.reason}`
+    ),
     '',
     'ACCUMULATORS AS VERIFIED',
     `  Deductible remaining: ${formatMoney(toNumber(form.deductibleRemaining))}`,
@@ -420,12 +452,14 @@ function staffDetail(form, result) {
             units: l.units,
             unitNoun: 'unit',
             rate: l.rate,
-            allowed: l.allowed,
-            note: l.bundledOut
-              ? 'bundled into IOP — no cost'
-              : l.coveredByFee
-                ? `covered by the ${l.deliveredIn} admission fee`
-                : undefined,
+            allowed: l.selfPay ? l.selfPayCharge : l.allowed,
+            note: l.selfPay
+              ? 'self-pay — not billed to the plan, not in the allowed total'
+              : l.bundledOut
+                ? 'bundled into IOP — no cost'
+                : l.coveredByFee
+                  ? `covered by the ${l.deliveredIn} admission fee`
+                  : undefined,
           }))
         ).join('\n')
       : null,
@@ -461,6 +495,9 @@ function staffDetail(form, result) {
           `  Admission fee: ${formatMoney(outpatient.admissionFees)}`,
           `  Before the out-of-pocket cap: ${formatMoney(outpatient.beforeCap)}`,
           `  After the out-of-pocket cap: ${formatMoney(outpatient.afterCap)}`,
+          outpatient.selfPay > 0
+            ? `  Self-pay, outside the plan and the cap: ${formatMoney(outpatient.selfPay)}`
+            : null,
           `  Outpatient deposit: ${formatMoney(outpatient.deposit)}`,
           `  Estimated revenue: ${formatMoney(outpatient.revenue)}`
         )
@@ -516,27 +553,35 @@ function staffDetail(form, result) {
 // ── Client explanation ───────────────────────────────────────────────────────
 
 function clientExplanation(form, result) {
-  const { deductible, coinsurance, copay, fees } = components(form, result)
+  const { deductible, coinsurance, copay, fees, selfPay } = components(form, result)
   const coinsPercent = toNumber(form.coinsurancePercent)
   const oopRemaining = toNumber(form.oopmRemaining)
   const copayNote = copayPhrase(form, result)
   const locNames = sequenceLocs(form.treatmentSequence)
+  // Where every level of care is charged outside the plan, the plan's terms
+  // price nothing here, and explaining them would only describe a plan the
+  // client is not being charged through.
+  const planPrices = planBillingLevels(form).length > 0
 
   return lines(
     `Here is what we expect your plan to leave you responsible for, based on the benefits we verified with ${form.carrier || 'your carrier'} and the course of care we are planning: ${
       locNames.length > 0 ? joinList(locNames) : 'no levels of care selected yet'
     }.`,
     '',
-    result.network === 'OON'
+    !planPrices
+      ? null
+      : result.network === 'OON'
       ? 'Your plan treats us as an out-of-network provider, which means it pays on its own allowed amounts rather than a rate we have agreed with them. That is why the numbers below are larger than they would be with an in-network provider.'
       : result.network === 'INN'
         ? 'We are in network with your plan, so your share is calculated against the rates we have agreed with them rather than our full charges.'
         : null,
-    result.network ? '' : null,
-    deductible > 0
+    result.network && planPrices ? '' : null,
+    !planPrices
+      ? null
+      : deductible > 0
       ? `Your plan has a deductible — an amount you pay for care before the plan starts paying its share. You have ${dollars(toNumber(form.deductibleRemaining))} of it left this year, and we expect this care to use ${dollars(deductible)} of it.`
       : 'Your deductible is already satisfied for this year, so nothing in this estimate goes toward it.',
-    '',
+    planPrices ? '' : null,
     coinsurance > 0
       ? `After the deductible, your plan pays most of the cost and you pay a share of it. Your share is ${coinsPercent}%, which comes to ${dollars(coinsurance)} across this course of care.`
       : null,
@@ -553,10 +598,14 @@ function clientExplanation(form, result) {
         : `There is also an admission fee of ${dollars(fees)}, charged once when you enter a level of care.`
       : null,
     fees > 0 ? '' : null,
-    oopRemaining > 0
+    selfPay > 0
+      ? `Your plan is not billed for ${selfPayPhrase(result)}. That care is charged to you directly at that daily rate, ${dollars(selfPay)} in all. Your deductible, coinsurance and copay do not apply to it, and it does not count toward your out-of-pocket maximum.`
+      : null,
+    selfPay > 0 ? '' : null,
+    planPrices && oopRemaining > 0
       ? `Everything your plan counts toward your out-of-pocket maximum stops at ${dollars(oopRemaining)} — that is the most you can owe this year for covered care. Once you reach it, the plan pays the rest.`
       : null,
-    oopRemaining > 0 ? '' : null,
+    planPrices && oopRemaining > 0 ? '' : null,
     `Putting that together, we are asking for ${dollars(result.grandTotal)} before care begins.${
       result.previousBalance > 0
         ? ` That figure includes the ${dollars(result.previousBalance)} still outstanding on your account.`

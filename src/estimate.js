@@ -26,6 +26,7 @@ import {
   scheduleRate,
 } from './data/contractRates.js'
 import { siteNetworkRule } from './data/siteNetworks.js'
+import { siteSelfPayRule } from './data/siteSelfPay.js'
 import { SITE_RATE_CARRIERS, SITE_RATE_ROWS, rateRowFor, siteRateCarrier } from './data/siteRateCarriers.js'
 import {
   OTHER_CARRIER,
@@ -129,6 +130,19 @@ export function carrierNetworkLabel(carrier) {
 // True when the carrier's network cannot be settled without the location.
 export function networkDependsOnLocation(carrier) {
   return Boolean(siteNetworkRule(carrier))
+}
+
+// The rule pricing a level of care outside the plan for this estimate, or null
+// when the plan prices it. See `siteSelfPay.js`: such a level is charged a flat
+// daily rate and never enters the cost-share waterfall.
+export function selfPayLevel(form, loc) {
+  return loc ? siteSelfPayRule(form, loc) : null
+}
+
+// The levels of care this estimate prices through the plan: every level it
+// bills at, less any taken out of the plan by a self-pay rule.
+export function planBillingLevels(form) {
+  return billingLevels(form).filter(({ loc }) => !selfPayLevel(form, loc))
 }
 
 // True when the carrier's rate row is picked by the location (see
@@ -1027,6 +1041,35 @@ function outpatientLines(form, ctx) {
     const rule = loc === null ? planRule(form) : levelRule(form, loc)
     const coveredByFee =
       active && deliveredIn !== null && levelRule(form, deliveredIn).admissionFeeCovers
+    // A level of care taken out of the plan is charged at its flat daily rate.
+    // Nothing is billed to the plan for it, so it carries no allowed amount and
+    // no rate override applies: the override is for a plan's allowed amount.
+    // An admission fee that covers the level still covers it.
+    const selfPayRule = active && !coveredByFee ? selfPayLevel(form, deliveredIn) : null
+    if (selfPayRule) {
+      return {
+        ...line,
+        key: split ? `${line.key}:${deliveredIn}` : line.key,
+        lineKey: line.key,
+        label: split ? `${line.label} (${deliveredIn})` : line.label,
+        loc,
+        deliveredIn,
+        coveredByFee: false,
+        billedElsewhere: false,
+        split,
+        inSequence,
+        bundledOut: false,
+        active,
+        units,
+        rate: selfPayRule.ratePerDay,
+        selfPay: true,
+        selfPayRule,
+        selfPayCharge: units * selfPayRule.ratePerDay,
+        clientPerUnit: selfPayRule.ratePerDay,
+        allowed: 0,
+        rateMissing: false,
+      }
+    }
     return {
       ...line,
       key: split ? `${line.key}:${deliveredIn}` : line.key,
@@ -1050,6 +1093,8 @@ function outpatientLines(form, ctx) {
       rate,
       // Nothing more is charged for one more unit of care the fee already covers.
       clientPerUnit: coveredByFee ? 0 : clientUnitCost(line, rule, rate, ctx.coins),
+      selfPay: false,
+      selfPayCharge: 0,
       allowed: active && rate !== null ? units * rate : 0,
       rateMissing: active && rate === null,
     }
@@ -1110,6 +1155,7 @@ function computeOutpatient(form, ctx, inpatient) {
   // untouched. With one set of rules across the episode this is the same
   // subtraction the block did as a whole.
   const rules = activeLocs
+    .filter((loc) => !selfPayLevel(form, loc))
     .map((loc) => levelRule(form, loc))
     .filter((rule) => !rule.admissionFeeCovers)
   let deductiblePool = deductibleAtEntry
@@ -1122,8 +1168,12 @@ function computeOutpatient(form, ctx, inpatient) {
     // is covered by where it was delivered, not where it bills, so a level can
     // be charging normally while some of its rows are covered by another
     // level's fee.
-    const locLines = lines.filter((l) => l.active && l.loc === loc && !l.coveredByFee)
+    const locLines = lines.filter((l) => l.active && l.loc === loc && !l.coveredByFee && !l.selfPay)
     const allowed = locLines.reduce((sum, l) => sum + l.allowed, 0)
+    // A level taken out of the plan charges nothing through it — no
+    // deductible, coinsurance or copay — and passes the deductible pool and
+    // the out-of-pocket room on untouched.
+    const selfPay = selfPayLevel(form, loc)
     const levelDeductibleBefore = deductiblePool
     const deductible = rule.deductibleApplies ? Math.min(deductiblePool, allowed) : 0
     deductiblePool = clampAtZero(deductiblePool - deductible)
@@ -1147,7 +1197,7 @@ function computeOutpatient(form, ctx, inpatient) {
     })
 
     const { copay: unitCopay, units } = levelUnitCopay(rule, locLines)
-    const uncapped = unitCopay + levelManualCopay(rule)
+    const uncapped = selfPay ? 0 : unitCopay + levelManualCopay(rule)
     const copay = ctx.copayCap.charge(rule, uncapped)
     const maxReached = copay < uncapped - 0.005
     // Past the ceiling one more unit of care adds no copay to the deposit, so
@@ -1173,6 +1223,7 @@ function computeOutpatient(form, ctx, inpatient) {
       copayBeforeMax: uncapped,
       copayMaxReached: maxReached,
       feeCovered: rule.admissionFeeCovers,
+      selfPay,
       fee: admissionFeeFor(form, loc),
       lines: locLines,
     }
@@ -1214,6 +1265,10 @@ function computeOutpatient(form, ctx, inpatient) {
     ? applyCostShare(shares, { ...capInputs, extraInsideCap: admissionFees }).afterCap
     : share.afterCap + admissionFees
 
+  // What the levels taken out of the plan charge at their flat rate. Added on
+  // top of everything the plan decided, and never capped by its maximum.
+  const selfPay = lines.reduce((sum, l) => sum + (l.selfPay ? l.selfPayCharge : 0), 0)
+
   return {
     lines,
     levels,
@@ -1233,7 +1288,8 @@ function computeOutpatient(form, ctx, inpatient) {
     beforeCap: share.beforeCap,
     afterCap: share.afterCap,
     revenue: clampAtZero(totalAllowed - share.afterCap),
-    deposit: withFee,
+    selfPay,
+    deposit: withFee + selfPay,
   }
 }
 
@@ -1284,7 +1340,7 @@ export function computeEstimate(form) {
   // cells amber; here they are named, because a total assembled over a missing
   // rate is understating the cost by a number nobody can see.
   const scheduled = [...inpatient.lines, ...outpatient.lines].filter(
-    (l) => l.active && (l.units ?? l.nights) > 0
+    (l) => l.active && !l.selfPay && (l.units ?? l.nights) > 0
   )
 
   // Lines whose number came from observed claims rather than a stated rate.
@@ -1351,6 +1407,9 @@ export function computeEstimate(form) {
       network === 'INN' && siteNetworkRule(form.carrier)?.siteSchedule === false
         ? getSchedule(scheduleForLocation(form.location))
         : null,
+    // The lines charged at a flat rate outside the plan, and what they come to.
+    selfPayLines: outpatient.lines.filter((l) => l.selfPay),
+    selfPay: outpatient.selfPay,
     totalAllowed: inpatient.totalAllowed + outpatient.totalAllowed,
     totalRevenue: inpatient.revenue + outpatient.revenue,
     // I1 — the number the client is quoted.
@@ -1373,30 +1432,40 @@ export function estimateBlockers(form) {
     blockers.push('Select the location — this carrier’s rates depend on the site')
   }
   if (!form.treatmentSequence) blockers.push('Select a treatment sequence')
-  if (form.coinsurancePercent === '') {
-    blockers.push('Enter the coinsurance percentage (enter 0 if the plan has none)')
-  }
-  if (form.deductibleRemaining === '') blockers.push('Enter the deductible remaining')
-  if (form.oopmRemaining === '') blockers.push('Enter the out-of-pocket maximum remaining')
-  if (form.copayBasis !== COPAY_BASIS.NA && toNumber(form.copayAmount) <= 0) {
-    blockers.push('A copay basis is selected but no copay amount is entered')
-  }
-  if (toNumber(form.copayAmount) > 0 && form.copayBasis === COPAY_BASIS.NA) {
-    blockers.push('A copay amount is entered but its basis is "Not Applicable" — it will not be collected')
+  // A sequence whose every level of care is priced outside the plan does not
+  // read the plan's terms at all, so it does not need them to be quoted. Until
+  // a sequence is chosen that cannot be known, and the terms are asked for.
+  const planPrices = !form.treatmentSequence || planBillingLevels(form).length > 0
+  if (planPrices) {
+    if (form.coinsurancePercent === '') {
+      blockers.push('Enter the coinsurance percentage (enter 0 if the plan has none)')
+    }
+    if (form.deductibleRemaining === '') blockers.push('Enter the deductible remaining')
+    if (form.oopmRemaining === '') blockers.push('Enter the out-of-pocket maximum remaining')
+    if (form.copayBasis !== COPAY_BASIS.NA && toNumber(form.copayAmount) <= 0) {
+      blockers.push('A copay basis is selected but no copay amount is entered')
+    }
+    if (toNumber(form.copayAmount) > 0 && form.copayBasis === COPAY_BASIS.NA) {
+      blockers.push('A copay amount is entered but its basis is "Not Applicable" — it will not be collected')
+    }
   }
   // A level of care that states its own copay is held to the same questions as
   // the plan-wide one: an amount with no basis collects nothing, and a copay
   // whose accumulator treatment was never established drops out of the deposit
   // silently. Neither is something to discover after quoting.
-  const levels = billingLevels(form).map(({ loc, label }) => ({
+  // Only the levels the plan prices: one charged at a flat rate outside it
+  // collects none of the plan's copay, and its own terms are never read.
+  const levels = planBillingLevels(form).map(({ loc, label }) => ({
     label,
     loc,
     rule: levelRule(form, loc),
   }))
 
   // A level charged as a whole is charged the fee and nothing else, so a fee of
-  // nothing quotes that level at nothing.
-  for (const { label, loc, rule } of levels) {
+  // nothing quotes that level at nothing. Asked of every level, self-pay ones
+  // included: a fee that covers a level replaces its flat charge too.
+  for (const { label, loc } of billingLevels(form)) {
+    const rule = levelRule(form, loc)
     if (rule.admissionFeeCovers && admissionFeeFor(form, loc) <= 0) {
       blockers.push(
         `${label}: the admission fee covers the level, but no admission fee is entered for it`
@@ -1450,9 +1519,9 @@ export function estimateBlockers(form) {
     ({ rule }) => rule.copayAmount > 0 && rule.copayBasis !== COPAY_BASIS.NA
   )
   const asked = collecting.length > 0 ? collecting.map(({ rule }) => rule) : []
-  if (asked.length === 0 && toNumber(form.copayAmount) > 0) asked.push(planRule(form))
+  if (asked.length === 0 && planPrices && toNumber(form.copayAmount) > 0) asked.push(planRule(form))
 
-  if (collecting.length === 0 && toNumber(form.copayMax) > 0) {
+  if (collecting.length === 0 && planPrices && toNumber(form.copayMax) > 0) {
     blockers.push('A copay maximum is entered but no copay is being collected under it')
   }
 

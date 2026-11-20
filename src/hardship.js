@@ -80,21 +80,40 @@ function inpatientRows(inpatient) {
 // so this reads those numbers rather than re-deriving them — which is what
 // keeps the allocation right when a level of care waives the deductible and
 // the next one charges it.
+//
+// A line charged at a flat rate outside the plan (`siteSelfPay.js`) is not part
+// of the plan's waterfall, so it is not scaled with it: it costs the client
+// exactly its flat charge, and only the rest of the deposit is spread over the
+// plan's lines. It keeps its place in the listed order.
 function outpatientRows(outpatient) {
-  const rows = outpatient.lines
-    .filter((l) => l.active && l.allowed > 0)
-    .map((l) => ({
-      key: l.key,
-      label: l.label,
-      code: l.code,
-      block: 'outpatient',
-      units: l.units,
-      unitNoun: 'units',
-      rate: l.rate,
-      allowed: l.allowed,
-      basis: l.deductibleApplied + l.coinsurance,
-    }))
-  return scaleToDeposit(rows, outpatient.deposit)
+  const row = (l) => ({
+    key: l.key,
+    label: l.label,
+    code: l.code,
+    block: 'outpatient',
+    units: l.units,
+    unitNoun: 'units',
+    rate: l.rate,
+    allowed: l.selfPay ? l.selfPayCharge : l.allowed,
+    basis: l.selfPay ? l.selfPayCharge : l.deductibleApplied + l.coinsurance,
+    selfPay: Boolean(l.selfPay),
+  })
+  const listed = outpatient.lines
+    .filter((l) => l.active && (l.selfPay ? l.selfPayCharge > 0 : l.allowed > 0))
+    .map(row)
+  const selfPay = listed.filter((r) => r.selfPay)
+  const selfPayTotal = selfPay.reduce((sum, r) => sum + r.basis, 0)
+  const planShare = clampAtZero(outpatient.deposit - selfPayTotal)
+  const insured = scaleToDeposit(listed.filter((r) => !r.selfPay), planShare)
+  // With no plan line to carry it, what the plan side charged (an admission
+  // fee, say) lands on the flat-rate lines rather than disappearing.
+  const unplaced = insured.length === 0 ? planShare : 0
+  const flat = selfPay.map((r) => ({
+    ...r,
+    responsibility: r.basis + (selfPayTotal > 0 ? (r.basis / selfPayTotal) * unplaced : 0),
+  }))
+  const byKey = new Map([...insured, ...flat].map((r) => [r.key, r]))
+  return listed.map((r) => byKey.get(r.key))
 }
 
 // The allocation itself: each row takes what it can of what is left, and the

@@ -19,6 +19,12 @@
 // test. Three of them price the residential night, which the site schedule
 // carries at 1,045 rather than the 1,052 they were captured at, so those pin
 // it back with `rates` rather than quietly changing what the case measures.
+//
+// One more carries `capturedAs` for a different reason: case 49 was captured
+// as `Optum Wilton — Detox > PHP`, and Optum PHP outside Canaan is no longer
+// priced through the plan (see `siteSelfPay.js`), so the case would stop
+// measuring the waterfall at all. It runs as Optum Canaan, whose detox and PHP
+// rates are the same 1,186 and 442.
 
 import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
