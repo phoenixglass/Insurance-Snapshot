@@ -68,6 +68,14 @@ These are a different axis from the carrier table. That table answers *"what doe
 
 A code none of the five covers stays missing rather than becoming zero. A contracted schedule is an in-network agreement, so it prices nothing for an out-of-network plan however the location is set — there is no contract with a payer we are out of network with, and the allowed amount is that plan's own. The Location field says so rather than looking ignored. Only Connecticut carries facility per diems; the NJ and NY sheets are professional rates only, so detox, residential, PHP and OPWM fall back to the carrier table there. Codes a schedule lists as *billed but not contracted* (Utox, Case Management, Medical Team Conference, telephone codes) are flagged as **not contracted** rather than merely unpriced — the plan may not pay them at all.
 
+#### Networks that depend on the site
+
+Some agreements cover only some of our sites. `src/data/siteNetworks.js` lists those carriers and is laid over the generated rate table at lookup time, so re-exporting the workbook does not undo it. The workbook's network stays as the base.
+
+- **BCBS - Anthem CT, NJ and NY** are **in network at Canaan and Wilton** and out of network at every other site (as of 2026-11-20). **BCBS - Mass** stays out of network everywhere, and so do Empire, Horizon, Other and WellPoint.
+- Anthem's network is not settled until a location is picked, so the estimator blocks an Anthem quote with no location rather than guessing INN or OON. The carrier list reads `INN at Canaan & Wilton, OON elsewhere`.
+- In network, Anthem still prices from **its own row in the carrier table**, not the Connecticut contracted schedule. That schedule is our contract with other payers. Being INN changes everything else: bundled IOP is available, and the client letter says in network. The Location hint and the staff detail both say the schedule was not applied and why.
+
 Connecticut contracts **H0018 at two rates** against two revenue codes — $1,186.00 under rev 1000 (Residential 3.7 / Residential Eval) and $1,045.00 under rev 1002 (Residential 3.5 / Residential). The residential line prices at the 1002 rate, matching how the workbook's own table labels H0018, and the app surfaces the other rate on screen so it can be entered when a stay bills that way.
 
 ---

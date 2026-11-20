@@ -354,6 +354,9 @@ function staffDetail(form, result) {
     result.scheduleSuppressed
       ? `  Contracted schedule not applied: ${result.scheduleSuppressed.label} is an in-network agreement and this plan is ${result.network}`
       : null,
+    result.scheduleNotForPayer
+      ? `  Contracted schedule not applied: in network at this site on the carrier's own rates, not the ${result.scheduleNotForPayer.label} schedule`
+      : null,
     outpatient.bundled ? '  Bundled INN IOP agreement: individual and family therapy fold into the IOP rate' : null,
     '',
     'ACCUMULATORS AS VERIFIED',

@@ -10,10 +10,11 @@
 import { Fragment, useMemo, useState } from 'react'
 import {
   CARRIER_OPTIONS,
-  carrierNetwork,
+  carrierNetworkLabel,
   carriersWithRate,
   formatMoney,
   needsNetworkChoice,
+  networkDependsOnLocation,
   searchCodes,
   toNumber,
 } from './estimate.js'
@@ -28,7 +29,12 @@ export default function RateLookupTool() {
   const [scheduleId, setScheduleId] = useState('')
   const [expanded, setExpanded] = useState(null)
 
-  const network = needsNetworkChoice(carrier) ? 'Not on file' : carrierNetwork(carrier)
+  const network = needsNetworkChoice(carrier) ? 'Not on file' : carrierNetworkLabel(carrier)
+  // A carrier in network at some sites only has no single status, so its pill
+  // gets the neutral style rather than the INN or OON one.
+  const networkClass = networkDependsOnLocation(carrier)
+    ? 'network-by-site'
+    : `network-${network.toLowerCase().replace(/\s+/g, '-')}`
   const coins = toNumber(coinsurance) / 100
   const schedule = getSchedule(scheduleId)
   const results = useMemo(() => searchCodes(query, carrier, { limit: 60 }), [query, carrier])
@@ -93,7 +99,7 @@ export default function RateLookupTool() {
 
         {carrier && (
           <div className="lookup-meta">
-            <span className={`network-pill network-${network.toLowerCase().replace(/\s+/g, '-')}`}>
+            <span className={`network-pill ${networkClass}`}>
               {network}
             </span>
             <span className="lookup-count">
