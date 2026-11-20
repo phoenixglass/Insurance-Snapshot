@@ -76,6 +76,16 @@ Some agreements cover only some of our sites. `src/data/siteNetworks.js` lists t
 - Anthem's network is not settled until a location is picked, so the estimator blocks an Anthem quote with no location rather than guessing INN or OON. The carrier list reads `INN at Canaan & Wilton, OON elsewhere`.
 - In network, Anthem still prices from **its own row in the carrier table**, not the Connecticut or Wilton contracted schedule (so Wilton's $298 IOP rate does not apply to it). That schedule is our contract with other payers. Being INN changes everything else: bundled IOP is available, and the client letter says in network. The Location hint and the staff detail both say the schedule was not applied and why.
 
+#### Levels of care priced outside the plan at some sites
+
+`src/data/siteSelfPay.js` takes a level of care out of the plan for a carrier at the sites it names, laid over the tables at lookup time like the network rules above.
+
+- **Optum PHP outside Canaan is self-pay at $442 a day** (as of 2026-11-20). It applies to the per-site Optum rows (`Optum Wilton`, `Optum Chappaqua`, `Optum NYC`, `Optum Huntington`, `Optum Ramsey`, and `Optum Canaan` when a non-Canaan location is selected). The other Optum-administered plans (UMR, Emblem, UBH-HP, Surest, UHC Shared Services, GEHA-ASA) are not covered by it.
+- The site is the **Location** selected; with none selected, the site in the carrier's name. So `Optum Wilton` with no location is Wilton, and `Optum Canaan` at Wilton is Wilton.
+- The plan's deductible, coinsurance, copay and out-of-pocket maximum are **disregarded** for PHP: it is charged days × $442 on top of whatever the plan leaves, never capped, and never counted toward anything. Twenty days is always $8,840. The rest of the episode is priced through the plan as usual, starting from the deductible and out-of-pocket room PHP left untouched.
+- The H0035 rate cell shows the $442 tagged *self-pay* and takes no override; PHP has no allowed amount (the plan is not billed), so it is not in the allowed total or the plan-pays figure. A sequence that is PHP alone does not ask for the plan's accumulators, since nothing reads them.
+- The breakdown bar, the outpatient waterfall, all three outputs and the hardship allocation name the self-pay charge separately. One workbook fixture (case 49, captured as `Optum Wilton — Detox > PHP`) now runs as Optum Canaan, whose detox and PHP rates are identical, so it still measures the waterfall.
+
 Connecticut contracts **H0018 at two rates** against two revenue codes — $1,186.00 under rev 1000 (Residential 3.7 / Residential Eval) and $1,045.00 under rev 1002 (Residential 3.5 / Residential). The residential line prices at the 1002 rate, matching how the workbook's own table labels H0018, and the app surfaces the other rate on screen so it can be entered when a stay bills that way.
 
 ---

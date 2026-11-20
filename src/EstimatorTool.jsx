@@ -371,6 +371,9 @@ export default function EstimatorTool() {
     { label: 'Coinsurance', value: inpatient.coinsuranceDue + outpatient.coinsuranceDue, series: 2 },
     { label: 'Copay', value: inpatient.copay + outpatient.copay, series: 3 },
     { label: 'Admission fees', value: inpatient.admissionFees + outpatient.admissionFees, series: 4 },
+    // Care charged at a flat rate outside the plan. Listed only when there is
+    // some, so a plan priced entirely through insurance keeps its four.
+    ...(result.selfPay > 0 ? [{ label: 'Self-pay', value: result.selfPay, series: 5 }] : []),
   ]
 
   // Nothing is written until it is asked for — a panel offering a quote over a
@@ -487,6 +490,14 @@ export default function EstimatorTool() {
                 under that revenue code.
               </Banner>
             ))}
+
+            {result.selfPayLines.length > 0 && (
+              <Banner tone="info">
+                <strong>{result.selfPayLines[0].label} is self-pay here.</strong> {result.selfPayLines[0].selfPayRule.reason} The rest of
+                the episode is priced through the plan as usual, starting from the deductible and
+                out-of-pocket room {result.selfPayLines[0].label} left untouched.
+              </Banner>
+            )}
 
             <Field
               label="Treatment Sequence"
@@ -789,6 +800,11 @@ export default function EstimatorTool() {
                 <td>
                   {line.label}
                   {line.bundledOut && <span className="row-off row-off-bundled">bundled into IOP</span>}
+                  {line.selfPay && (
+                    <span className="row-off row-off-own" title={line.selfPayRule.reason}>
+                      self-pay, not billed to the plan — {formatMoney(line.selfPayCharge, { decimals: 0 })}
+                    </span>
+                  )}
                   {line.coveredByFee && (
                     <span className="row-off row-off-bundled">
                       covered by the {line.deliveredIn} admission fee
@@ -813,12 +829,23 @@ export default function EstimatorTool() {
                   />
                 </td>
                 <td className="num">
-                  <RateCell form={form} code={line.code} onOverride={setOverride} />
+                  {line.selfPay ? (
+                    // Not the plan's allowed amount and not overridable: the
+                    // plan is not billed, and the daily rate is fixed.
+                    <div className="rate-cell">
+                      <span className="mono">{formatMoney(line.rate)}</span>
+                      <span className="rate-tag rate-tag-override" title={line.selfPayRule.reason}>
+                        self-pay
+                      </span>
+                    </div>
+                  ) : (
+                    <RateCell form={form} code={line.code} onOverride={setOverride} />
+                  )}
                 </td>
                 <td className="num muted">
                   {line.clientPerUnit === null ? '—' : formatMoney(line.clientPerUnit)}
                 </td>
-                <td className="num strong">{formatMoney(line.allowed)}</td>
+                <td className="num strong">{line.selfPay ? '—' : formatMoney(line.allowed)}</td>
               </tr>
             ))}
           </LineTable>
@@ -1333,6 +1360,9 @@ export default function EstimatorTool() {
                   { label: 'Admission fee', value: formatMoney(outpatient.admissionFees) },
                   { label: 'Responsibility before OOP cap', value: formatMoney(outpatient.beforeCap), muted: true },
                   { label: 'After OOP cap', value: formatMoney(outpatient.afterCap), muted: true },
+                  ...(outpatient.selfPay > 0
+                    ? [{ label: 'Self-pay, outside the plan', value: formatMoney(outpatient.selfPay) }]
+                    : []),
                   { label: 'Outpatient deposit', value: formatMoney(outpatient.deposit), emphasis: true },
                   { label: 'Estimated revenue', value: formatMoney(outpatient.revenue), muted: true },
                 ]}

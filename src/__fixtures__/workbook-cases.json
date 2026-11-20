@@ -3250,7 +3250,7 @@
  },
  {
   "input": {
-   "carrier": "Optum Wilton",
+   "carrier": "Optum Canaan",
    "seq": "Detox > PHP",
    "coins": 0.1,
    "copay": 0,
@@ -3312,7 +3312,8 @@
    "J40": 8840.0,
    "J41": 0,
    "I1": 250
-  }
+  },
+  "capturedAs": "Optum Wilton"
  },
  {
   "input": {

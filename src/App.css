@@ -5,7 +5,7 @@
    :root, and only the roles are redefined for dark mode, so nothing has its
    sole definition inside a media query.
 
-   The four `--series-*` slots are the validated categorical palette used for
+   The five `--series-*` slots are the validated categorical palette used for
    part-to-whole breakdowns. Every segment that wears one is also direct-labeled
    with its own value, so hue is never the only thing separating them.
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -45,6 +45,7 @@
   --series-2: #eb6834;
   --series-3: #1baf7a;
   --series-4: #eda100;
+  --series-5: #e87ba4;
 
   --r-sm: 6px;
   --r: 10px;
@@ -96,6 +97,7 @@
     --series-2: #d95926;
     --series-3: #199e70;
     --series-4: #c98500;
+    --series-5: #d55181;
 
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 6px 20px -8px rgba(0, 0, 0, 0.6);
@@ -138,6 +140,7 @@
   --series-2: #d95926;
   --series-3: #199e70;
   --series-4: #c98500;
+  --series-5: #d55181;
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 6px 20px -8px rgba(0, 0, 0, 0.6);
