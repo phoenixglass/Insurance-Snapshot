@@ -139,6 +139,7 @@ describe('Optum PHP outside Canaan is self-pay at $442 a day', () => {
     assert.match(out.costNote, /Deposit: \$8,840\./)
     assert.match(out.costNote, /PHP, 20 days at \$442 a day, self-pay: \$8,840/)
     assert.doesNotMatch(out.costNote, /Deductible:|Coinsurance,|Copay:/)
+    assert.doesNotMatch(out.costNote, /plan’s cost share/, 'the plan is not paying for any of it')
     assert.match(out.staffDetail, /PHP priced outside the plan: self-pay at \$442\.00 a day/)
     assert.match(out.staffDetail, /Self-pay, outside the plan and the cap: \$8,840\.00/)
     assert.match(out.clientExplanation, /not billed for PHP, 20 days at \$442 a day/)

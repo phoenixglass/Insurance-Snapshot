@@ -281,7 +281,9 @@ function costNote(form, result) {
           .join(', ')} ${result.estimatedRates.length === 1 ? 'is' : 'are'} priced from average paid claims rather than a rate for this plan.`
       : null,
     result.missingRates.length > 0 || result.estimatedRates.length > 0 ? '' : null,
-    'This is an estimate of the plan’s cost share for the care listed above, not a bill. What is owed in the end follows the care actually delivered.'
+    planBillingLevels(form).length > 0
+      ? 'This is an estimate of the plan’s cost share for the care listed above, not a bill. What is owed in the end follows the care actually delivered.'
+      : 'This is an estimate for the care listed above, not a bill. What is owed in the end follows the care actually delivered.'
   )
 }
 
