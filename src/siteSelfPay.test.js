@@ -106,6 +106,20 @@ describe('Optum PHP outside Canaan is self-pay at $442 a day', () => {
     }
   })
 
+  test('a PHP admission fee that covers the level still has to be entered', () => {
+    const f = {
+      ...INITIAL_ESTIMATE_STATE,
+      carrier: 'Optum',
+      location: 'wilton',
+      treatmentSequence: 'PHP',
+      levelRules: { PHP: { admissionFeeCovers: 'Yes' } },
+    }
+    assert.ok(estimateBlockers(f).some((b) => b.startsWith('PHP: the admission fee covers the level')))
+    const paid = { ...f, admissionFees: { ...f.admissionFees, php: '3000' } }
+    assert.deepEqual(estimateBlockers(paid), [])
+    assert.ok(near(computeEstimate(paid).grandTotal, 3000), 'the fee replaces the flat charge')
+  })
+
   test('a typed H0035 rate does not move the self-pay rate', () => {
     const r = computeEstimate(form({ carrier: 'Optum Wilton', rateOverrides: { H0035: '999' } }))
     assert.ok(near(r.grandTotal, 8840))

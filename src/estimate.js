@@ -1462,8 +1462,10 @@ export function estimateBlockers(form) {
   }))
 
   // A level charged as a whole is charged the fee and nothing else, so a fee of
-  // nothing quotes that level at nothing.
-  for (const { label, loc, rule } of levels) {
+  // nothing quotes that level at nothing. Asked of every level, self-pay ones
+  // included: a fee that covers a level replaces its flat charge too.
+  for (const { label, loc } of billingLevels(form)) {
+    const rule = levelRule(form, loc)
     if (rule.admissionFeeCovers && admissionFeeFor(form, loc) <= 0) {
       blockers.push(
         `${label}: the admission fee covers the level, but no admission fee is entered for it`
