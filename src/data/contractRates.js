@@ -149,6 +149,10 @@ export const UNCONTRACTED_CODES = ['80305', 'H0006', '99368', '98966', '98967', 
 // rate sheet — so it prices off the carrier table like a site with no location
 // selected. It is listed anyway, because recording where a client is admitting
 // is worth doing whether or not a schedule exists to attach to it.
+//
+// `network: 'OON'` marks a site where we are out of network with every payer,
+// whatever the carrier's own status says. Mass Virtual is always out of network
+// (noted 2026-11-20).
 
 export const LOCATIONS = [
   { id: 'canaan', label: 'Canaan', state: 'CT', schedule: 'ct' },
@@ -157,7 +161,7 @@ export const LOCATIONS = [
   { id: 'nyc', label: 'New York City', state: 'NY', schedule: 'ny' },
   { id: 'chappaqua', label: 'Chappaqua', state: 'NY', schedule: 'ny' },
   { id: 'huntington', label: 'Huntington', state: 'NY', schedule: 'ny' },
-  { id: 'mass-virtual', label: 'Mass Virtual', state: 'MA', schedule: null },
+  { id: 'mass-virtual', label: 'Mass Virtual', state: 'MA', schedule: null, network: 'OON' },
 ]
 
 const LOCATION_BY_ID = new Map(LOCATIONS.map((l) => [l.id, l]))

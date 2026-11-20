@@ -590,6 +590,31 @@ describe('a payer priced as a percentage of our charge', () => {
   })
 })
 
+describe('Mass Virtual is out of network with every payer', () => {
+  const form = (over) => ({ ...INITIAL_ESTIMATE_STATE, location: 'mass-virtual', ...over })
+
+  test('a plan in network everywhere else is OON there', () => {
+    for (const carrier of ['Optum', 'Magellan', 'Emblem (Optum)', 'UMR (Optum)']) {
+      assert.equal(effectiveNetwork(form({ carrier })), 'OON', carrier)
+      assert.equal(effectiveNetwork(form({ carrier, location: 'canaan' })), 'INN', `${carrier} at Canaan`)
+    }
+  })
+
+  test('a hand-stated INN does not survive it, and is not asked for', () => {
+    const f = form({ carrier: 'Other — not listed', networkOverride: 'INN' })
+    assert.equal(effectiveNetwork(f), 'OON')
+    assert.ok(!estimateBlockers(form({ carrier: 'Other — not listed' })).some((b) => /network status/.test(b)))
+  })
+
+  test('Self Pay is not a network and is left alone', () => {
+    assert.equal(effectiveNetwork(form({ carrier: 'Self Pay' })), 'Self Pay')
+  })
+
+  test('no schedule, and no INN-only bundling', () => {
+    assert.equal(scheduleInEffect(form({ carrier: 'Optum' })), null)
+  })
+})
+
 describe('Anthem BCBS: in network at Canaan and Wilton only', () => {
   const ANTHEM = ['BCBS - Anthem CT', 'BCBS - Anthem NJ', 'BCBS - Anthem NY']
   const SITES_OON = ['ramsey', 'nyc', 'chappaqua', 'huntington', 'mass-virtual']

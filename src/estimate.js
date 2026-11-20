@@ -186,7 +186,16 @@ export function needsNetworkChoice(carrier) {
 // carrier that has none on file, or, for a carrier in network at some sites
 // only, the status at the location selected. That last one is not established
 // until a location is, and stays blank rather than defaulting to either.
+//
+// A site that is out of network with every payer (Mass Virtual) settles it
+// before any of that: a plan in network elsewhere is OON there. Self Pay is not
+// a network and is left alone.
+export function locationForcesOon(form) {
+  return getLocation(form.location)?.network === 'OON' && carrierNetwork(form.carrier) !== 'Self Pay'
+}
+
 export function effectiveNetwork(form) {
+  if (form.carrier && locationForcesOon(form)) return 'OON'
   if (needsNetworkChoice(form.carrier)) return form.networkOverride || ''
   const rule = siteNetworkRule(form.carrier)
   if (rule) {
@@ -1354,7 +1363,7 @@ export function computeEstimate(form) {
 export function estimateBlockers(form) {
   const blockers = []
   if (!form.carrier) blockers.push('Select an insurance carrier')
-  if (needsNetworkChoice(form.carrier) && !form.networkOverride) {
+  if (needsNetworkChoice(form.carrier) && !form.networkOverride && !locationForcesOon(form)) {
     blockers.push('Select the network status — this carrier has none on file')
   }
   if (networkDependsOnLocation(form.carrier) && !getLocation(form.location)) {
