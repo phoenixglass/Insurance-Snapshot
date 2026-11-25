@@ -19,7 +19,7 @@ import {
   searchCodes,
   toNumber,
 } from './estimate.js'
-import { CONTRACT_SCHEDULES, LOCATIONS, getSchedule, scheduleBilledRate, scheduleRate } from './data/contractRates.js'
+import { CONTRACT_SCHEDULES, LOCATIONS, getSchedule, scheduleBilledRate, scheduleRate, scheduleForLocation } from './data/contractRates.js'
 import { reimbursementDetail } from './data/reimbursement.js'
 import { Banner, Field, PercentInput, Section, Select } from './ui.jsx'
 
@@ -38,7 +38,11 @@ export default function RateLookupTool() {
     ? 'network-by-site'
     : `network-${network.toLowerCase().replace(/\s+/g, '-')}`
   const coins = toNumber(coinsurance) / 100
-  const schedule = getSchedule(scheduleId)
+  const siteSelected = ratesDependOnLocation(carrier) && Boolean(location)
+  const siteScheduleId = siteSelected ? scheduleForLocation(location) : ''
+  const availableSchedules = siteSelected ? CONTRACT_SCHEDULES.filter((sch) => sch.id === siteScheduleId) : CONTRACT_SCHEDULES
+  const effectiveScheduleId = availableSchedules.some((sch) => sch.id === scheduleId) ? scheduleId : ''
+  const schedule = getSchedule(effectiveScheduleId)
   const results = useMemo(
     () => searchCodes(query, carrier, { limit: 60, location }),
     [query, carrier, location]
@@ -58,7 +62,7 @@ export default function RateLookupTool() {
             <Select
               id="lookupCarrier"
               value={carrier}
-              onChange={setCarrier}
+              onChange={(value) => { setCarrier(value); setLocation(''); setScheduleId('') }}
               options={CARRIER_OPTIONS}
               placeholder="Select a carrier…"
             />
@@ -78,7 +82,7 @@ export default function RateLookupTool() {
             <Select
               id="lookupLocation"
               value={location}
-              onChange={setLocation}
+              onChange={(value) => { setLocation(value); setScheduleId('') }}
               options={LOCATIONS.map((loc) => ({ value: loc.id, label: `${loc.label}, ${loc.state}` }))}
               placeholder="Select a location…"
             />
@@ -96,9 +100,9 @@ export default function RateLookupTool() {
         >
           <Select
             id="lookupSchedule"
-            value={scheduleId}
+            value={effectiveScheduleId}
             onChange={setScheduleId}
-            options={CONTRACT_SCHEDULES.map((sch) => ({ value: sch.id, label: `${sch.label} — ${sch.effective}` }))}
+            options={availableSchedules.map((sch) => ({ value: sch.id, label: `${sch.label} — ${sch.effective}` }))}
             placeholder="None"
           />
         </Field>
@@ -142,7 +146,7 @@ export default function RateLookupTool() {
                 <th>Service description</th>
                 <th className="num">Allowed / before deductible</th>
                 <th className="num">After deductible</th>
-                {schedule && <th className="num">Contracted ({schedule.region})</th>}
+                {schedule && <th className="num">Contracted ({schedule.label})</th>}
                 {schedule && <th className="num">Billed</th>}
               </tr>
             </thead>
@@ -154,7 +158,7 @@ export default function RateLookupTool() {
                     onClick={() => setExpanded(expanded === r.code ? null : r.code)}
                   >
                     <td className="mono">{r.code}</td>
-                    <td>{r.description}</td>
+                    <td>{r.code === 'H0015' ? 'IOP' : r.description}</td>
                     <td className="num strong">
                       {r.onFile ? (
                         <>
@@ -175,7 +179,7 @@ export default function RateLookupTool() {
                     <td className="num muted">{r.onFile ? formatMoney(r.rate * coins) : '—'}</td>
                     {schedule && (
                       <td className="num strong">
-                        {scheduleRate(scheduleId, r.code) === null ? (
+                        {scheduleRate(effectiveScheduleId, r.code) === null ? (
                           <span className="rate-tag">not contracted</span>
                         ) : (
                           formatMoney(scheduleRate(scheduleId, r.code))
@@ -184,7 +188,7 @@ export default function RateLookupTool() {
                     )}
                     {schedule && (
                       <td className="num muted">
-                        {scheduleBilledRate(scheduleId, r.code) === null
+                        {scheduleBilledRate(effectiveScheduleId, r.code) === null
                           ? '—'
                           : formatMoney(scheduleBilledRate(scheduleId, r.code))}
                       </td>

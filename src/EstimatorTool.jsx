@@ -119,6 +119,12 @@ const LINE_NOTES = {
   opSpecialtyGroup: 'same rate as OP Groups',
 }
 
+const SF_SERVICE_ORDER = ['opwm', 'php', 'assessment', 'family', 'iop', 'psychEval', 'opGroups', 'psychFollowUp', 'opSpecialtyGroup', 'mats', 'individual']
+const displayRank = (line) => {
+  const index = SF_SERVICE_ORDER.indexOf(line.lineKey ?? line.key)
+  return index === -1 ? SF_SERVICE_ORDER.length : index
+}
+
 function LineTable({ columns, children }) {
   return (
     <div className="line-table-scroll">
@@ -388,17 +394,17 @@ export default function EstimatorTool() {
   )
 
   return (
-    <div className="tool-layout">
+    <div className="tool-layout estimator-compact">
       {/* Steps 1–4 are short answer sets and pair two to a row — one column each,
           so a step sits under the step above it rather than under the taller of
           the pair beside it. The line tables and the per-level rules take the
           full width of the form column. */}
       <div className="tool-form">
-        <div className="form-grid">
+        <div className="form-grid estimator-worksheet">
         <div className="form-col">
           <Section
             title="Plan & Pathway"
-            eyebrow="Step 1"
+           
             description="The carrier sets every contracted rate below. The treatment sequence decides which levels of care are in the estimate at all."
           >
             <div className="field-row">
@@ -577,7 +583,7 @@ export default function EstimatorTool() {
 
           <Section
             title="Copay"
-            eyebrow="Step 3"
+           
             description="Four separate questions, each of which moves money on its own: how the copay is counted, where it stops, whether it displaces coinsurance, and which accumulators it feeds. These are the plan's answers; a level of care can give its own in Step 7."
           >
             <div className="field-row">
@@ -671,12 +677,9 @@ export default function EstimatorTool() {
               </>
             )}
           </Section>
-        </div>
-
-        <div className="form-col">
           <Section
             title="Accumulators"
-            eyebrow="Step 2"
+           
             description="What is left of the plan year, as of today. The inpatient stay consumes these first; the outpatient estimate works against what remains."
           >
             <div className="field-row">
@@ -720,7 +723,7 @@ export default function EstimatorTool() {
 
           <Section
             title="Admission Fees"
-            eyebrow="Step 4"
+           
             description="Charged once on entry to a level of care, and only for the levels the sequence names."
           >
             <div className="fee-grid">
@@ -752,11 +755,11 @@ export default function EstimatorTool() {
             </Field>
           </Section>
         </div>
-
+        <div className="form-col estimator-services">
         <Section
           wide
           title="Inpatient Nights"
-          eyebrow="Step 5"
+         
           description="Detox and residential are billed per night at the carrier's contracted rate."
         >
           <LineTable
@@ -793,7 +796,7 @@ export default function EstimatorTool() {
         <Section
           wide
           title="Outpatient Services"
-          eyebrow="Step 6"
+         
           description="Counts start from the typical episode for the levels of care in this sequence, and every one of them is editable. The rate is the plan’s allowed amount — what the plan is billed, not what the client pays. A copay is not a rate: enter it in Level of Care Rules below, and the client-per-unit column will show it."
           actions={
             unitsEdited && (
@@ -813,7 +816,7 @@ export default function EstimatorTool() {
               { key: 'cost', label: 'Allowed cost', align: 'right' },
             ]}
           >
-            {outpatient.lines.map((line) => (
+            {[...outpatient.lines].sort((a, b) => displayRank(a) - displayRank(b)).map((line) => (
               <tr key={line.key} className={line.active ? '' : 'row-inactive'}>
                 <td>
                   {line.label}
@@ -875,7 +878,7 @@ export default function EstimatorTool() {
         <Section
           wide
           title="Level of Care Rules"
-          eyebrow="Step 7"
+         
           defaultOpen={false}
           badge={levelsDiffer ? { label: 'mixed rules', tone: 'warn' } : undefined}
           description="Where a plan does not treat every level of care the same way. Leave a field on the plan default and that level uses the plan terms above — this is only for what the verification call actually established."
@@ -1045,7 +1048,7 @@ export default function EstimatorTool() {
         <Section
           wide
           title="Hardship"
-          eyebrow="Step 8"
+         
           defaultOpen={false}
           badge={
             hardship.active
@@ -1089,6 +1092,7 @@ export default function EstimatorTool() {
             </>
           )}
         </Section>
+        </div>
         </div>
       </div>
 

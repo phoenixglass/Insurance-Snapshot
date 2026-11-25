@@ -2036,3 +2036,27 @@ textarea {
     padding: 10px 10px 40px;
   }
 }
+
+/* Desktop worksheet: keep benefits beside the service calculations. */
+.estimator-compact .estimator-worksheet { grid-template-columns: minmax(0, 1fr); }
+.estimator-compact .form-section { padding: 7px 9px; }
+.estimator-compact .form-col { gap: 7px; }
+.estimator-compact .line-table .row-inactive .row-off { display: none; }
+@media (min-width: 1280px) {
+  .estimator-compact { grid-template-columns: minmax(0, 1fr) 300px; gap: 8px; }
+  .estimator-compact .estimator-worksheet { grid-template-columns: minmax(285px, 0.85fr) minmax(0, 1.65fr); gap: 8px; }
+  .estimator-compact .estimator-worksheet .field-row { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .estimator-compact .estimator-worksheet .field-group { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 4px; margin-bottom: 5px; }
+  .estimator-compact .estimator-worksheet .field-group > .field-label { margin: 0; }
+  .estimator-compact .estimator-worksheet .field-hint { grid-column: 1 / -1; }
+  .estimator-compact .estimator-worksheet .fee-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .estimator-compact .estimator-services .line-table td { padding: 3px 5px; }
+}
+
+/* Self-pay retains its unified allocation table and all editable counts. */
+.selfpay-compact .form-section { padding: 7px 10px; }
+.selfpay-compact .line-table td { padding: 3px 6px; }
+.selfpay-compact .line-table .row-inactive .row-off { display: none; }
+.selfpay-compact .result-band { gap: 8px; }
+.selfpay-compact .result-card { padding: 8px 10px; }
+.selfpay-compact .result-band .result-note { margin: 4px 0 0; }
