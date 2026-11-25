@@ -2077,3 +2077,26 @@ textarea {
   .selfpay-compact .selfpay-controls { grid-template-columns: 1fr; }
   .selfpay-compact .selfpay-summary { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }
+
+/* Self-pay financial worksheet: program pricing on the left, aid on the right. */
+.selfpay-sheet-head { display:grid; grid-template-columns: 1fr 1fr; gap:8px; align-items:stretch; }
+.selfpay-sheet-head > div { background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden; }
+.selfpay-sheet-head h2 { margin:0; padding:5px 10px; color:#fff; background:#28668e; font-size:.95rem; }
+.selfpay-sheet-head .selfpay-hardship h2 { background:#126b75; }
+.selfpay-sheet-fields { padding:7px 10px; display:grid; gap:5px; align-content:start; }
+.selfpay-sheet-fields .field-group { display:grid; grid-template-columns:minmax(130px, 1fr) minmax(0, 1.4fr); align-items:center; gap:8px; margin:0; }
+.selfpay-sheet-fields .field-label { margin:0; }
+.selfpay-sheet-total { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:4px 0; border-top:1px solid var(--border); }
+.selfpay-sheet-total strong { font-size:1.1rem; font-variant-numeric:tabular-nums; }
+.selfpay-sheet-fields > .btn-copy { justify-self:end; }
+.selfpay-compact .selfpay-table-bands th { background:#28668e; color:white; text-align:center; font-size:.84rem; }
+.selfpay-compact .selfpay-table-bands th:last-child { background:#126b75; border-left:3px solid var(--surface); }
+.selfpay-compact .line-table thead tr:nth-child(2) th:nth-child(n+6) { background:color-mix(in srgb,#126b75 15%,var(--surface)); }
+.selfpay-compact .line-table td:nth-child(6), .selfpay-compact .line-table thead tr:nth-child(2) th:nth-child(6) { border-left:3px solid var(--border); }
+.selfpay-compact .line-table td.scholarship-side { background:color-mix(in srgb,#126b75 4%,var(--surface)); }
+.selfpay-compact .line-table tfoot td { background:#193c55; color:white; font-weight:650; }
+.selfpay-compact .line-table tfoot td:nth-child(n+3) { background:#126b75; }
+.selfpay-compact .currency-input-wrapper, .selfpay-compact .number-input-wrapper, .selfpay-compact .select-wrapper, .selfpay-compact .percent-input-wrapper { background:color-mix(in srgb,#f9d76c 20%,var(--surface)); }
+.selfpay-compact .line-table input { padding-top:3px; padding-bottom:3px; }
+.selfpay-compact .form-grid > .banner { grid-column:1/-1; }
+@media(max-width:850px){ .selfpay-sheet-head { grid-template-columns:1fr; } .selfpay-sheet-fields .field-group { grid-template-columns:1fr; } }
