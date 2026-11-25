@@ -729,3 +729,29 @@ test('INN copays are capped per service, while OON copays retain the entered amo
   assert.ok(near(oon.outpatient.copay, 200))
   assert.ok(near(oon.outpatient.lines.find(l => l.key === 'individual').clientPerUnit, 100))
 })
+
+test('Optum Wilton: bundled IOP deductible and separate OP copay including MAT cap', () => {
+  const base = {
+    ...INITIAL_ESTIMATE_STATE,
+    carrier: 'Optum', location: 'wilton', bundledInnIop: 'Yes',
+    treatmentSequence: 'IOP', deductibleRemaining: '10000', oopmRemaining: '20000',
+    coinsurancePercent: '0',
+    units: { ...Object.fromEntries(SERVICE_LINES.map(l => [l.key, '0'])), assessment: '1', iop: '2', individual: '1', family: '1', psychEval: '1', psychFollowUp: '1', mats: '1' },
+    levelRules: { OP: { deductibleApplies: 'No', copayAmount: '30', copayBasis: COPAY_BASIS.PER_UNIT, copayTreatment: 'Replace Coinsurance', copayAppliesToDeductible: 'No', copayAppliesToOop: 'Yes' } },
+  }
+  const iop = computeEstimate(base)
+  const row = (r, key) => r.outpatient.lines.find(l => l.key === key)
+  assert.equal(iop.network, 'INN')
+  assert.ok(near(row(iop, 'iop').rate, 298))
+  assert.ok(near(iop.outpatient.deductibleApplied, 596))
+  for (const key of ['assessment', 'individual', 'family']) assert.equal(row(iop,key).bundledOut,true)
+  for (const key of ['psychEval','psychFollowUp']) assert.ok(near(row(iop,key).clientPerUnit,30))
+  assert.ok(near(row(iop,'mats').clientPerUnit,20.5))
+  assert.ok(near(iop.outpatient.copay,80.5))
+  assert.ok(near(iop.outpatient.deposit,676.5))
+  const op = computeEstimate({...base,treatmentSequence:'OP',units:{...base.units,iop:'0',opGroups:'1',opSpecialtyGroup:'1'}})
+  assert.ok(near(op.outpatient.deductibleApplied,0))
+  for (const key of ['assessment','individual','family','psychEval','psychFollowUp','opGroups','opSpecialtyGroup']) assert.ok(near(row(op,key).clientPerUnit,30))
+  assert.ok(near(row(op,'mats').clientPerUnit,20.5))
+  assert.ok(near(op.outpatient.deposit,230.5))
+})
