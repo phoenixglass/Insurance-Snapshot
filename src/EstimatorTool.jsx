@@ -146,7 +146,6 @@ function LineTable({ columns, children }) {
 // looks the same either way, so the label says which — a level of care panel
 // where the two are indistinguishable is a panel that cannot be checked.
 const isSet = (v) => v !== undefined && v !== ''
-const sourceTag = (own) => ({ label: own ? 'this level' : 'plan', tone: own ? 'own' : 'plan' })
 
 // A waterfall row states what was charged, not what the step started from. A
 // copay credited to the deductible is not collected as deductible as well, and
@@ -823,7 +822,7 @@ export default function EstimatorTool() {
               { key: 'code', label: 'Code' },
               { key: 'units', label: 'Units', align: 'right' },
               { key: 'rate', label: 'Allowed rate', align: 'right' },
-              { key: 'after', label: 'Client / unit', align: 'right' },
+              { key: 'after', label: 'Client / unit (after ded.)', align: 'right' },
               { key: 'cost', label: 'Allowed cost', align: 'right' },
             ]}
           >
@@ -875,7 +874,8 @@ export default function EstimatorTool() {
                   )}
                 </td>
                 <td className="num sf-client-unit">
-                  {line.clientPerUnit === null ? '—' : formatMoney(line.clientPerUnit)}
+                  {line.bundledOut ? 'Bundled' : !line.active ? '—' : line.clientPerUnit === null ? '—' : formatMoney(line.clientPerUnit)}
+                  {line.active && !line.selfPay && !line.coveredByFee && line.rate !== null && line.loc && levelRule(form,line.loc).deductibleApplies && toNumber(form.deductibleRemaining)>0 && <span className="cell-sub">Allowed before ded.: {formatMoney(line.rate)}</span>}
                 </td>
                 <td className="num strong">{line.selfPay ? '—' : formatMoney(line.allowed)}</td>
               </tr>
@@ -900,153 +900,39 @@ export default function EstimatorTool() {
             </Banner>
           ) : (
             <>
-              <div className="level-rules-grid">
-              {sequenceLevels.map(({ loc, label }) => {
-                const rule = form.levelRules[loc] || {}
-                const effective = levelRule(form, loc)
-                const own = effective.ownTerms
-                const fromElsewhere = !sequenceIncludes(form.treatmentSequence, loc)
-                const fee = admissionFeeFor(form, loc)
-                return (
-                  <div className="level-rule" key={loc}>
-                    <div className="level-rule-head">
-                      <h3 className="level-rule-title">{label}</h3>
-                      <div className="level-rule-state">
-                        <span className={`row-off${own ? ' row-off-own' : ''}`}>
-                          {own ? 'own terms' : 'plan terms'}
-                        </span>
-                        {own && (
-                          <button
-                            type="button"
-                            className="btn-secondary btn-tiny"
-                            onClick={clearLevelRule(loc)}
-                          >
-                            Use plan terms
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {fromElsewhere && (
-                      <p className="level-rule-note">
-                        Not in the sequence, but psychiatric services bill at the OP level wherever
-                        they are delivered — these are the terms they are charged under.
-                      </p>
-                    )}
-                    <Field
-                      label="Admission fee covers this level?"
-                      hint={
-                        fee > 0
-                          ? `${formatMoney(fee)} entered for ${label} in Step 4.`
-                          : `No admission fee is entered for ${label} yet — Step 4.`
-                      }
-                    >
-                      <SegmentedControl
-                        name={`admissionFeeCovers-${loc}`}
-                        options={['No', 'Yes']}
-                        value={rule.admissionFeeCovers || 'No'}
-                        onChange={setLevelRule(loc, 'admissionFeeCovers')}
-                      />
-                    </Field>
-                    {effective.admissionFeeCovers ? (
-                      <Banner tone={fee > 0 ? 'info' : 'warn'}>
-                        {fee > 0
-                          ? `Everything delivered in ${label} is covered by the ${formatMoney(fee)} admission fee — no deductible, coinsurance or copay is charged for it, including the psychiatric services billed at the OP level. A step-down to another level is priced under that level's own terms.`
-                          : `${label} is charged its admission fee and nothing else, but no admission fee is entered for it — as it stands this level would be quoted at nothing.`}
-                      </Banner>
-                    ) : (
-                      <>
-                    <div className="field-row field-row-3">
-                      <Field
-                        label="Deductible applies?"
-                        badge={sourceTag(isSet(rule.deductibleApplies))}
-                      >
-                        <Select
-                          value={rule.deductibleApplies || ''}
-                          onChange={setLevelRule(loc, 'deductibleApplies')}
-                          options={['Yes', 'No']}
-                          placeholder="Plan — Yes"
-                        />
-                      </Field>
-                      <Field label="Copay" badge={sourceTag(isSet(rule.copayAmount))}>
-                        <CurrencyInput
-                          value={rule.copayAmount ?? ''}
-                          onChange={setLevelRule(loc, 'copayAmount')}
-                          placeholder={toNumber(form.copayAmount).toFixed(2)}
-                        />
-                      </Field>
-                      <Field label="Copay basis" badge={sourceTag(isSet(rule.copayBasis))}>
-                        <Select
-                          value={rule.copayBasis || ''}
-                          onChange={setLevelRule(loc, 'copayBasis')}
-                          options={Object.values(COPAY_BASIS)}
-                          placeholder={`Plan — ${form.copayBasis}`}
-                        />
-                      </Field>
-                    </div>
-                    <div className="field-row">
-                      <Field
-                        label="Copay maximum"
-                        badge={sourceTag(isSet(rule.copayMax))}
-                        hint={
-                          effective.copayMax > 0
-                            ? isSet(rule.copayMax)
-                              ? `Its own ceiling, ${formatMoney(effective.copayMax)}.`
-                              : `The plan's ${formatMoney(effective.copayMax)}, shared across the episode.`
-                            : 'No ceiling.'
-                        }
-                      >
-                        <CurrencyInput
-                          value={rule.copayMax ?? ''}
-                          onChange={setLevelRule(loc, 'copayMax')}
-                          placeholder={toNumber(form.copayMax).toFixed(2)}
-                        />
-                      </Field>
-                      <Field label="Copay begins" badge={sourceTag(isSet(rule.copayTiming))}>
-                        <Select value={rule.copayTiming || ''} onChange={setLevelRule(loc, 'copayTiming')} options={Object.values(COPAY_TIMING)} placeholder={`Plan — ${form.copayTiming || COPAY_TIMING.IMMEDIATE}`} />
-                      </Field>
-                      <Field
-                        label="Copay vs coinsurance"
-                        badge={sourceTag(isSet(rule.copayTreatment))}
-                      >
-                        <Select
-                          value={rule.copayTreatment || ''}
-                          onChange={setLevelRule(loc, 'copayTreatment')}
-                          options={[COPAY_TREATMENT.ADD, COPAY_TREATMENT.REPLACE]}
-                          placeholder={`Plan — ${form.copayTreatment}`}
-                        />
-                      </Field>
-                    </div>
-                    <div className="field-row">
-                      <Field
-                        label="Applies to deductible?"
-                        badge={sourceTag(isSet(rule.copayAppliesToDeductible))}
-                        hint="Credited against the deductible, not charged instead of it."
-                      >
-                        <Select
-                          value={rule.copayAppliesToDeductible || ''}
-                          onChange={setLevelRule(loc, 'copayAppliesToDeductible')}
-                          options={['Yes', 'No']}
-                          placeholder={`Plan — ${form.copayAppliesToDeductible}`}
-                        />
-                      </Field>
-                      <Field
-                        label="Applies to OOP max?"
-                        badge={sourceTag(isSet(rule.copayAppliesToOop))}
-                      >
-                        <Select
-                          value={rule.copayAppliesToOop || ''}
-                          onChange={setLevelRule(loc, 'copayAppliesToOop')}
-                          options={['Yes', 'No']}
-                          placeholder={`Plan — ${form.copayAppliesToOop}`}
-                        />
-                      </Field>
-                    </div>
-                    </>
-                    )}
-                  </div>
-                )
-              })}
+              <div className="line-table-scroll">
+                <table className="line-table benefits-matrix">
+                  <thead><tr><th>Benefit</th>{sequenceLevels.map(({loc,label}) => <th key={loc}>{label}{!sequenceIncludes(form.treatmentSequence,loc) ? ' (billing only)' : ''}<div className="benefit-reset">{levelRule(form,loc).ownTerms ? <button type="button" className="btn-secondary btn-tiny" onClick={clearLevelRule(loc)}>Use plan terms</button> : <span>Plan terms</span>}</div></th>)}</tr></thead>
+                  <tbody>
+                    {[
+                      {key:'admissionFeeCovers',label:'Admission fee covers all services?',options:['No','Yes'],fallback:()=> 'No'},
+                      {key:'deductibleApplies',label:'Deductible applies?',options:['Yes','No'],fallback:()=> 'Yes'},
+                      {key:'copayAmount',label:'Copay amount',money:true,fallback:()=>toNumber(form.copayAmount).toFixed(2)},
+                      {key:'copayBasis',label:'Copay charged per',options:Object.values(COPAY_BASIS),fallback:()=>form.copayBasis},
+                      {key:'copayMax',label:'Copay maximum (0 = none)',money:true,fallback:()=>toNumber(form.copayMax).toFixed(2)},
+                      {key:'copayTiming',label:'When copay starts',options:Object.values(COPAY_TIMING),fallback:()=>form.copayTiming || COPAY_TIMING.IMMEDIATE},
+                      {key:'copayTreatment',label:'Copay vs. coinsurance',options:[COPAY_TREATMENT.ADD,COPAY_TREATMENT.REPLACE],fallback:()=>form.copayTreatment},
+                      {key:'copayAppliesToDeductible',label:'Copay credits deductible?',options:['Yes','No'],fallback:()=>form.copayAppliesToDeductible},
+                      {key:'copayAppliesToOop',label:'Copay credits OOP max?',options:['Yes','No'],fallback:()=>form.copayAppliesToOop},
+                    ].map(field => <tr key={field.key}><th scope="row">{field.label}</th>{sequenceLevels.map(({loc,label}) => {
+                      const rule = form.levelRules[loc] || {}
+                      const effective = levelRule(form,loc)
+                      const id = 'benefit-' + loc + '-' + field.key
+                      const copayDetail = !['admissionFeeCovers','deductibleApplies','copayAmount','copayBasis'].includes(field.key)
+                      return <td key={loc}>
+                        {effective.admissionFeeCovers && field.key !== 'admissionFeeCovers' ? <span className="muted">Covered by fee</span> :
+                          copayDetail && !(effective.copayAmount > 0) && !isSet(rule[field.key]) ? <span className="muted">—</span> :
+                          <><label className="sr-only" htmlFor={id}>{label}: {field.label}</label>
+                          {field.money ? <CurrencyInput id={id} value={rule[field.key] ?? ''} onChange={setLevelRule(loc,field.key)} placeholder={field.fallback()} /> :
+                          <Select id={id} value={rule[field.key] || ''} onChange={setLevelRule(loc,field.key)} options={field.options} placeholder={'Plan — ' + field.fallback()} />}
+                          </>}
+                      </td>
+                    })}</tr>)}
+                  </tbody>
+                </table>
               </div>
+              <p className="field-hint">Psychiatric services and MAT use OP benefits even during IOP. Bundled IOP services are not charged separately. Blank fields inherit plan terms; enter 0 to override a copay.</p>
+              {sequenceLevels.filter(({loc}) => levelRule(form,loc).admissionFeeCovers).map(({loc,label}) => <Banner key={loc} tone={admissionFeeFor(form,loc)>0?'info':'warn'}>{label}: {admissionFeeFor(form,loc)>0 ? 'All delivered services are covered by the ' + formatMoney(admissionFeeFor(form,loc)) + ' admission fee.' : 'Admission fee covers all services, but no fee has been entered.'}</Banner>)}
               <Banner tone={levelsDiffer ? 'warn' : 'info'}>
                 {levelsDiffer
                   ? 'This estimate runs on mixed rules. The deductible is spent in the order care is delivered, skipping any level that waives it, and each level collects its own copay under its own answers — a copay that replaces coinsurance in one level leaves the other levels\u2019 coinsurance alone.'
