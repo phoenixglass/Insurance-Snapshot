@@ -124,7 +124,12 @@ export default function SelfPayTool() {
   const byUnits = form.scholarshipMode === 'units'
 
   const inpatient = result.lines.filter((l) => l.group === 'inpatient')
-  const outpatient = result.lines.filter((l) => l.group === 'outpatient')
+  const serviceOrder = ['opwm', 'php', 'assessment', 'family', 'iop', 'psychEval', 'opGroups', 'psychFollowUp', 'opSpecialtyGroup', 'mats', 'individual']
+  const rank = (line) => {
+    const i = serviceOrder.indexOf(line.key)
+    return i < 0 ? serviceOrder.length : i
+  }
+  const outpatient = result.lines.filter((l) => l.group === 'outpatient').sort((a, b) => rank(a) - rank(b))
 
   const columns = [
     'Service',
@@ -166,7 +171,7 @@ export default function SelfPayTool() {
   ].join('\n')
 
   return (
-    <div className="tool-stack">
+    <div className="tool-stack selfpay-compact">
       <div className="result-band">
         <BlockerList blockers={blockers} />
 
@@ -259,8 +264,7 @@ export default function SelfPayTool() {
         <div className="form-grid">
         <Section
           title="Episode"
-          eyebrow="Step 1"
-          description="Only the levels of care named in the sequence are costed. Everything else stays out of the estimate."
+          description="Only the levels of care named in the sequence are costed. Rates come from the self-pay column and remain at full price on both sides of the split."
         >
           <Field label="Treatment Sequence" htmlFor="selfPaySequence" required>
             <Select
@@ -280,16 +284,12 @@ export default function SelfPayTool() {
               ))}
             </div>
           )}
-          <Banner tone="info">
-            Rates come from the self-pay column of the same rate sheet the insurance estimator
-            uses, and they stay at full price on both sides of the split.
-          </Banner>
+
         </Section>
 
         <Section
           title="Scholarship"
-          eyebrow="Step 2"
-          description="Award the scholarship as the units of care the program is covering, or as the dollar figure agreed."
+          description="Award the scholarship as covered units or dollars. For example, a 50% scholarship on 30 IOP sessions means 15 full-rate sessions paid and 15 covered, not 30 half-price sessions. Entries remain editable."
         >
           <Field
             label="How the award is entered"
@@ -329,17 +329,12 @@ export default function SelfPayTool() {
               </div>
             </div>
           )}
-          <Banner tone="info">
-            A 50% scholarship on 30 IOP sessions is 15 sessions billed at the full rate and 15
-            sessions covered — not 30 sessions at half the rate. Line entries are editable after
-            the percentage is applied.
-          </Banner>
+
         </Section>
 
         <Section
           wide
           title="Line Items"
-          eyebrow="Step 3"
           description="Every count starts at zero — enter what this client is actually buying. The rate is the sheet rate unless you type your own over it, and the scholarship covers whole units at whatever rate the row carries."
         >
           <div className="line-table-scroll">
