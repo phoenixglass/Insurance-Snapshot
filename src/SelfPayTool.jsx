@@ -14,6 +14,7 @@ import {
   INITIAL_SELF_PAY_STATE,
   SCHOLARSHIP_MODES,
   applyScholarshipPercent,
+  allocateSelfPayBudget,
   computeSelfPay,
   convertScholarshipMode,
   selfPayBlockers,
@@ -38,7 +39,7 @@ import {
 const unitText = (n) => (Math.abs(n - Math.round(n)) < 1e-9 ? String(Math.round(n)) : n.toFixed(2))
 const noun = unitNoun
 
-function LineRows({ lines, form, byUnits, onUnits, onScholarship, onRate }) {
+function LineRows({ lines, form, byUnits, automatic, onUnits, onScholarship, onRate }) {
   return lines.map((line) => (
     <tr key={line.key} className={line.active ? '' : 'row-inactive'}>
       <td>
@@ -70,27 +71,17 @@ function LineRows({ lines, form, byUnits, onUnits, onScholarship, onRate }) {
         </div>
       </td>
       <td className="num strong">{formatMoney(line.programCost)}</td>
-      <td className="num">
-        {byUnits ? (
-          <NumberInput
-            value={form.scholarship[line.key]}
-            onChange={(v) => onScholarship(line.key, v)}
-          />
+      <td className="num strong scholarship-side">{formatMoney(line.payment)}</td>
+      <td className="num scholarship-side">
+        {automatic ? formatMoney(line.scholarship) : byUnits ? (
+          <NumberInput value={form.scholarship[line.key]} onChange={(v) => onScholarship(line.key, v)} />
         ) : (
-          <CurrencyInput
-            value={form.scholarship[line.key]}
-            onChange={(v) => onScholarship(line.key, v)}
-            size="sm"
-          />
+          <CurrencyInput value={form.scholarship[line.key]} onChange={(v) => onScholarship(line.key, v)} size="sm" />
         )}
       </td>
-      <td className="num">{formatMoney(line.scholarship)}</td>
-      <td className="num muted">
-        {line.programCost > 0
-          ? `${unitText(line.paidUnits)} / ${unitText(line.coveredUnits)}`
-          : '—'}
-      </td>
-      <td className="num strong">{formatMoney(line.payment)}</td>
+      <td className="num scholarship-side">{formatPercent(line.scholarshipPercent, 1)}</td>
+      <td className="num scholarship-side">{unitText(line.coveredUnits)}</td>
+      <td className="num scholarship-side">{formatMoney(line.units > 0 ? line.payment / line.units : 0)}</td>
     </tr>
   ))
 }
@@ -98,6 +89,9 @@ function LineRows({ lines, form, byUnits, onUnits, onScholarship, onRate }) {
 export default function SelfPayTool() {
   const [form, setForm] = useState(INITIAL_SELF_PAY_STATE)
   const [percent, setPercent] = useState('')
+  const [method, setMethod] = useState('none')
+  const [budget, setBudget] = useState('')
+  const automatic = method === 'none' || method === 'budget'
 
   const setSequence = (value) => setForm((prev) => ({ ...prev, treatmentSequence: value }))
   const setIn = (group) => (key, value) =>
@@ -114,7 +108,10 @@ export default function SelfPayTool() {
   const setMode = (value) => setForm((prev) => convertScholarshipMode(prev, value))
   const applyPercent = () => setForm((prev) => applyScholarshipPercent(prev, percent))
 
-  const result = useMemo(() => computeSelfPay(form), [form])
+  const effectiveForm = useMemo(() => method === 'budget' && budget !== ''
+    ? allocateSelfPayBudget(form, budget)
+    : automatic ? { ...form, scholarship: {} } : form, [form, method, budget, automatic])
+  const result = useMemo(() => computeSelfPay(effectiveForm), [effectiveForm])
   const blockers = selfPayBlockers(form)
   const byUnits = form.scholarshipMode === 'units'
 
@@ -124,19 +121,11 @@ export default function SelfPayTool() {
     const i = serviceOrder.indexOf(line.key)
     return i < 0 ? serviceOrder.length : i
   }
-  const outpatient = result.lines.filter((l) => l.group === 'outpatient').sort((a, b) => rank(a) - rank(b))
+  const outpatient = result.lines.filter((l) => l.group === 'outpatient').sort((a, b) => method === 'budget' ? 0 : rank(a) - rank(b))
 
-  const columns = [
-    'Service',
-    'Code',
-    'Units',
-    'Rate',
-    'Program cost',
-    byUnits ? 'Units covered' : 'Scholarship $',
-    'Scholarship',
-    'Paid / covered',
-    'Client pays',
-  ]
+  const columns = ['Service', 'Code', 'Units', 'Rate', 'Program cost', 'Client pays',
+    automatic ? 'Scholarship $' : byUnits ? 'Covered units (edit)' : 'Scholarship $ (edit)',
+    'Scholarship %', 'Covered units', 'ADR']
 
   // What actually gets pasted into a note or an email. Every costed line is
   // written the way the award was granted — this many units at the full rate,
@@ -167,31 +156,41 @@ export default function SelfPayTool() {
 
   return (
     <div className="tool-stack selfpay-compact">
-      <div className="selfpay-summary">
-        <div><span>Program cost</span><strong>{formatMoney(result.grossCost)}</strong></div>
-        <div><span>Scholarship · {formatPercent(result.scholarshipPercent, 1)}</span><strong>{formatMoney(result.totalScholarship)}</strong></div>
-        <div className="selfpay-total"><span>Final client responsibility</span><strong>{formatMoney(result.finalClientResponsibility)}</strong></div>
-        <CopyButton text={summaryText} label="Copy summary" />
-      </div>
-      <BlockerList blockers={blockers} />
-      <div className="tool-form">
-        <div className="form-grid">
-        <Section wide title="Treatment & Scholarship" description="Only selected levels of care are costed. Scholarships cover units at the full rate, or a dollar amount. Switching methods restates existing entries. Applying a percentage to covered units rounds each costed line to whole units; dollar mode applies the percentage to each line's program cost.">
-          <div className="selfpay-controls">
+      <div className="selfpay-sheet-head">
+        <div className="selfpay-program">
+          <h2>Program cost</h2>
+          <div className="selfpay-sheet-fields">
             <Field label="Treatment sequence" htmlFor="selfPaySequence" required>
               <Select id="selfPaySequence" value={form.treatmentSequence} onChange={setSequence} options={TREATMENT_SEQUENCES} placeholder="Select a sequence…" />
             </Field>
-            <Field label="Scholarship method">
-              <SegmentedControl name="scholarshipMode" options={SCHOLARSHIP_MODES} value={form.scholarshipMode} onChange={setMode} />
-            </Field>
-            <Field label="Fill from a percentage" htmlFor="scholarshipPercent" optional>
-              <div className="percent-apply">
-                <PercentInput id="scholarshipPercent" value={percent} onChange={setPercent} />
-                <button type="button" className="btn-secondary" onClick={applyPercent}>Apply to costed lines</button>
-              </div>
-            </Field>
+            <div className="selfpay-sheet-total"><span>Total program cost</span><strong>{formatMoney(result.grossCost)}</strong></div>
           </div>
-        </Section>
+        </div>
+        <div className="selfpay-hardship">
+          <h2>Hardship / Scholarship</h2>
+          <div className="selfpay-sheet-fields">
+            <Field label="Scholarship required?">
+              <SegmentedControl name="hardshipRequired" options={[{value:'none',label:'No'},{value:'budget',label:'Yes'}]} value={method === 'none' ? 'none' : 'budget'} onChange={setMethod} />
+            </Field>
+            {method !== 'none' && <Field label="Allocation method">
+              <SegmentedControl name="allocationMethod" options={[{value:'budget',label:'Client affordability'},{value:'manual',label:'Manual award'}]} value={method} onChange={setMethod} />
+            </Field>}
+            {method === 'budget' && <Field label="Total client can afford" htmlFor="selfPayBudget" required>
+              <CurrencyInput id="selfPayBudget" value={budget} onChange={setBudget} />
+            </Field>}
+            {method === 'manual' && <>
+              <Field label="Award entered as"><SegmentedControl name="scholarshipMode" options={SCHOLARSHIP_MODES} value={form.scholarshipMode} onChange={setMode} /></Field>
+              <Field label="Fill from percentage" htmlFor="scholarshipPercent"><div className="percent-apply"><PercentInput id="scholarshipPercent" value={percent} onChange={setPercent} /><button type="button" className="btn-secondary" onClick={applyPercent}>Apply</button></div></Field>
+            </>}
+            <div className="selfpay-sheet-total"><span>Scholarship required</span><strong>{formatMoney(result.totalScholarship)}</strong></div>
+            <div className="selfpay-sheet-total"><span>Client responsibility</span><strong>{formatMoney(result.finalClientResponsibility)}</strong></div>
+            <CopyButton text={summaryText} label="Copy summary" />
+          </div>
+        </div>
+      </div>
+      <BlockerList blockers={[...blockers, ...(method === 'budget' && budget === '' ? ['Enter the amount the client can afford'] : [])]} />
+      <div className="tool-form">
+        <div className="form-grid">
         {result.overAllocatedLines.length > 0 && (
           <Banner tone="warn">
             The scholarship entered is larger than the program cost on{' '}
@@ -225,6 +224,7 @@ export default function SelfPayTool() {
           <div className="line-table-scroll">
             <table className="line-table line-table-wide">
               <thead>
+                <tr className="selfpay-table-bands"><th colSpan={5}>Program cost</th><th colSpan={5}>Hardship allocation</th></tr>
                 <tr>
                   {columns.map((c, i) => (
                     <th key={c} className={i >= 2 ? 'num' : ''}>
@@ -241,6 +241,7 @@ export default function SelfPayTool() {
                   lines={inpatient}
                   form={form}
                   byUnits={byUnits}
+                  automatic={automatic}
                   onUnits={setIn('units')}
                   onScholarship={setIn('scholarship')}
                   onRate={setRate}
@@ -252,6 +253,7 @@ export default function SelfPayTool() {
                   lines={outpatient}
                   form={form}
                   byUnits={byUnits}
+                  automatic={automatic}
                   onUnits={setIn('units')}
                   onScholarship={setIn('scholarship')}
                   onRate={setRate}
@@ -261,19 +263,11 @@ export default function SelfPayTool() {
                 <tr>
                   <td colSpan={4}>Totals</td>
                   <td className="num strong">{formatMoney(result.grossCost)}</td>
-                  <td className="num">
-                    {byUnits
-                      ? `${unitText(result.scholarshipUnits)} units`
-                      : formatMoney(result.totalScholarship)}
-                  </td>
-                  <td className="num strong">
-                    {formatMoney(result.totalScholarship)}
-                    <span className="cell-sub">{formatPercent(result.scholarshipPercent, 0)}</span>
-                  </td>
-                  <td className="num">
-                    {unitText(result.paidUnits)} / {unitText(result.scholarshipUnits)}
-                  </td>
                   <td className="num strong">{formatMoney(result.totalPayment)}</td>
+                  <td className="num strong">{automatic || !byUnits ? formatMoney(result.totalScholarship) : unitText(result.scholarshipUnits)}</td>
+                  <td className="num">{formatPercent(result.scholarshipPercent, 1)}</td>
+                  <td className="num">{unitText(result.scholarshipUnits)}</td>
+                  <td className="num strong">{formatMoney(result.costedUnits > 0 ? result.totalPayment / result.costedUnits : 0)}</td>
                 </tr>
               </tfoot>
             </table>
