@@ -2170,3 +2170,15 @@ textarea {
 .estimator-financial .estimator-summary > div:first-child strong { font-size:clamp(1.7rem,2.5vw,2.4rem); font-weight:800; line-height:1.1; white-space:nowrap; }
 .estimator-financial .estimator-summary > button { margin-left:auto; }
 @media(max-width:600px){ .estimator-financial .estimator-summary > div:first-child { flex-wrap:wrap; } }
+
+/* Benefits comparison: common labels, aligned level columns. */
+.estimator-financial .benefits-matrix { width:100%; min-width:460px; }
+.estimator-financial .benefits-matrix th[scope="row"] { text-align:left; font-size:.8rem; font-weight:600; width:30%; white-space:normal; text-transform:none; }
+.estimator-financial .benefits-matrix thead th { background:#28668e; color:white; text-align:center; vertical-align:top; }
+.estimator-financial .benefits-matrix thead th:first-child { text-align:left; }
+.estimator-financial .benefits-matrix td { min-width:150px; padding:4px 6px; }
+.estimator-financial .benefits-matrix .select-wrapper,.estimator-financial .benefits-matrix .currency-input-wrapper { width:100%; max-width:none; }
+.estimator-financial .benefits-matrix .currency-input { width:100%; min-width:0; }
+.estimator-financial .benefit-reset { font-size:.72rem; font-weight:400; min-height:24px; margin-top:3px; }
+.estimator-financial .benefit-reset .btn-secondary { background:white; color:#193c55; }
+.estimator-financial .sf-client-unit .cell-sub { display:block; font-weight:400; font-size:.72rem; color:var(--text-2); white-space:normal; }
