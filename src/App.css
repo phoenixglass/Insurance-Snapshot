@@ -2117,3 +2117,48 @@ textarea {
 .selfpay-sheet-fields .field-group { min-height:30px; }
 .selfpay-sheet-total { min-height:30px; }
 @media(max-width:850px){ .selfpay-sheet-head { gap:6px; } .selfpay-sheet-head > div, .selfpay-sheet-head > div + div { border-radius:6px; } }
+
+/* Deposit estimator — same financial worksheet language as self-pay. */
+.estimator-financial { display:flex; flex-direction:column; gap:8px; min-width:0; }
+.estimator-financial .estimator-summary { display:flex; align-items:center; flex-wrap:wrap; gap:10px 24px; padding:8px 12px; background:#193c55; color:white; border-radius:6px; }
+.estimator-summary > div { display:flex; flex-direction:column; gap:1px; }
+.estimator-summary > div:first-child { margin-right:auto; }
+.estimator-summary span { font-size:.75rem; font-weight:600; }
+.estimator-summary strong { font-size:1.1rem; font-variant-numeric:tabular-nums; }
+.estimator-summary > div:first-child strong { font-size:1.6rem; }
+.estimator-summary > button { background:#fff; color:#193c55; }
+.estimator-validation { color:var(--danger); background:var(--danger-soft); border:1px solid var(--danger-line); border-radius:5px; font-size:.8rem; padding:5px 9px; }
+.estimator-validation summary { cursor:pointer; font-weight:600; }
+.estimator-validation .submit-blockers { border:0; padding:4px 0 0; }
+.estimator-financial .estimator-worksheet { grid-template-columns:minmax(0,1fr); gap:8px; }
+.estimator-financial .form-col { display:flex; gap:0; background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden; }
+.estimator-financial .form-col > * { order:0; }
+.estimator-sheet-heading { background:#28668e; color:white; text-align:center; padding:6px 9px; font-size:.95rem; margin:0; }
+.estimator-financial .form-section { border:0; border-bottom:1px solid var(--border); border-radius:0; box-shadow:none; padding:5px 8px; }
+.estimator-financial .form-section:last-child { border-bottom:0; }
+.estimator-financial .section-body { margin-top:4px; }
+.estimator-financial .estimator-services > .form-section > .section-head { background:#126b75; color:#fff; padding:4px 8px; margin:-5px -8px 5px; }
+.estimator-financial .estimator-services > .form-section > .section-head .section-name,
+.estimator-financial .estimator-services > .form-section > .section-head .section-chevron { color:#fff; }
+.estimator-financial .estimator-benefits .section-head { background:var(--surface-2); padding:2px 5px; }
+.estimator-financial .field-row { margin-bottom:3px; gap:3px; }
+.estimator-financial .field-group { margin-bottom:3px; }
+.estimator-financial .field-hint { margin:2px 0; font-size:.72rem; }
+.estimator-financial .currency-input-wrapper,.estimator-financial .number-input-wrapper,.estimator-financial .select-wrapper,.estimator-financial .percent-input-wrapper { background:color-mix(in srgb,#f9d76c 20%,var(--surface)); }
+.estimator-financial .line-table td,.estimator-financial .line-table th { padding:3px 6px; }
+.estimator-financial .line-table input { padding-top:3px; padding-bottom:3px; }
+.estimator-financial .line-table .sf-client-unit { background:color-mix(in srgb,#126b75 15%,var(--surface)); color:var(--text); font-weight:700; border-left:1px solid var(--border); border-right:1px solid var(--border); white-space:nowrap; }
+.estimator-financial .line-table th.sf-client-unit { background:#126b75; color:#fff; }
+.estimator-financial .estimator-details { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.estimator-financial .estimator-details > .banner { grid-column:1/-1; }
+.estimator-financial .estimator-details .result-card { min-width:0; }
+.estimator-financial .estimator-details .waterfall-row-total { background:#126b75; color:white; }
+.estimator-financial .estimator-details .waterfall-row-total .waterfall-value { color:white; }
+@media(min-width:1000px) {
+ .estimator-financial .estimator-worksheet { grid-template-columns:minmax(285px, 1fr) minmax(0,2fr); }
+ .estimator-financial .estimator-benefits .field-row { grid-template-columns:1fr; }
+ .estimator-financial .estimator-benefits .field-group { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:center; gap:4px; }
+ .estimator-financial .estimator-benefits .field-group > .field-label { margin:0; }
+ .estimator-financial .estimator-benefits .field-hint { grid-column:1/-1; }
+}
+@media(max-width:700px){ .estimator-financial .estimator-details { grid-template-columns:1fr; } }
