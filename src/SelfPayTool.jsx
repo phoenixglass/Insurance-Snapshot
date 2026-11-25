@@ -164,6 +164,7 @@ export default function SelfPayTool() {
               <Select id="selfPaySequence" value={form.treatmentSequence} onChange={setSequence} options={TREATMENT_SEQUENCES} placeholder="Select a sequence…" />
             </Field>
             <div className="selfpay-sheet-total"><span>Total program cost</span><strong>{formatMoney(result.grossCost)}</strong></div>
+            <div className="selfpay-sheet-total"><span>Total program units</span><strong>{unitText(result.costedUnits)}</strong></div>
           </div>
         </div>
         <div className="selfpay-hardship">
@@ -184,7 +185,7 @@ export default function SelfPayTool() {
             </>}
             <div className="selfpay-sheet-total"><span>Scholarship required</span><strong>{formatMoney(result.totalScholarship)}</strong></div>
             <div className="selfpay-sheet-total"><span>Client responsibility</span><strong>{formatMoney(result.finalClientResponsibility)}</strong></div>
-            <CopyButton text={summaryText} label="Copy summary" />
+
           </div>
         </div>
       </div>
@@ -219,10 +220,12 @@ export default function SelfPayTool() {
         <Section
           wide
           title="Line Items"
+          actions={<CopyButton text={summaryText} label="Copy summary" />}
           description="Every count starts at zero — enter what this client is actually buying. The rate is the sheet rate unless you type your own over it, and the scholarship covers whole units at whatever rate the row carries."
         >
           <div className="line-table-scroll">
-            <table className="line-table line-table-wide">
+            <table className="line-table line-table-wide selfpay-worksheet-table">
+              <colgroup>{[18,8,7,9,8,12,10,9,10,9].map((width, i) => <col key={i} style={{ width: `${width}%` }} />)}</colgroup>
               <thead>
                 <tr className="selfpay-table-bands"><th colSpan={5}>Program cost</th><th colSpan={5}>Hardship allocation</th></tr>
                 <tr>
