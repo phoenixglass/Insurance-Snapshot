@@ -2060,3 +2060,20 @@ textarea {
 .selfpay-compact .result-band { gap: 8px; }
 .selfpay-compact .result-card { padding: 8px 10px; }
 .selfpay-compact .result-band .result-note { margin: 4px 0 0; }
+
+/* Compact self-pay worksheet header. */
+.selfpay-compact .selfpay-summary {
+  display: grid; grid-template-columns: repeat(3,minmax(0,1fr)) auto;
+  align-items: center; gap: 12px; padding: 9px 12px;
+  border-radius: 8px; background: var(--accent); color: white;
+}
+.selfpay-summary > div { display: flex; flex-direction: column; gap: 2px; }
+.selfpay-summary > div > span { font-size: .76rem; font-weight: 600; }
+.selfpay-summary strong { font-size: 1.2rem; font-variant-numeric: tabular-nums; }
+.selfpay-summary .selfpay-total strong { font-size: 1.45rem; }
+.selfpay-compact .selfpay-controls { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(0,1fr); gap: 12px; align-items: end; }
+.selfpay-compact .selfpay-controls .field-group { margin-bottom: 0; }
+@media (max-width: 900px) {
+  .selfpay-compact .selfpay-controls { grid-template-columns: 1fr; }
+  .selfpay-compact .selfpay-summary { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
