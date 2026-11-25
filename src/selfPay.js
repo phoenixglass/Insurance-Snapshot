@@ -164,6 +164,21 @@ export function computeSelfPay(form) {
 // percentage that was asked for. That keeps a 50% award on an episode worth
 // about half the episode rather than drifting up every time a one-visit line
 // rounds itself a free visit.
+// Allocate the client's available dollars in original workbook row order.
+// Keep this order separate from the Salesforce-oriented display order.
+export function allocateSelfPayBudget(form, budget) {
+  let remaining = Math.max(0, round2(toNumber(budget)))
+  const priced = computeSelfPay({ ...form, scholarshipMode: 'amount', scholarship: {} })
+  const scholarship = {}
+  for (const line of priced.lines) {
+    const cost = Math.max(0, round2(line.programCost))
+    const paid = Math.min(remaining, cost)
+    remaining = round2(remaining - paid)
+    scholarship[line.key] = String(round2(cost - paid))
+  }
+  return { ...form, scholarshipMode: 'amount', scholarship }
+}
+
 export function applyScholarshipPercent(form, percent) {
   const pct = toNumber(percent) / 100
   if (!Number.isFinite(pct) || pct <= 0) return form
