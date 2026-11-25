@@ -2100,3 +2100,20 @@ textarea {
 .selfpay-compact .line-table input { padding-top:3px; padding-bottom:3px; }
 .selfpay-compact .form-grid > .banner { grid-column:1/-1; }
 @media(max-width:850px){ .selfpay-sheet-head { grid-template-columns:1fr; } .selfpay-sheet-fields .field-group { grid-template-columns:1fr; } }
+
+/* One common 50/50 division from summary headers through table totals. */
+.selfpay-sheet-head { gap:0; }
+.selfpay-sheet-head > div { border-radius:6px 0 0 6px; }
+.selfpay-sheet-head > div + div { border-radius:0 6px 6px 0; }
+.selfpay-sheet-head h2 { text-align:center; }
+.selfpay-compact .form-section:has(.selfpay-worksheet-table) { padding:0; overflow:hidden; }
+.selfpay-compact .form-section:has(.selfpay-worksheet-table) .section-head { padding:5px 10px; }
+.selfpay-compact .selfpay-worksheet-table { table-layout:fixed; width:100%; min-width:1000px; }
+.selfpay-compact .selfpay-worksheet-table .rate-cell { flex-wrap:wrap; justify-content:flex-end; gap:3px; }
+.selfpay-compact .selfpay-worksheet-table td, .selfpay-compact .selfpay-worksheet-table th { overflow-wrap:anywhere; }
+.selfpay-compact .selfpay-worksheet-table .currency-input-wrapper { max-width:100%; }
+.selfpay-compact .selfpay-worksheet-table .currency-input { min-width:0; width:100%; }
+.selfpay-compact .selfpay-worksheet-table tfoot td:nth-child(6) { border-left:0; }
+.selfpay-sheet-fields .field-group { min-height:30px; }
+.selfpay-sheet-total { min-height:30px; }
+@media(max-width:850px){ .selfpay-sheet-head { gap:6px; } .selfpay-sheet-head > div, .selfpay-sheet-head > div + div { border-radius:6px; } }
