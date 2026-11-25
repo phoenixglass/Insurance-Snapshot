@@ -154,7 +154,7 @@ export default function RateLookupTool() {
                     onClick={() => setExpanded(expanded === r.code ? null : r.code)}
                   >
                     <td className="mono">{r.code}</td>
-                    <td>{r.description}</td>
+                    <td>{r.code === 'H0015' ? 'IOP' : r.description}</td>
                     <td className="num strong">
                       {r.onFile ? (
                         <>
