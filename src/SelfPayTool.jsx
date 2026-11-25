@@ -8,7 +8,7 @@
 // covered at the same rate, and the dollars on each side.
 
 import { useMemo, useState } from 'react'
-import { formatMoney, formatPercent, sequenceLocs, unitNoun } from './estimate.js'
+import { formatMoney, formatPercent, unitNoun } from './estimate.js'
 import { TREATMENT_SEQUENCES } from './data/rates.js'
 import {
   INITIAL_SELF_PAY_STATE,
@@ -25,15 +25,11 @@ import {
   CopyButton,
   CurrencyInput,
   Field,
-  HeroFigure,
-  Meter,
   NumberInput,
   PercentInput,
   SegmentedControl,
   Section,
   Select,
-  StatRow,
-  StatTile,
 } from './ui.jsx'
 
 // A dollar scholarship that lands mid-night is shown as the fraction it is
@@ -120,7 +116,6 @@ export default function SelfPayTool() {
 
   const result = useMemo(() => computeSelfPay(form), [form])
   const blockers = selfPayBlockers(form)
-  const locs = sequenceLocs(form.treatmentSequence)
   const byUnits = form.scholarshipMode === 'units'
 
   const inpatient = result.lines.filter((l) => l.group === 'inpatient')
@@ -172,62 +167,31 @@ export default function SelfPayTool() {
 
   return (
     <div className="tool-stack selfpay-compact">
-      <div className="result-band">
-        <BlockerList blockers={blockers} />
-
-        <div className="result-card">
-          <HeroFigure
-            label="Final client responsibility"
-            value={formatMoney(result.finalClientResponsibility, { decimals: 0 })}
-            caption={form.treatmentSequence || 'Select a treatment sequence'}
-          />
-          <StatRow>
-            <StatTile label="Program cost" value={formatMoney(result.grossCost, { decimals: 0 })} />
-            <StatTile
-              label="Scholarship"
-              value={formatMoney(result.totalScholarship, { decimals: 0 })}
-              caption={formatPercent(result.scholarshipPercent, 1)}
-            />
-          </StatRow>
-          <div className="result-actions">
-            <CopyButton text={summaryText} label="Copy summary" />
+      <div className="selfpay-summary">
+        <div><span>Program cost</span><strong>{formatMoney(result.grossCost)}</strong></div>
+        <div><span>Scholarship · {formatPercent(result.scholarshipPercent, 1)}</span><strong>{formatMoney(result.totalScholarship)}</strong></div>
+        <div className="selfpay-total"><span>Final client responsibility</span><strong>{formatMoney(result.finalClientResponsibility)}</strong></div>
+        <CopyButton text={summaryText} label="Copy summary" />
+      </div>
+      <BlockerList blockers={blockers} />
+      <div className="tool-form">
+        <div className="form-grid">
+        <Section wide title="Treatment & Scholarship" description="Only selected levels of care are costed. Scholarships cover units at the full rate, or a dollar amount. Switching methods restates existing entries. Applying a percentage to covered units rounds each costed line to whole units; dollar mode applies the percentage to each line's program cost.">
+          <div className="selfpay-controls">
+            <Field label="Treatment sequence" htmlFor="selfPaySequence" required>
+              <Select id="selfPaySequence" value={form.treatmentSequence} onChange={setSequence} options={TREATMENT_SEQUENCES} placeholder="Select a sequence…" />
+            </Field>
+            <Field label="Scholarship method">
+              <SegmentedControl name="scholarshipMode" options={SCHOLARSHIP_MODES} value={form.scholarshipMode} onChange={setMode} />
+            </Field>
+            <Field label="Fill from a percentage" htmlFor="scholarshipPercent" optional>
+              <div className="percent-apply">
+                <PercentInput id="scholarshipPercent" value={percent} onChange={setPercent} />
+                <button type="button" className="btn-secondary" onClick={applyPercent}>Apply to costed lines</button>
+              </div>
+            </Field>
           </div>
-        </div>
-
-        <div className="result-card">
-          <h3 className="result-heading">How the program splits</h3>
-          <Meter
-            label="Units covered by scholarship"
-            value={result.scholarshipUnits}
-            total={result.costedUnits}
-            valueText={`${unitText(result.scholarshipUnits)} units`}
-            totalText={`${unitText(result.costedUnits)} units of care`}
-            tone="warn"
-          />
-          <Meter
-            label="Units the client pays for"
-            value={result.paidUnits}
-            total={result.costedUnits}
-            valueText={`${unitText(result.paidUnits)} units`}
-            totalText={`${unitText(result.costedUnits)} units of care`}
-            tone="accent"
-          />
-          <div className="result-detail">
-            <div className="result-detail-row">
-              <span>Scholarship in dollars</span>
-              <span className="strong">{formatMoney(result.totalScholarship)}</span>
-            </div>
-            <div className="result-detail-row">
-              <span>Client pays</span>
-              <span className="strong">{formatMoney(result.totalPayment)}</span>
-            </div>
-          </div>
-          <p className="result-note">
-            Rates do not change. The client is billed the full sheet rate for the units they
-            cover, and the scholarship pays for the rest at that same rate.
-          </p>
-        </div>
-
+        </Section>
         {result.overAllocatedLines.length > 0 && (
           <Banner tone="warn">
             The scholarship entered is larger than the program cost on{' '}
@@ -252,85 +216,6 @@ export default function SelfPayTool() {
           </Banner>
         )}
 
-        {!result.active && (
-          <Banner tone="info">
-            Select a treatment sequence to price an episode. Nothing is costed until a level of
-            care is in the pathway.
-          </Banner>
-        )}
-      </div>
-
-      <div className="tool-form">
-        <div className="form-grid">
-        <Section
-          title="Episode"
-          description="Only the levels of care named in the sequence are costed. Rates come from the self-pay column and remain at full price on both sides of the split."
-        >
-          <Field label="Treatment Sequence" htmlFor="selfPaySequence" required>
-            <Select
-              id="selfPaySequence"
-              value={form.treatmentSequence}
-              onChange={setSequence}
-              options={TREATMENT_SEQUENCES}
-              placeholder="Select a sequence…"
-            />
-          </Field>
-          {locs.length > 0 && (
-            <div className="pathway-chips">
-              {locs.map((loc, i) => (
-                <span key={`${loc}-${i}`} className="pathway-chip">
-                  {loc}
-                </span>
-              ))}
-            </div>
-          )}
-
-        </Section>
-
-        <Section
-          title="Scholarship"
-          description="Award the scholarship as covered units or dollars. For example, a 50% scholarship on 30 IOP sessions means 15 full-rate sessions paid and 15 covered, not 30 half-price sessions. Entries remain editable."
-        >
-          <Field
-            label="How the award is entered"
-            hint="Switching restates the entries already made in the other unit."
-          >
-            <SegmentedControl
-              name="scholarshipMode"
-              options={SCHOLARSHIP_MODES}
-              value={form.scholarshipMode}
-              onChange={setMode}
-            />
-          </Field>
-          <Field
-            label="Fill from a percentage"
-            htmlFor="scholarshipPercent"
-            hint={
-              byUnits
-                ? 'Splits every costed line at this percentage, rounded to whole units of care.'
-                : 'Splits every costed line at this percentage of its program cost.'
-            }
-            optional
-          >
-            <div className="percent-apply">
-              <PercentInput id="scholarshipPercent" value={percent} onChange={setPercent} />
-              <button type="button" className="btn-secondary" onClick={applyPercent}>
-                Apply to costed lines
-              </button>
-            </div>
-          </Field>
-          {result.grossCost > 0 && (
-            <div className="result-detail">
-              <div className="result-detail-row">
-                <span>Scholarship as entered</span>
-                <span className="strong">
-                  {formatPercent(result.scholarshipPercent, 1)} · {formatMoney(result.totalScholarship)}
-                </span>
-              </div>
-            </div>
-          )}
-
-        </Section>
 
         <Section
           wide
