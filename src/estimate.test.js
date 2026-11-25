@@ -704,3 +704,28 @@ describe('Anthem BCBS: in network at Canaan and Wilton only', () => {
     assert.equal(r.outpatient.bundled, true)
   })
 })
+
+test('INN copays are capped per service, while OON copays retain the entered amount', () => {
+  const form = {
+    ...INITIAL_ESTIMATE_STATE,
+    carrier: 'Other — not listed',
+    networkOverride: 'INN',
+    treatmentSequence: 'OP',
+    deductibleRemaining: '0',
+    oopmRemaining: '10000',
+    coinsurancePercent: '0',
+    copayAmount: '100',
+    copayBasis: COPAY_BASIS.PER_UNIT,
+    copayTreatment: 'Replace Coinsurance',
+    copayAppliesToDeductible: 'No',
+    copayAppliesToOop: 'Yes',
+    units: { ...Object.fromEntries(SERVICE_LINES.map(l => [l.key, '0'])), individual: '2' },
+    rateOverrides: { '90837': '95.90' },
+  }
+  const inn = computeEstimate(form)
+  assert.ok(near(inn.outpatient.copay, 191.80))
+  assert.ok(near(inn.outpatient.lines.find(l => l.key === 'individual').clientPerUnit, 95.90))
+  const oon = computeEstimate({ ...form, networkOverride: 'OON' })
+  assert.ok(near(oon.outpatient.copay, 200))
+  assert.ok(near(oon.outpatient.lines.find(l => l.key === 'individual').clientPerUnit, 100))
+})
