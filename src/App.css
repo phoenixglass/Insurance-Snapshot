@@ -2052,3 +2052,11 @@ textarea {
   .estimator-compact .estimator-worksheet .fee-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .estimator-compact .estimator-services .line-table td { padding: 3px 5px; }
 }
+
+/* Self-pay retains its unified allocation table and all editable counts. */
+.selfpay-compact .form-section { padding: 7px 10px; }
+.selfpay-compact .line-table td { padding: 3px 6px; }
+.selfpay-compact .line-table .row-inactive .row-off { display: none; }
+.selfpay-compact .result-band { gap: 8px; }
+.selfpay-compact .result-card { padding: 8px 10px; }
+.selfpay-compact .result-band .result-note { margin: 4px 0 0; }
