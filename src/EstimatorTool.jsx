@@ -582,6 +582,50 @@ export default function EstimatorTool() {
           </Section>
 
           <Section
+            title="Accumulators"
+           
+            description="What is left of the plan year, as of today. The inpatient stay consumes these first; the outpatient estimate works against what remains."
+          >
+            <div className="field-row">
+              <Field label="Deductible Remaining" htmlFor="deductibleRemaining" required>
+                <CurrencyInput
+                  id="deductibleRemaining"
+                  value={form.deductibleRemaining}
+                  onChange={set('deductibleRemaining')}
+                />
+              </Field>
+              <Field label="OOP Max Remaining" htmlFor="oopmRemaining" required>
+                <CurrencyInput id="oopmRemaining" value={form.oopmRemaining} onChange={set('oopmRemaining')} />
+              </Field>
+            </div>
+
+            <div className="field-row">
+              <Field label="Coinsurance" htmlFor="coinsurancePercent" required>
+                <PercentInput
+                  id="coinsurancePercent"
+                  value={form.coinsurancePercent}
+                  onChange={set('coinsurancePercent')}
+                />
+              </Field>
+              <Field
+                label="Deductible Counts Toward OOP Max?"
+                hint="No means the deductible is collected on top of the maximum, not inside it."
+              >
+                <SegmentedControl
+                  name="deductibleInOopm"
+                  options={['Yes', 'No']}
+                  value={form.deductibleInOopm}
+                  onChange={set('deductibleInOopm')}
+                />
+              </Field>
+            </div>
+
+            <Field label="Previous Outstanding Balance" htmlFor="previousBalance" optional>
+              <CurrencyInput id="previousBalance" value={form.previousBalance} onChange={set('previousBalance')} />
+            </Field>
+          </Section>
+
+          <Section
             title="Copay"
            
             description="Four separate questions, each of which moves money on its own: how the copay is counted, where it stops, whether it displaces coinsurance, and which accumulators it feeds. These are the plan's answers; a level of care can give its own in Step 7."
@@ -677,50 +721,6 @@ export default function EstimatorTool() {
               </>
             )}
           </Section>
-          <Section
-            title="Accumulators"
-           
-            description="What is left of the plan year, as of today. The inpatient stay consumes these first; the outpatient estimate works against what remains."
-          >
-            <div className="field-row">
-              <Field label="Deductible Remaining" htmlFor="deductibleRemaining" required>
-                <CurrencyInput
-                  id="deductibleRemaining"
-                  value={form.deductibleRemaining}
-                  onChange={set('deductibleRemaining')}
-                />
-              </Field>
-              <Field label="OOP Max Remaining" htmlFor="oopmRemaining" required>
-                <CurrencyInput id="oopmRemaining" value={form.oopmRemaining} onChange={set('oopmRemaining')} />
-              </Field>
-            </div>
-
-            <div className="field-row">
-              <Field label="Coinsurance" htmlFor="coinsurancePercent" required>
-                <PercentInput
-                  id="coinsurancePercent"
-                  value={form.coinsurancePercent}
-                  onChange={set('coinsurancePercent')}
-                />
-              </Field>
-              <Field
-                label="Deductible Counts Toward OOP Max?"
-                hint="No means the deductible is collected on top of the maximum, not inside it."
-              >
-                <SegmentedControl
-                  name="deductibleInOopm"
-                  options={['Yes', 'No']}
-                  value={form.deductibleInOopm}
-                  onChange={set('deductibleInOopm')}
-                />
-              </Field>
-            </div>
-
-            <Field label="Previous Outstanding Balance" htmlFor="previousBalance" optional>
-              <CurrencyInput id="previousBalance" value={form.previousBalance} onChange={set('previousBalance')} />
-            </Field>
-          </Section>
-
           <Section
             title="Admission Fees"
            
