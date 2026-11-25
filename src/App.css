@@ -2162,3 +2162,11 @@ textarea {
  .estimator-financial .estimator-benefits .field-hint { grid-column:1/-1; }
 }
 @media(max-width:700px){ .estimator-financial .estimator-details { grid-template-columns:1fr; } }
+
+/* Make the headline deposit unmistakable, like the workbook's green total. */
+.estimator-financial .estimator-summary { background:#c6e0b4; color:#142b12; gap:10px 24px; padding:10px 14px; }
+.estimator-financial .estimator-summary > div:first-child { flex:1 1 100%; display:flex; flex-direction:row; justify-content:space-between; align-items:center; gap:12px; padding-bottom:6px; border-bottom:1px solid #a8c69a; }
+.estimator-financial .estimator-summary > div:first-child span { font-size:clamp(1.05rem,1.7vw,1.65rem); font-weight:800; text-transform:uppercase; }
+.estimator-financial .estimator-summary > div:first-child strong { font-size:clamp(1.7rem,2.5vw,2.4rem); font-weight:800; line-height:1.1; white-space:nowrap; }
+.estimator-financial .estimator-summary > button { margin-left:auto; }
+@media(max-width:600px){ .estimator-financial .estimator-summary > div:first-child { flex-wrap:wrap; } }
