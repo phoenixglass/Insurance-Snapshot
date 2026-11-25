@@ -44,7 +44,6 @@ import {
   BlockerList,
   CurrencyInput,
   Field,
-  HeroFigure,
   Meter,
   NumberInput,
   PercentInput,
@@ -52,8 +51,6 @@ import {
   SegmentedControl,
   Section,
   Select,
-  StatRow,
-  StatTile,
   Waterfall,
 } from './ui.jsx'
 
@@ -132,7 +129,7 @@ function LineTable({ columns, children }) {
         <thead>
           <tr>
             {columns.map((c) => (
-              <th key={c.key} className={c.align === 'right' ? 'num' : ''} style={c.width ? { width: c.width } : undefined}>
+              <th key={c.key} className={`${c.align === 'right' ? 'num' : ''}${c.key === 'after' ? ' sf-client-unit' : ''}`} style={c.width ? { width: c.width } : undefined}>
                 {c.label}
               </th>
             ))}
@@ -394,14 +391,25 @@ export default function EstimatorTool() {
   )
 
   return (
-    <div className="tool-layout estimator-compact">
-      {/* Steps 1–4 are short answer sets and pair two to a row — one column each,
-          so a step sits under the step above it rather than under the taller of
-          the pair beside it. The line tables and the per-level rules take the
-          full width of the form column. */}
+    <div className="estimator-compact estimator-financial">
+      <header className="estimator-summary">
+        <div><span>Estimated total deposit</span><strong>{formatMoney(result.grandTotal)}</strong></div>
+        {hardship.active ? <>
+          <div><span>Client pays</span><strong>{formatMoney(hardship.clientPays)}</strong></div>
+          <div><span>Hardship covers</span><strong>{formatMoney(hardship.scholarship)}</strong></div>
+        </> : <>
+          <div><span>Inpatient deposit</span><strong>{formatMoney(inpatient.deposit)}</strong></div>
+          <div><span>Outpatient deposit</span><strong>{formatMoney(outpatient.deposit)}</strong></div>
+        </>}
+        {result.previousBalance > 0 && <div><span>Prior balance</span><strong>{formatMoney(result.previousBalance)}</strong></div>}
+        <button type="button" className="btn-secondary" onClick={() => setShowOutput(v => !v)} aria-expanded={showOutput}>{showOutput ? '× Hide output' : '⧉ Generate output'}</button>
+      </header>
+      {blockers.length > 0 && <details className="estimator-validation"><summary>Resolve before quoting — {blockers.length} outstanding {blockers.length === 1 ? 'item' : 'items'}</summary><BlockerList blockers={blockers} /></details>}
+      {output && <OutputPanel output={output} />}
       <div className="tool-form">
         <div className="form-grid estimator-worksheet">
-        <div className="form-col">
+        <div className="form-col estimator-benefits">
+          <h2 className="estimator-sheet-heading">Insurance &amp; benefits</h2>
           <Section
             title="Plan & Pathway"
            
@@ -723,6 +731,8 @@ export default function EstimatorTool() {
           </Section>
           <Section
             title="Admission Fees"
+            defaultOpen={false}
+            badge={Object.values(form.admissionFees).some(v => toNumber(v) > 0) ? { label: "fees entered", tone: "warn" } : undefined}
            
             description="Charged once on entry to a level of care, and only for the levels the sequence names."
           >
@@ -756,6 +766,7 @@ export default function EstimatorTool() {
           </Section>
         </div>
         <div className="form-col estimator-services">
+        <h2 className="estimator-sheet-heading">Treatment estimate</h2>
         <Section
           wide
           title="Inpatient Nights"
@@ -863,7 +874,7 @@ export default function EstimatorTool() {
                     <RateCell form={form} code={line.code} onOverride={setOverride} />
                   )}
                 </td>
-                <td className="num muted">
+                <td className="num sf-client-unit">
                   {line.clientPerUnit === null ? '—' : formatMoney(line.clientPerUnit)}
                 </td>
                 <td className="num strong">{line.selfPay ? '—' : formatMoney(line.allowed)}</td>
@@ -1096,59 +1107,7 @@ export default function EstimatorTool() {
         </div>
       </div>
 
-      {/* ── The estimate ─────────────────────────────────────────────── */}
-      <aside className="tool-result">
-        <div className="result-sticky">
-          <BlockerList blockers={blockers} />
-
-          <div className="result-card">
-            <HeroFigure
-              label="Estimated total deposit"
-              value={formatMoney(result.grandTotal, { decimals: 0 })}
-              caption={
-                form.treatmentSequence
-                  ? `${form.treatmentSequence}${form.carrier ? ` · ${form.carrier}` : ''}`
-                  : 'Select a carrier and treatment sequence'
-              }
-            />
-
-            <StatRow>
-              {hardship.active ? (
-                <>
-                  <StatTile
-                    label="Client pays"
-                    value={formatMoney(hardship.clientPays, { decimals: 0 })}
-                    tone="accent"
-                  />
-                  <StatTile
-                    label="Hardship covers"
-                    value={formatMoney(hardship.scholarship, { decimals: 0 })}
-                    caption={formatPercent(hardship.scholarshipPercent, 1)}
-                  />
-                </>
-              ) : (
-                <>
-                  <StatTile label="Inpatient deposit" value={formatMoney(inpatient.deposit, { decimals: 0 })} />
-                  <StatTile label="Outpatient deposit" value={formatMoney(outpatient.deposit, { decimals: 0 })} />
-                  {result.previousBalance > 0 && (
-                    <StatTile label="Prior balance" value={formatMoney(result.previousBalance, { decimals: 0 })} />
-                  )}
-                </>
-              )}
-            </StatRow>
-
-            <div className="result-actions">
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => setShowOutput((v) => !v)}
-                aria-expanded={showOutput}
-              >
-                {showOutput ? '× Hide output' : '⧉ Generate output'}
-              </button>
-            </div>
-          </div>
-
+      <div className="estimator-details">
           {hardship.active && (
             <div className="result-card">
               <h3 className="result-heading">Hardship allocation</h3>
@@ -1228,7 +1187,7 @@ export default function EstimatorTool() {
             </Banner>
           )}
 
-          {output && <OutputPanel output={output} />}
+
 
           {result.estimatedRates.length > 0 && (
             <Banner tone="info">
@@ -1398,8 +1357,7 @@ export default function EstimatorTool() {
               care is in the pathway.
             </Banner>
           )}
-        </div>
-      </aside>
+      </div>
     </div>
   )
 }
