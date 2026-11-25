@@ -720,17 +720,25 @@ export function admissionFeeFor(form, loc) {
 // The copay a level collects, given the units inside it. The basis decides what
 // it is charged against; a manual total is not charged here because it is one
 // charge for a block rather than a per-unit one, and blockCopay settles it.
-function levelUnitCopay(rule, locLines) {
+// For INN services the copay cannot exceed the resolved allowed rate per unit.
+// Manual episode totals are not per-unit copays and are handled separately.
+function effectiveUnitCopay(rule, rate, network) {
+  return network === 'INN' && rate !== null && Number.isFinite(rate)
+    ? Math.min(rule.copayAmount, Math.max(0, rate))
+    : rule.copayAmount
+}
+
+function levelUnitCopay(rule, locLines, network) {
   if (rule.copayAmount <= 0 || rule.copayBasis === COPAY_BASIS.NA) return { copay: 0, units: 0 }
-  if (rule.copayBasis === COPAY_BASIS.PER_UNIT) {
-    const units = locLines.reduce((sum, l) => sum + (l.copayEligibleUnits ?? l.units ?? l.nights ?? 0), 0)
-    return { copay: units * rule.copayAmount, units }
-  }
-  if (rule.copayBasis === COPAY_BASIS.PROFESSIONAL_ONLY) {
-    const units = locLines.reduce((sum, l) => sum + (l.professional ? (l.copayEligibleUnits ?? l.units ?? 0) : 0), 0)
-    return { copay: units * rule.copayAmount, units }
-  }
-  return { copay: 0, units: 0 }
+  if (rule.copayBasis !== COPAY_BASIS.PER_UNIT && rule.copayBasis !== COPAY_BASIS.PROFESSIONAL_ONLY) return { copay: 0, units: 0 }
+  return locLines.reduce((total, line) => {
+    if (rule.copayBasis === COPAY_BASIS.PROFESSIONAL_ONLY && !line.professional) return total
+    const units = line.copayEligibleUnits ?? line.units ?? line.nights ?? 0
+    return {
+      copay: total.copay + units * effectiveUnitCopay(rule, line.rate, network),
+      units: total.units + units,
+    }
+  }, { copay: 0, units: 0 })
 }
 
 // How many service units are eligible for a copay when the deductible comes
@@ -882,7 +890,7 @@ function computeInpatient(form, ctx) {
       return
     }
     const rule = levelRule(form, line.loc)
-    const { copay: lineCopay, units } = levelUnitCopay(rule, [line])
+    const { copay: lineCopay, units } = levelUnitCopay(rule, [line], ctx.network)
     const uncapped = lineCopay + levelManualCopay(rule)
     // The nights are charged in the order they are stayed, so a ceiling the
     // detox stay fills leaves nothing for the residential days after it.
@@ -957,12 +965,12 @@ function computeInpatient(form, ctx) {
 // plan's allowed amount — what the plan is billed, not what the client hands
 // over — and the two part company wherever a copay replaces coinsurance: there
 // the client pays the copay and the allowed amount is between us and the payer.
-function clientUnitCost(line, rule, rate, coins) {
+function clientUnitCost(line, rule, rate, coins, network) {
   if (rate === null) return null
   const perUnit =
     rule.copayBasis === COPAY_BASIS.PER_UNIT ||
     (rule.copayBasis === COPAY_BASIS.PROFESSIONAL_ONLY && line.professional)
-      ? rule.copayAmount
+      ? effectiveUnitCopay(rule, rate, network)
       : 0
   return rule.copayReplacesCoinsurance ? perUnit : rate * coins + perUnit
 }
@@ -1092,7 +1100,7 @@ function outpatientLines(form, ctx) {
       units,
       rate,
       // Nothing more is charged for one more unit of care the fee already covers.
-      clientPerUnit: coveredByFee ? 0 : clientUnitCost(line, rule, rate, ctx.coins),
+      clientPerUnit: coveredByFee ? 0 : clientUnitCost(line, rule, rate, ctx.coins, ctx.network),
       selfPay: false,
       selfPayCharge: 0,
       allowed: active && rate !== null ? units * rate : 0,
@@ -1196,7 +1204,7 @@ function computeOutpatient(form, ctx, inpatient) {
       l.deductibleWaived = !rule.deductibleApplies
     })
 
-    const { copay: unitCopay, units } = levelUnitCopay(rule, locLines)
+    const { copay: unitCopay, units } = levelUnitCopay(rule, locLines, ctx.network)
     const uncapped = selfPay ? 0 : unitCopay + levelManualCopay(rule)
     const copay = ctx.copayCap.charge(rule, uncapped)
     const maxReached = copay < uncapped - 0.005
@@ -1206,7 +1214,7 @@ function computeOutpatient(form, ctx, inpatient) {
     if (maxReached) {
       locLines.forEach((l) => {
         l.copayMaxReached = true
-        l.clientPerUnit = clientUnitCost(l, { ...rule, copayAmount: 0 }, l.rate, coins)
+        l.clientPerUnit = clientUnitCost(l, { ...rule, copayAmount: 0 }, l.rate, coins, ctx.network)
       })
     }
     levelCopay += copay
